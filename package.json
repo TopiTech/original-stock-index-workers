@@ -7,8 +7,10 @@
     "dev": "vite",
     "build": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.worker.json --noEmit && vite build",
     "preview": "vite preview",
-    "dev:worker": "wrangler dev --local",
+    "dev:worker": "wrangler dev --config wrangler.local.jsonc",
     "deploy": "npm run build && wrangler deploy",
+    "db:migrate": "wrangler d1 execute original-stock-index-db --remote --config wrangler.local.jsonc --file=schema.sql",
+    "db:seed": "wrangler d1 execute original-stock-index-db --remote --config wrangler.local.jsonc --file=seed.sql",
     "typegen": "wrangler types"
   },
   "dependencies": {

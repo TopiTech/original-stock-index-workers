@@ -25,3 +25,6 @@ Thumbs.db
 # IDEs
 .vscode/
 .idea/
+
+# Local Wrangler Config
+wrangler.local.jsonc
