@@ -1,30 +1,31 @@
--- Seeding Indices
-INSERT INTO indices (id, name, description, base_value) VALUES 
+-- Seeding Indices (冪等: 既存レコードを上書き)
+INSERT OR REPLACE INTO indices (id, name, description, base_value) VALUES
 ('ai-semi', 'AI・半導体強化指数', '最先端のAI技術と半導体製造装置メーカーを中心に構成された指数です。', 1000.0),
 ('infra-tech', '次世代インフラ・通信指数', '日本の通信インフラとDXを支える大手企業で構成される安定成長指数です。', 1000.0),
-('jp-core', '日本コア・企業指数', '日本を代表する時価総額上位の優良株をバランスよく配置した指数です。', 1000.0);
+('jp-core', '日本コア・企業指数', '日本を代表する時価総額上位の優良株をバランスよく配置した指数です。', 1000.0),
+('nikkei-175', '日経175指数', '掲示板センチメント、モメンタム、国策テーマ、技術投機など175銘柄で構成される独自指数です。', 1000.0);
 
--- Seeding Basket Items
+-- Seeding Basket Items (冪等)
 -- AI・半導体強化指数 (ai-semi)
-INSERT INTO basket_items (index_id, ticker, name, weight, theme) VALUES 
+INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES
 ('ai-semi', '9984', 'ソフトバンクグループ', 35, 'AI'),
 ('ai-semi', '8035', '東京エレクトロン', 35, '半導体'),
 ('ai-semi', '6857', 'アドバンテスト', 30, '半導体');
 
 -- 次世代インフラ・通信指数 (infra-tech)
-INSERT INTO basket_items (index_id, ticker, name, weight, theme) VALUES 
+INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES
 ('infra-tech', '9432', 'NTT', 30, '通信'),
 ('infra-tech', '9433', 'KDDI', 30, '通信'),
 ('infra-tech', '6501', '日立製作所', 40, 'インフラ');
 
 -- 日本コア・企業指数 (jp-core)
-INSERT INTO basket_items (index_id, ticker, name, weight, theme) VALUES 
+INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES
 ('jp-core', '7203', 'トヨタ自動車', 40, '自動車'),
 ('jp-core', '4063', '信越化学工業', 30, '素材'),
 ('jp-core', '9983', 'ファーストリテイリング', 30, '消費');
 
-INSERT INTO indices (id, name, description, base_value) VALUES ('nikkei-175', '日経175指数', '掲示板センチメント、モメンタム、国策テーマ、技術投機など175銘柄で構成される独自指数です。', 1000.0);
-INSERT INTO basket_items (index_id, ticker, name, weight, theme) VALUES 
+-- 日経175指数 (nikkei-175)
+INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES 
 ('nikkei-175', '3103', 'ユニチカ', 4.0, 'A:掲示板・SNSセンチメント'),
 ('nikkei-175', '3350', 'メタプラネット', 3.5, 'A:掲示板・SNSセンチメント'),
 ('nikkei-175', '6740', 'ジャパンディスプレイ', 3.2, 'A:掲示板・SNSセンチメント'),
