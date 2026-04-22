@@ -1,24 +1,41 @@
 import { calculateCustomIndex } from "../src/lib/indexEngine";
-
-type BasketItem = {
-  ticker: string;
-  name: string;
-  theme: string;
-  weight: number;
-};
-
-type PricePoint = {
-  date: string;
-  close: number;
-};
+import type { BasketItem, PricePoint, StockSeries } from "../src/types";
 
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
 }
 
+interface YahooChartResponse {
+  chart?: {
+    result?: {
+      timestamp: number[];
+      indicators: {
+        quote: { close: (number | null)[] }[];
+      };
+    }[];
+  };
+}
+
+interface YahooQuoteResponse {
+  quoteResponse?: {
+    result?: { symbol: string; regularMarketPrice: number }[];
+  };
+}
+
+interface D1Row {
+  [key: string]: unknown;
+}
+
+interface BasketItemInput {
+  ticker: string;
+  name: string;
+  theme: string;
+  weight: number;
+}
+
 // Yahoo Finance API fetcher
-async function fetchYahooFinance(symbol: string): Promise<PricePoint[]> {
+async function fetchYahooFinance(symbol: string) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1mo`;
   try {
     const res = await fetch(url, {
@@ -29,7 +46,7 @@ async function fetchYahooFinance(symbol: string): Promise<PricePoint[]> {
 
     if (!res.ok) throw new Error(`Yahoo Finance error: ${res.status}`);
 
-    const data = (await res.json()) as any;
+    const data: YahooChartResponse = await res.json();
     const result = data.chart?.result?.[0];
     if (!result) return [];
 
@@ -44,7 +61,7 @@ async function fetchYahooFinance(symbol: string): Promise<PricePoint[]> {
         date: `${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")}`,
         close: typeof closes[i] === "number" ? Number(closes[i].toFixed(2)) : 0
       };
-    }).filter((p: any) => p.close > 0);
+    }).filter((p: PricePoint) => p.close > 0);
   } catch (err) {
     console.error(`Error fetching ${symbol}:`, err);
     return [];
@@ -73,7 +90,7 @@ export default {
       return json({ ok: true, service: "original-stock-index-worker" });
     }
 
-    //日経225スナップショットの取得
+    // 日経225スナップショットの取得
     if (url.pathname === "/api/snapshot" && request.method === "GET") {
       const series = await fetchYahooFinance("^N225");
       const latest = series[series.length - 1];
@@ -104,41 +121,46 @@ export default {
         `).all();
 
         // データをネストされた構造に変換
-        const indicesMap = new Map();
-        for (const row of results as any[]) {
-          if (!indicesMap.has(row.id)) {
-            indicesMap.set(row.id, {
-              id: row.id,
-              name: row.name,
-              description: row.description,
-              baseValue: row.base_value,
+        const indicesMap = new Map<string, { id: string; name: string; description: string; baseValue: number; basket: BasketItem[] }>();
+        for (const row of results as D1Row[]) {
+          if (!indicesMap.has(row.id as string)) {
+            indicesMap.set(row.id as string, {
+              id: row.id as string,
+              name: row.name as string,
+              description: row.description as string,
+              baseValue: row.base_value as number,
               basket: []
             });
           }
           if (row.ticker) {
-            indicesMap.get(row.id).basket.push({
-              ticker: row.ticker,
-              name: row.stock_name,
-              weight: row.weight,
-              theme: row.theme
+            indicesMap.get(row.id as string)!.basket.push({
+              ticker: row.ticker as string,
+              name: row.stock_name as string,
+              weight: row.weight as number,
+              theme: row.theme as string
             });
           }
         }
 
         return json(Array.from(indicesMap.values()));
-      } catch (err: any) {
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to fetch indices";
         console.error("API Error [indices]:", err);
-        return json({ error: "Failed to fetch indices" }, 500);
+        return json({ error: message }, 500);
       }
     }
 
     // 銘柄データの同期 (履歴をD1に保存)
     if (url.pathname === "/api/sync-prices" && request.method === "POST") {
       try {
-        const body = (await request.json()) as { tickers: string[] };
+        const body: Record<string, unknown> = await request.json();
+        if (!body || typeof body !== "object" || !Array.isArray(body.tickers)) {
+          return json({ error: "Invalid request body: tickers array required" }, 400);
+        }
+        const tickers = body.tickers as string[];
         const results = [];
 
-        for (const ticker of body.tickers) {
+        for (const ticker of tickers) {
           const symbol = ticker.includes(".") ? ticker : `${ticker}.T`;
           const series = await fetchYahooFinance(symbol);
           
@@ -156,20 +178,34 @@ export default {
         }
 
         return json({ ok: true, results });
-      } catch (err: any) {
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Sync failed";
         console.error("API Error [sync-prices]:", err);
-        return json({ error: "Sync failed" }, 500);
+        return json({ error: message }, 500);
       }
     }
 
     // 独自指数の計算（D1キャッシュ優先）
     if (url.pathname === "/api/calculate" && request.method === "POST") {
       try {
-        const body = (await request.json()) as { basket: BasketItem[]; baseValue?: number };
-        const baseValue = body.baseValue || 1000;
+        const body: Record<string, unknown> = await request.json();
+        const basket = Array.isArray(body.basket) ? body.basket : [];
+        const baseValue = typeof body.baseValue === "number" ? body.baseValue : 1000;
+        if (!Array.isArray(basket) || basket.length === 0) {
+          return json({ error: "Invalid basket" }, 400);
+        }
         
+        // Validate basket items
+        const validatedBasket: BasketItemInput[] = basket.filter((item): item is BasketItemInput =>
+          item && typeof item === "object" &&
+          typeof (item as Record<string, unknown>).ticker === "string" &&
+          typeof (item as Record<string, unknown>).name === "string" &&
+          typeof (item as Record<string, unknown>).theme === "string" &&
+          typeof (item as Record<string, unknown>).weight === "number"
+        );
+
         // 1. 最新価格を一括取得 (Subrequest 1回で済ませる)
-        const allTickers = body.basket.map(item => item.ticker.includes(".") ? item.ticker : `${item.ticker}.T`);
+        const allTickers = validatedBasket.map(item => item.ticker.includes(".") ? item.ticker : `${item.ticker}.T`);
         const latestPricesMap = new Map<string, number>();
         
         try {
@@ -178,8 +214,8 @@ export default {
             headers: { "User-Agent": "Mozilla/5.0" }
           });
           if (qRes.ok) {
-            const qData = await qRes.json() as any;
-            qData.quoteResponse?.result?.forEach((q: any) => {
+            const qData: YahooQuoteResponse = await qRes.json();
+            qData.quoteResponse?.result?.forEach((q) => {
               const ticker = q.symbol.split(".")[0];
               latestPricesMap.set(ticker, q.regularMarketPrice);
             });
@@ -189,8 +225,8 @@ export default {
         }
 
         // 2. D1から全銘柄の履歴をチャンクに分けて取得 (SQL変数制限回避)
-        const fullStockUniverse: any[] = [];
-        const tickers = body.basket.map(b => b.ticker);
+        const fullStockUniverse: StockSeries[] = [];
+        const tickers = validatedBasket.map(b => b.ticker);
         const pricesByTicker = new Map<string, PricePoint[]>();
         
         const SQL_CHUNK_SIZE = 50;
@@ -202,14 +238,14 @@ export default {
             ORDER BY date ASC
           `).bind(...chunk).all();
 
-          (dbPrices as any[]).forEach(row => {
+          (dbPrices as { ticker: string; date: string; price: number }[]).forEach(row => {
             if (!pricesByTicker.has(row.ticker)) pricesByTicker.set(row.ticker, []);
             pricesByTicker.get(row.ticker)!.push({ date: row.date, close: row.price });
           });
         }
 
         // 3. データを整形
-        for (const item of body.basket) {
+        for (const item of validatedBasket) {
           const series = pricesByTicker.get(item.ticker) || [];
           fullStockUniverse.push({
             ticker: item.ticker,
@@ -221,26 +257,26 @@ export default {
           });
         }
 
-        const series = calculateCustomIndex(body.basket, fullStockUniverse, baseValue);
+        const series = calculateCustomIndex(validatedBasket, fullStockUniverse, baseValue);
 
         return json({
           ok: true,
           baseValue,
-          basket: body.basket,
+          basket: validatedBasket,
           series,
           latest: series[series.length - 1] ?? null,
           syncStatus: {
-            total: body.basket.length,
+            total: validatedBasket.length,
             found: Array.from(pricesByTicker.keys()).length
           }
         });
-      } catch (err: any) {
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Calculation failed";
         console.error("API Error [calculate]:", err);
-        return json({ error: "Calculation failed" }, 500);
+        return json({ error: message }, 500);
       }
     }
 
     return env.ASSETS.fetch(request);
   }
 };
-
