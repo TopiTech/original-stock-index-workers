@@ -1,0 +1,46 @@
+name: Deploy to Cloudflare Workers
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Build & Deploy
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build Application
+        run: npm run build
+
+      - name: Inject D1 Database ID
+        env:
+          D1_ID: ${{ secrets.D1_DATABASE_ID }}
+        run: |
+          sed -i "s/__D1_DATABASE_ID__/$D1_ID/g" wrangler.jsonc
+          # 置換が成功したか（プレースホルダーが消えたか）確認
+          if grep -q "__D1_DATABASE_ID__" wrangler.jsonc; then
+            echo "Error: Database ID replacement failed!"
+            exit 1
+          fi
+        shell: bash
+
+      - name: Deploy to Cloudflare
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          command: deploy
