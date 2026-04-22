@@ -35,18 +35,30 @@ npm run dev:worker
 
 ## 本番デプロイ
 
-```bash
-npm install
-npm run deploy
-```
+### 1. Cloudflare での準備
+1.  Cloudflare Dashboard で D1 データベースを作成します。
+2.  `schema.sql` を実行してテーブルを作成します。
+    ```bash
+    npx wrangler d1 execute original-stock-index-db --remote --file=schema.sql
+    ```
+
+### 2. GitHub Secrets の設定
+GitHub Actions で自動デプロイを行うため、以下の Secret を設定してください。
+
+- `CLOUDFLARE_API_TOKEN`: Cloudflare の API トークン（Edit Cloudflare Workers 権限）
+- `D1_DATABASE_ID`: 作成した D1 データベースの ID (UUID)
 
 ## 主要ファイル
 
-- `wrangler.jsonc`: Workers 設定
-- `worker/index.ts`: `/api/*` と静的配信のエントリ
-- `src/`: Vite フロント
+- `wrangler.jsonc`: Workers 設定（データベース ID は CI/CD で自動注入されます）
+- `worker/index.ts`: API および静的配信のエントリポイント
+- `src/lib/indexEngine.ts`: 指数計算ロジック（欠落データ対応済み）
 
-## 補足
+## 開発上の注意
 
-- SPA ルーティングのため `wrangler.jsonc` の `assets.not_found_handling` は `single-page-application` にしています。
-- `/api/*` は Worker が処理し、それ以外は `ASSETS` 経由で `dist` のファイルを返します。
+- **データ同期**: Yahoo Finance からの取得は 4 時間のキャッシュが効くように実装されています。強制的に更新したい場合は `/api/sync-prices` に `{ "force": true }` を送ってください。
+- **セキュリティ**: `wrangler.local.jsonc` には実際のデータベース ID を記述しますが、これは git 管理外（`.gitignore`）に設定されています。
+
+## ライセンス
+
+MIT License

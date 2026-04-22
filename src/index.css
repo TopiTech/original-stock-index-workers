@@ -439,7 +439,7 @@ h3 {
 
 /* Text utilities */
 .muted { color: #8b95a8; font-family: var(--primary-font); }
-.tiny { font-size: 11px; }
+.tiny { font-size: 12px; }
 .uppercase { text-transform: uppercase; letter-spacing: .15em; }
 .row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
 .space-between { justify-content: space-between; }

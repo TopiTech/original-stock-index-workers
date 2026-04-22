@@ -51,10 +51,28 @@ export function calculateCustomIndex(basket: BasketItem[], stockUniverse: StockS
   if (basePrices.some(bp => bp === 0)) return [];
 
   return allDates.map((date, dateIndex) => {
-    const weightedRelative = selected.reduce((sum, stock, stockIndex) => {
+    // この日付で有効なデータ（価格 > 0 かつ 基準価格が存在する）を持つ銘柄を抽出
+    const availableStocks = selected.filter((_, stockIndex) => {
+      const price = stockPriceMatrix[stockIndex][dateIndex];
+      const start = basePrices[stockIndex];
+      return price > 0 && start > 0;
+    });
+
+    if (availableStocks.length === 0) {
+      return { date, value: baseValue };
+    }
+
+    // 利用可能な銘柄の合計ウェイトを計算して再正規化
+    const totalWeightOfAvailable = availableStocks.reduce((sum, s) => sum + s.weight, 0);
+
+    const weightedRelative = availableStocks.reduce((sum, stock) => {
+      const stockIndex = selected.findIndex(s => s.ticker === stock.ticker);
       const start = basePrices[stockIndex];
       const current = stockPriceMatrix[stockIndex][dateIndex];
-      return sum + (current / start) * (stock.weight / 100);
+      
+      // ウェイトを再正規化して適用
+      const normalizedWeight = stock.weight / totalWeightOfAvailable;
+      return sum + (current / start) * normalizedWeight;
     }, 0);
 
     return { date, value: Number((baseValue * weightedRelative).toFixed(2)) };

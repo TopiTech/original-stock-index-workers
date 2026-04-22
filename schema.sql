@@ -25,5 +25,11 @@ CREATE TABLE IF NOT EXISTS stock_prices (
     PRIMARY KEY (ticker, date)
 );
 
+-- Sync Logs Table
+CREATE TABLE IF NOT EXISTS sync_logs (
+    ticker TEXT PRIMARY KEY,
+    last_synced_at INTEGER NOT NULL -- Unix timestamp
+);
+
 CREATE INDEX IF NOT EXISTS idx_stock_prices_ticker ON stock_prices(ticker);
 CREATE INDEX IF NOT EXISTS idx_basket_items_index_id ON basket_items(index_id);

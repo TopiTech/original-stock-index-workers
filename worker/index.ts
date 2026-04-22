@@ -158,18 +158,38 @@ export default {
           return json({ error: "Invalid request body: tickers array required" }, 400);
         }
         const tickers = body.tickers as string[];
+        const force = body.force === true;
         const results = [];
+        const now = Math.floor(Date.now() / 1000);
+        const CACHE_DURATION = 4 * 60 * 60; // 4 hours
+
+        // すでに同期済みの銘柄を確認
+        const { results: syncLogs } = await env.DB.prepare(
+          `SELECT ticker, last_synced_at FROM sync_logs WHERE ticker IN (${tickers.map(() => "?").join(",")})`
+        ).bind(...tickers).all();
+
+        const lastSyncedMap = new Map((syncLogs as { ticker: string; last_synced_at: number }[]).map(l => [l.ticker, l.last_synced_at]));
 
         for (const ticker of tickers) {
+          const lastSynced = lastSyncedMap.get(ticker);
+          if (!force && lastSynced && (now - lastSynced < CACHE_DURATION)) {
+            results.push({ ticker, status: "cached", lastSynced });
+            continue;
+          }
+
           const symbol = ticker.includes(".") ? ticker : `${ticker}.T`;
           const series = await fetchYahooFinance(symbol);
           
           if (series.length > 0) {
-            // D1に保存
-            const statements = series.map(p => 
-              env.DB.prepare("INSERT OR REPLACE INTO stock_prices (ticker, date, price) VALUES (?, ?, ?)")
-                .bind(ticker, p.date, p.close)
-            );
+            // 価格データと同期ログをバッチ保存
+            const statements = [
+              ...series.map(p => 
+                env.DB.prepare("INSERT OR REPLACE INTO stock_prices (ticker, date, price) VALUES (?, ?, ?)")
+                  .bind(ticker, p.date, p.close)
+              ),
+              env.DB.prepare("INSERT OR REPLACE INTO sync_logs (ticker, last_synced_at) VALUES (?, ?)")
+                .bind(ticker, now)
+            ];
             await env.DB.batch(statements);
             results.push({ ticker, status: "synced", count: series.length });
           } else {

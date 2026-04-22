@@ -20,7 +20,8 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
     setSyncProgress(0);
 
     try {
-      if (selectedIndex.basket.length > 40) {
+      // 全銘柄の同期を走らせる（初回や構成変更時への対応）
+      if (selectedIndex.basket.length > 0) {
         setSyncing(true);
         const BATCH_SIZE = 40;
         const tickers = selectedIndex.basket.map((b) => b.ticker);

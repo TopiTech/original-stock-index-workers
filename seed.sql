@@ -8,21 +8,40 @@ INSERT OR REPLACE INTO indices (id, name, description, base_value) VALUES
 -- Seeding Basket Items (冪等)
 -- AI・半導体強化指数 (ai-semi)
 INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES
-('ai-semi', '9984', 'ソフトバンクグループ', 35, 'AI'),
-('ai-semi', '8035', '東京エレクトロン', 35, '半導体'),
-('ai-semi', '6857', 'アドバンテスト', 30, '半導体');
+('ai-semi', '9984', 'ソフトバンクグループ', 15, 'AI投資'),
+('ai-semi', '8035', '東京エレクトロン', 15, '製造装置'),
+('ai-semi', '6857', 'アドバンテスト', 10, '検査装置'),
+('ai-semi', '6920', 'レーザーテック', 10, '検査装置'),
+('ai-semi', '6146', 'ディスコ', 10, '加工装置'),
+('ai-semi', '7735', 'SCREEN', 10, '洗浄装置'),
+('ai-semi', '6723', 'ルネサス', 10, '車載半導体'),
+('ai-semi', '3778', 'さくらインターネット', 10, 'AIクラウド'),
+('ai-semi', '3993', 'PKSHA', 5, 'AIソフト'),
+('ai-semi', '4180', 'Appier', 5, 'AIソフト');
 
 -- 次世代インフラ・通信指数 (infra-tech)
 INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES
-('infra-tech', '9432', 'NTT', 30, '通信'),
-('infra-tech', '9433', 'KDDI', 30, '通信'),
-('infra-tech', '6501', '日立製作所', 40, 'インフラ');
+('infra-tech', '9432', 'NTT', 15, '通信・IOWN'),
+('infra-tech', '9433', 'KDDI', 15, '通信'),
+('infra-tech', '9434', 'ソフトバンク', 15, '通信'),
+('infra-tech', '6501', '日立製作所', 15, 'DXインフラ'),
+('infra-tech', '6702', '富士通', 10, 'DXサービス'),
+('infra-tech', '6701', 'NEC', 10, '通信設備'),
+('infra-tech', '9613', 'NTTデータ', 10, 'DX統合'),
+('infra-tech', '5803', 'フジクラ', 10, '光ファイバー');
 
 -- 日本コア・企業指数 (jp-core)
 INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES
-('jp-core', '7203', 'トヨタ自動車', 40, '自動車'),
-('jp-core', '4063', '信越化学工業', 30, '素材'),
-('jp-core', '9983', 'ファーストリテイリング', 30, '消費');
+('jp-core', '7203', 'トヨタ自動車', 15, '自動車'),
+('jp-core', '4063', '信越化学工業', 10, '素材'),
+('jp-core', '9983', 'ファーストリテイリング', 10, '小売'),
+('jp-core', '8306', '三菱UFJ FG', 10, '金融'),
+('jp-core', '6758', 'ソニーグループ', 10, '電機'),
+('jp-core', '8058', '三菱商事', 10, '商社'),
+('jp-core', '6861', 'キーエンス', 10, '自動化'),
+('jp-core', '7974', '任天堂', 10, '娯楽'),
+('jp-core', '8031', '三井物産', 7.5, '商社'),
+('jp-core', '8316', '三井住友FG', 7.5, '金融');
 
 -- 日経175指数 (nikkei-175)
 INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES 
