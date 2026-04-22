@@ -20,25 +20,40 @@ export function calculateCustomIndex(basket: BasketItem[], stockUniverse: StockS
 
   if (selected.length === 0) return [];
 
-  const firstSeries = selected[0].series;
-  const commonDates = firstSeries
-    .map((point) => point.date)
-    .filter((date) => selected.every((stock) => stock.series.some((p) => p.date === date)));
+  // 全銘柄から存在する全日付を抽出してソート
+  const allDates = Array.from(new Set(
+    selected.flatMap(stock => stock.series.map(p => p.date))
+  )).sort();
 
-  if (commonDates.length === 0) return [];
+  if (allDates.length === 0) return [];
 
-  const firstDayValues = selected.map((stock) => {
-    const firstPoint = stock.series.find((p) => p.date === commonDates[0]);
-    return firstPoint?.close ?? 0;
+  // 各銘柄の各日付における価格をマッピング（データがない場合は前の日の価格を使用：フォワードフィル）
+  const stockPriceMatrix = selected.map(stock => {
+    const priceMap = new Map(stock.series.map(p => [p.date, p.close]));
+    let lastPrice = 0;
+    
+    return allDates.map(date => {
+      const price = priceMap.get(date);
+      if (price !== undefined && price > 0) {
+        lastPrice = price;
+        return price;
+      }
+      return lastPrice; // 前日の価格を流用
+    });
   });
 
-  if (firstDayValues.some((value) => value === 0)) return [];
+  // 基準日の価格（全銘柄の最初の有効な価格）を取得
+  const basePrices = stockPriceMatrix.map(prices => {
+    return prices.find(p => p > 0) || 0;
+  });
 
-  return commonDates.map((date) => {
+  // いずれかの銘柄で一度も価格が取れなかった場合は計算不可
+  if (basePrices.some(bp => bp === 0)) return [];
+
+  return allDates.map((date, dateIndex) => {
     const weightedRelative = selected.reduce((sum, stock, stockIndex) => {
-      const start = firstDayValues[stockIndex];
-      const currentPoint = stock.series.find((p) => p.date === date);
-      const current = currentPoint?.close ?? 0;
+      const start = basePrices[stockIndex];
+      const current = stockPriceMatrix[stockIndex][dateIndex];
       return sum + (current / start) * (stock.weight / 100);
     }, 0);
 

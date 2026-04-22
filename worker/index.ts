@@ -179,7 +179,7 @@ export default {
           });
           if (qRes.ok) {
             const qData = await qRes.json() as any;
-            qData.result?.forEach((q: any) => {
+            qData.quoteResponse?.result?.forEach((q: any) => {
               const ticker = q.symbol.split(".")[0];
               latestPricesMap.set(ticker, q.regularMarketPrice);
             });

@@ -24,3 +24,6 @@ CREATE TABLE IF NOT EXISTS stock_prices (
     price REAL NOT NULL,
     PRIMARY KEY (ticker, date)
 );
+
+CREATE INDEX IF NOT EXISTS idx_stock_prices_ticker ON stock_prices(ticker);
+CREATE INDEX IF NOT EXISTS idx_basket_items_index_id ON basket_items(index_id);
