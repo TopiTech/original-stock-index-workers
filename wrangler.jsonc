@@ -16,6 +16,8 @@
 		{
 			"binding": "DB",
 			"database_name": "original-stock-index-db",
+			// NOTE: database_id は GitHub Actions の Secret 機能で自動的に補完されます
+			// ローカル開発時は wrangler.local.jsonc を使用してください
 			"database_id": "__D1_DATABASE_ID__"
 		}
 	]
