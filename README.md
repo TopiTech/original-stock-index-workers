@@ -43,9 +43,9 @@ npm run dev:worker
     ```
 
 ### 2. GitHub Secrets の設定
-GitHub Actions で自動デプロイを行うため、以下の Secret を設定してください。
+GitHub Actions でCloudflare Workersに自動デプロイを行うため、以下の Secret を設定してください。
 
-- `CLOUDFLARE_API_TOKEN`: Cloudflare の API トークン（Edit Cloudflare Workers 権限）
+- `CLOUDFLARE_API_TOKEN`: Cloudflare の API トークン（Cloudflare Workers 編集権限）
 - `D1_DATABASE_ID`: 作成した D1 データベースの ID (UUID)
 
 ## 主要ファイル
@@ -57,7 +57,7 @@ GitHub Actions で自動デプロイを行うため、以下の Secret を設定
 ## 開発上の注意
 
 - **データ同期**: Yahoo Finance からの取得は 4 時間のキャッシュが効くように実装されています。強制的に更新したい場合は `/api/sync-prices` に `{ "force": true }` を送ってください。
-- **セキュリティ**: `wrangler.local.jsonc` には実際のデータベース ID を記述しますが、これは git 管理外（`.gitignore`）に設定されています。
+- **セキュリティ**: ローカル環境でのDB更新を楽にするため、実際のデータベース IDを記述した`wrangler.local.jsonc` を任意で作成してください。これは git 管理外（`.gitignore`）に設定されています。
 
 ## ライセンス
 
