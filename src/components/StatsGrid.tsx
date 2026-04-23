@@ -8,16 +8,17 @@ const pct = new Intl.NumberFormat("ja-JP", { minimumFractionDigits: 2, maximumFr
 
 interface StatsGridProps {
   nikkeiData: { snapshot: Snapshot } | null;
+  nikkeiLoading: boolean;
   selectedIndexName: string;
   latestCustomValue: number;
   loading: boolean;
 }
 
-export function StatsGrid({ nikkeiData, selectedIndexName, latestCustomValue, loading }: StatsGridProps) {
+export function StatsGrid({ nikkeiData, nikkeiLoading, selectedIndexName, latestCustomValue, loading }: StatsGridProps) {
   const items = [
     {
       label: "日経225",
-      value: nikkeiData ? fmt.format(nikkeiData.snapshot.current) : "---",
+      value: nikkeiLoading ? "読込中..." : nikkeiData ? fmt.format(nikkeiData.snapshot.current) : "---",
       sub: nikkeiData
         ? `${nikkeiData.snapshot.change >= 0 ? "+" : ""}${fmt.format(nikkeiData.snapshot.change)} (${pct.format(nikkeiData.snapshot.changePct)}%)`
         : null,

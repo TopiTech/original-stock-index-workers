@@ -1,9 +1,10 @@
 -- Seeding Indices (冪等: 既存レコードを上書き)
-INSERT OR REPLACE INTO indices (id, name, description, base_value) VALUES
-('ai-semi', 'AI・半導体強化指数', '最先端のAI技術と半導体製造装置メーカーを中心に構成された指数です。', 1000.0),
-('infra-tech', '次世代インフラ・通信指数', '日本の通信インフラとDXを支える大手企業で構成される安定成長指数です。', 1000.0),
-('jp-core', '日本コア・企業指数', '日本を代表する時価総額上位の優良株をバランスよく配置した指数です。', 1000.0),
-('nikkei-175', '日経175指数', '掲示板センチメント、モメンタム、国策テーマ、技術投機など175銘柄で構成される独自指数です。', 1000.0);
+INSERT OR REPLACE INTO indices (id, name, description, base_value, sort_order) VALUES
+('nikkei-175', '日経175指数', '掲示板センチメント、モメンタム、国策テーマ、技術投機など175銘柄で構成される独自指数です。', 1000.0, 0),
+('eroge-index', '完全エロゲ指数（EROGE Index）', '国内エロゲ・同人DL市場への直接・間接エクスポージャーを重視した構成です。', 1000.0, 1),
+('ai-semi', 'AI・半導体強化指数', '最先端のAI技術と半導体製造装置メーカーを中心に構成された指数です。', 1000.0, 2),
+('infra-tech', '次世代インフラ・通信指数', '日本の通信インフラとDXを支える大手企業で構成される安定成長指数です。', 1000.0, 3),
+('jp-core', '日本コア・企業指数', '日本を代表する時価総額上位の優良株をバランスよく配置した指数です。', 1000.0, 4);
 
 -- Seeding Basket Items (冪等)
 -- AI・半導体強化指数 (ai-semi)
@@ -27,7 +28,7 @@ INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALU
 ('infra-tech', '6501', '日立製作所', 15, 'DXインフラ'),
 ('infra-tech', '6702', '富士通', 10, 'DXサービス'),
 ('infra-tech', '6701', 'NEC', 10, '通信設備'),
-('infra-tech', '9613', 'NTTデータ', 10, 'DX統合'),
+('infra-tech', '9719', '野村総合研究所', 10, 'DXコンサル'),
 ('infra-tech', '5803', 'フジクラ', 10, '光ファイバー');
 
 -- 日本コア・企業指数 (jp-core)
@@ -42,6 +43,16 @@ INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALU
 ('jp-core', '7974', '任天堂', 10, '娯楽'),
 ('jp-core', '8031', '三井物産', 7.5, '商社'),
 ('jp-core', '8316', '三井住友FG', 7.5, '金融');
+
+-- 完全エロゲ指数（EROGE Index）
+INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES
+('eroge-index', '2681', 'ゲオホールディングス', 35, 'DLSite'),
+('eroge-index', '7803', 'ブシロード', 20, '萌えゲーム'),
+('eroge-index', '3657', 'ポールトゥウィンHD', 15, '開発支援'),
+('eroge-index', '3791', 'IGポート', 10, 'アニメIP'),
+('eroge-index', '2652', 'まんだらけ', 8, '同人市場'),
+('eroge-index', '9468', 'KADOKAWA', 4, 'ゲーム/アニメ'),
+('eroge-index', '4751', 'サイバーエージェント', 8, 'ゲーム/アニメ');
 
 -- 日経175指数 (nikkei-175)
 INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES 

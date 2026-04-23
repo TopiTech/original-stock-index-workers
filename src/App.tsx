@@ -14,10 +14,11 @@ import type { PricePoint } from "./types";
 
 export default function App() {
   const { indices, selectedIndex, selectIndex, loading: loadingIndices, error: indicesError } = useIndices();
-  const { nikkeiData, error: nikkeiError } = useNikkei();
-  const { customSeries, loading: loadingCalc, syncing, syncProgress, error: calcError } = useCalculation(selectedIndex);
+  const { nikkeiData, loading: loadingNikkei, error: nikkeiError } = useNikkei();
+  const { customSeries, loading: loadingCalc, syncing, syncProgress, syncWarnings, error: calcError } = useCalculation(selectedIndex);
 
-  const error = indicesError || nikkeiError || calcError;
+  const errors = [indicesError, nikkeiError, calcError].filter(Boolean) as string[];
+  const error = errors[0] ?? null;
 
   const handleSelectIndex = useCallback((index: CustomIndex) => {
     selectIndex(index);
@@ -44,7 +45,7 @@ export default function App() {
   }, [nikkeiData, customSeries, selectedIndex]);
 
   if (error) {
-    return <ErrorFallback error={error} onRetry={() => window.location.reload()} />;
+    return <ErrorFallback error={errors.join(" / ")} onRetry={() => window.location.reload()} />;
   }
 
   if (loadingIndices) {
@@ -62,6 +63,7 @@ export default function App() {
       >
         <StatsGrid
           nikkeiData={nikkeiData}
+          nikkeiLoading={loadingNikkei}
           selectedIndexName={selectedIndex?.name || "---"}
           latestCustomValue={customSeries[customSeries.length - 1]?.value ?? selectedIndex?.baseValue ?? 0}
           loading={loadingCalc}
@@ -99,6 +101,7 @@ export default function App() {
                 loading={loadingCalc}
                 syncing={syncing}
                 syncProgress={syncProgress}
+                syncWarnings={syncWarnings}
                 latestValue={customSeries[customSeries.length - 1]?.value}
                 baseValue={selectedIndex?.baseValue}
               />

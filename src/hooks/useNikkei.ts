@@ -10,6 +10,7 @@ export type NikkeiData = {
 
 export function useNikkei() {
   const [nikkeiData, setNikkeiData] = useState<NikkeiData | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -25,10 +26,11 @@ export function useNikkei() {
         if (err.name !== "AbortError") {
           setError(err.message);
         }
-      });
+      })
+      .finally(() => setLoading(false));
 
     return () => controller.abort();
   }, []);
 
-  return { nikkeiData, error };
+  return { nikkeiData, loading, error };
 }

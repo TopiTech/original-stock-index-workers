@@ -20,7 +20,10 @@ export function calculateCustomIndex(basket: BasketItem[], stockUniverse: StockS
 
   if (selected.length === 0) return [];
 
-  // 全銘柄から存在する全日付を抽出してソート
+  // Build ticker → index map for O(1) lookup instead of findIndex
+  const tickerIndexMap = new Map(selected.map((s, i) => [s.ticker, i]));
+
+  // 全銘柄から存在する全日付を抽出してソート (YYYY-MM-DD sorts correctly as strings)
   const allDates = Array.from(new Set(
     selected.flatMap(stock => stock.series.map(p => p.date))
   )).sort();
@@ -66,7 +69,7 @@ export function calculateCustomIndex(basket: BasketItem[], stockUniverse: StockS
     const totalWeightOfAvailable = availableStocks.reduce((sum, s) => sum + s.weight, 0);
 
     const weightedRelative = availableStocks.reduce((sum, stock) => {
-      const stockIndex = selected.findIndex(s => s.ticker === stock.ticker);
+      const stockIndex = tickerIndexMap.get(stock.ticker)!;
       const start = basePrices[stockIndex];
       const current = stockPriceMatrix[stockIndex][dateIndex];
       
@@ -77,12 +80,4 @@ export function calculateCustomIndex(basket: BasketItem[], stockUniverse: StockS
 
     return { date, value: Number((baseValue * weightedRelative).toFixed(2)) };
   });
-}
-
-export function searchStocks(query: string, stockUniverse: StockSeries[]) {
-  const q = query.trim().toLowerCase();
-  if (!q) return stockUniverse.slice(0, 8);
-  return stockUniverse.filter((stock) =>
-    `${stock.ticker} ${stock.name} ${stock.theme} ${stock.sector}`.toLowerCase().includes(q)
-  );
 }

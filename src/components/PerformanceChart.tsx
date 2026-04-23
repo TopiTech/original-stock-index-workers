@@ -27,6 +27,7 @@ interface PerformanceChartProps {
   loading: boolean;
   syncing: boolean;
   syncProgress: number;
+  syncWarnings?: string[];
   latestValue?: number;
   baseValue?: number;
 }
@@ -36,6 +37,7 @@ export function PerformanceChart({
   loading,
   syncing,
   syncProgress,
+  syncWarnings = [],
   latestValue,
   baseValue,
 }: PerformanceChartProps) {
@@ -93,8 +95,8 @@ export function PerformanceChart({
       </div>
 
       <div className="chart-card">
-        <ResponsiveContainer width="100%" height="100%">
-          {data.length > 0 ? (
+        {data.length > 0 ? (
+          <ResponsiveContainer width="100%" height="100%">
             <LineChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
               <CartesianGrid stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" vertical={false} />
               <XAxis
@@ -150,16 +152,24 @@ export function PerformanceChart({
                 name="value"
               />
             </LineChart>
-          ) : (
-            <div
-              style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}
-              className="muted mono tiny uppercase"
-            >
-              データを受信中...
-            </div>
-          )}
-        </ResponsiveContainer>
+          </ResponsiveContainer>
+        ) : (
+          <div
+            style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}
+            className="muted mono tiny uppercase"
+          >
+            データを受信中...
+          </div>
+        )}
       </div>
+
+      {syncWarnings.length > 0 && (
+        <div style={{ marginTop: 12, padding: "8px 12px", borderLeft: "3px solid var(--neon-magenta)", background: "rgba(255,0,242,0.05)", borderRadius: "0 4px 4px 0" }}>
+          {syncWarnings.map((w, i) => (
+            <div key={i} className="muted tiny">{w}</div>
+          ))}
+        </div>
+      )}
 
       <div className="row space-between" style={{ marginTop: 16 }}>
         <div className="muted tiny mono">ソース: Yahoo Finance API</div>

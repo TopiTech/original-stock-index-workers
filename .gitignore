@@ -28,3 +28,4 @@ Thumbs.db
 
 # Local Wrangler Config
 wrangler.local.jsonc
+dev-commands.md
