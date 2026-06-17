@@ -51,6 +51,16 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
             });
             if (!syncRes.ok) {
               warnings.push(`同期バッチ ${Math.floor(i / BATCH_SIZE) + 1} が失敗しました`);
+            } else {
+              const syncData = await syncRes.json();
+              if (syncData.results) {
+                const failed = syncData.results
+                  .filter((r: { status: string }) => r.status === "failed")
+                  .map((r: { ticker: string }) => r.ticker);
+                if (failed.length > 0) {
+                  warnings.push(`一部銘柄の取得に失敗: ${failed.join(", ")}`);
+                }
+              }
             }
           } catch (err) {
             if (err instanceof DOMException && err.name === "AbortError") return;
@@ -102,5 +112,13 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
     };
   }, [calculate]);
 
-  return { customSeries, loading, error, syncing, syncProgress, syncWarnings, recalculate: calculate };
+  return {
+    customSeries,
+    loading,
+    error,
+    syncing,
+    syncProgress,
+    syncWarnings,
+    recalculate: calculate,
+  };
 }
