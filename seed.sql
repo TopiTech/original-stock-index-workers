@@ -28,7 +28,6 @@ INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALU
 ('infra-tech', '6501', '日立製作所', 15, 'DXインフラ'),
 ('infra-tech', '6702', '富士通', 10, 'DXサービス'),
 ('infra-tech', '6701', 'NEC', 10, '通信設備'),
-('infra-tech', '9719', '野村総合研究所', 10, 'DXコンサル'),
 ('infra-tech', '5803', 'フジクラ', 10, '光ファイバー');
 
 -- 日本コア・企業指数 (jp-core)
