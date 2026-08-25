@@ -18,5 +18,6 @@
     "src/lib/**/*.ts",
     "src/types/**/*.ts",
     "vite.config.ts"
-  ]
+  ],
+  "exclude": ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"]
 }
