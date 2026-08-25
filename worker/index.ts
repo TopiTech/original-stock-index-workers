@@ -82,6 +82,7 @@ function json(data: unknown, status = 200, request?: Request) {
       headers["access-control-allow-origin"] = origin;
       headers["access-control-allow-methods"] = "GET,POST,OPTIONS";
       headers["access-control-allow-headers"] = "content-type";
+      headers["vary"] = "Origin";
     }
   }
 
@@ -89,6 +90,18 @@ function json(data: unknown, status = 200, request?: Request) {
     status,
     headers,
   });
+}
+
+async function parseJsonBody(request: Request): Promise<{ ok: true; body: Record<string, unknown> } | { ok: false; response: Response }> {
+  try {
+    const body = (await request.json()) as Record<string, unknown>;
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return { ok: false, response: json({ error: "Invalid JSON body" }, 400, request) };
+    }
+    return { ok: true, body };
+  } catch {
+    return { ok: false, response: json({ error: "Invalid JSON body" }, 400, request) };
+  }
 }
 
 // Rate limiting: check and update per-IP request count in D1
@@ -166,6 +179,9 @@ export default {
           current: latest.close,
           change: prev ? Number((latest.close - prev.close).toFixed(2)) : 0,
           changePct: prev ? Number(((latest.close / prev.close - 1) * 100).toFixed(2)) : 0,
+          open: latest.close,
+          high: latest.close,
+          low: latest.close,
           updatedAt: new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }),
           description: "Yahoo Finance から取得したリアルタイム（遅延あり）データです。",
         };
@@ -246,8 +262,10 @@ export default {
           return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
         }
 
-        const body: Record<string, unknown> = await request.json();
-        if (!body || typeof body !== "object" || !Array.isArray(body.tickers)) {
+        const parsed = await parseJsonBody(request);
+        if (!parsed.ok) return parsed.response;
+        const body = parsed.body;
+        if (!Array.isArray(body.tickers)) {
           return json({ error: "Invalid request body: tickers array required" }, 400, request);
         }
         if (body.tickers.length === 0) {
@@ -345,7 +363,9 @@ export default {
           return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
         }
 
-        const body: Record<string, unknown> = await request.json();
+        const parsedCalc = await parseJsonBody(request);
+        if (!parsedCalc.ok) return parsedCalc.response;
+        const body = parsedCalc.body;
         const basket = Array.isArray(body.basket) ? body.basket : [];
         const rawBaseValue = body.baseValue;
         if (rawBaseValue !== undefined && (typeof rawBaseValue !== "number" || !Number.isFinite(rawBaseValue) || rawBaseValue <= 0 || rawBaseValue > 1000000)) {
