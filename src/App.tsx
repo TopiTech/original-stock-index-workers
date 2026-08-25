@@ -9,8 +9,8 @@ import { IndexSelector } from "./components/IndexSelector";
 import { PerformanceChart } from "./components/PerformanceChart";
 import { ErrorFallback } from "./components/ErrorFallback";
 import { LoadingScreen } from "./components/LoadingScreen";
+import { buildChartData } from "./lib/chartData";
 import type { CustomIndex } from "./data/indices";
-import type { PricePoint } from "./types";
 
 export default function App() {
   const { indices, selectedIndex, selectIndex, loading: loadingIndices, error: indicesError } = useIndices();
@@ -26,22 +26,7 @@ export default function App() {
 
   const chartData = useMemo(() => {
     if (!nikkeiData || nikkeiData.series.length === 0 || customSeries.length === 0 || !selectedIndex) return [];
-
-    const nikkeiMap = new Map(nikkeiData.series.map((p: PricePoint) => [p.date, p.close]));
-    const firstNikkei = nikkeiData.series[0]?.close ?? selectedIndex.baseValue;
-
-    return customSeries.map((point: PricePoint, index: number) => {
-      const nikkeiClose = nikkeiMap.get(point.date);
-      const fallbackClose = nikkeiData.series[index]?.close ?? firstNikkei;
-      const nikkeiPoint = nikkeiClose ?? fallbackClose;
-
-      return {
-        date: point.date,
-        close: point.close,
-        value: point.value ?? 0,
-        nikkei: Number((selectedIndex.baseValue * (nikkeiPoint / firstNikkei)).toFixed(2))
-      };
-    });
+    return buildChartData(nikkeiData.series, customSeries, selectedIndex.baseValue);
   }, [nikkeiData, customSeries, selectedIndex]);
 
   if (error) {

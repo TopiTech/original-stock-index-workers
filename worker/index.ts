@@ -250,7 +250,16 @@ export default {
         if (!body || typeof body !== "object" || !Array.isArray(body.tickers)) {
           return json({ error: "Invalid request body: tickers array required" }, 400, request);
         }
-        const tickers = (body.tickers as string[]).slice(0, 100); // Max 100 tickers per request
+        if (body.tickers.length === 0) {
+          return json({ error: "Invalid request body: tickers array must not be empty" }, 400, request);
+        }
+        const rawTickers = body.tickers as unknown[];
+        for (const t of rawTickers) {
+          if (typeof t !== "string" || t.trim().length === 0 || t.trim().length > 20 || !/^[A-Za-z0-9.\-]+$/.test(t.trim())) {
+            return json({ error: "Invalid ticker value" }, 400, request);
+          }
+        }
+        const tickers = (rawTickers as string[]).map((t) => t.trim()).slice(0, 100); // Max 100 tickers per request
         const force = body.force === true;
         const results: { ticker: string; status: string; count?: number; lastSynced?: number }[] =
           [];
@@ -338,21 +347,40 @@ export default {
 
         const body: Record<string, unknown> = await request.json();
         const basket = Array.isArray(body.basket) ? body.basket : [];
-        const baseValue = typeof body.baseValue === "number" ? body.baseValue : 1000;
+        const rawBaseValue = body.baseValue;
+        if (rawBaseValue !== undefined && (typeof rawBaseValue !== "number" || !Number.isFinite(rawBaseValue) || rawBaseValue <= 0 || rawBaseValue > 1000000)) {
+          return json({ error: "Invalid baseValue" }, 400, request);
+        }
+        const baseValue = typeof rawBaseValue === "number" ? rawBaseValue : 1000;
         if (!Array.isArray(basket) || basket.length === 0) {
           return json({ error: "Invalid basket" }, 400, request);
         }
 
-        // Validate basket items
-        const validatedBasket: BasketItemInput[] = basket.filter(
-          (item): item is BasketItemInput =>
-            item &&
-            typeof item === "object" &&
-            typeof (item as Record<string, unknown>).ticker === "string" &&
-            typeof (item as Record<string, unknown>).name === "string" &&
-            typeof (item as Record<string, unknown>).theme === "string" &&
-            typeof (item as Record<string, unknown>).weight === "number",
-        );
+        // Strict basket validation: fail on any invalid entry
+        for (const item of basket) {
+          if (!item || typeof item !== "object") {
+            return json({ error: "Invalid basket item" }, 400, request);
+          }
+          const r = item as Record<string, unknown>;
+          if (typeof r.ticker !== "string" || r.ticker.trim().length === 0 || r.ticker.trim().length > 20 || !/^[A-Za-z0-9.\-]+$/.test(r.ticker.trim())) {
+            return json({ error: "Invalid basket item: ticker" }, 400, request);
+          }
+          if (typeof r.name !== "string" || r.name.trim().length === 0 || r.name.trim().length > 100) {
+            return json({ error: "Invalid basket item: name" }, 400, request);
+          }
+          if (typeof r.theme !== "string" || r.theme.trim().length > 100) {
+            return json({ error: "Invalid basket item: theme" }, 400, request);
+          }
+          if (typeof r.weight !== "number" || !Number.isFinite(r.weight) || r.weight <= 0 || r.weight > 100) {
+            return json({ error: "Invalid basket item: weight must be > 0 and <= 100" }, 400, request);
+          }
+        }
+        const validatedBasket: BasketItemInput[] = (basket as BasketItemInput[]).map((item) => ({
+          ticker: (item.ticker as string).trim(),
+          name: (item.name as string).trim(),
+          theme: (item.theme as string).trim(),
+          weight: item.weight,
+        }));
 
         // 1. D1から全銘柄の履歴をチャンクに分けて取得 (SQL変数制限回避)
         // Note: 最新価格はD1キャッシュの最新エントリを使用。

@@ -37,10 +37,11 @@ npm run dev:worker
 
 ### 1. Cloudflare での準備
 1.  Cloudflare Dashboard で D1 データベースを作成します。
-2.  `schema.sql` を実行してテーブルを作成します。
+2.  `schema.sql` を実行してテーブルを作成します（冪等・非破壊）。
     ```bash
     npx wrangler d1 execute original-stock-index-db --remote --file=schema.sql
     ```
+    開発環境でクリーンスレートが必要な場合は `schema.dev.sql` で DROP してから `schema.sql` を実行してください（本番では `schema.dev.sql` を実行しないでください）。
 
 ### 2. GitHub Secrets の設定
 GitHub Actions でCloudflare Workersに自動デプロイを行うため、以下の Secret を設定してください。
