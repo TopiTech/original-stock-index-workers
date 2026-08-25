@@ -10,7 +10,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from "recharts";
-import { Loader2 } from "lucide-react";
+import { Loader2, AlertTriangle, RefreshCw } from "lucide-react";
 import { Card } from "./ui";
 
 const fmt = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 2 });
@@ -30,6 +30,8 @@ interface PerformanceChartProps {
   syncWarnings?: string[];
   latestValue?: number;
   baseValue?: number;
+  error?: string | null;
+  onRetry?: () => void;
 }
 
 export function PerformanceChart({
@@ -40,6 +42,8 @@ export function PerformanceChart({
   syncWarnings = [],
   latestValue,
   baseValue,
+  error,
+  onRetry,
 }: PerformanceChartProps) {
   const latestCustomValue = latestValue ?? baseValue ?? 0;
   const latestNikkeiValue = data[data.length - 1]?.nikkei ?? baseValue ?? 0;
@@ -57,7 +61,11 @@ export function PerformanceChart({
           <div className="muted tiny">カスタム指数 vs 日経225（1ヶ月ローリング）</div>
         </div>
 
-        {syncing ? (
+        {error ? (
+          <div className="tiny mono" style={{ color: "var(--neon-red)" }}>
+            エラー発生
+          </div>
+        ) : syncing ? (
           <div className="muted tiny row" style={{ gap: 10 }}>
             <div className="progress-bar-bg" style={{ width: 120 }}>
               <motion.div
@@ -78,7 +86,7 @@ export function PerformanceChart({
             <div style={{ fontSize: 24, fontWeight: 700, color: "var(--neon-cyan)", fontFamily: "var(--mono-font)" }}>
               {fmt.format(latestCustomValue)}
             </div>
-            {performanceDiff !== 0 && (
+            {data.length > 0 && performanceDiff !== 0 && (
               <div
                 className="tiny mono"
                 style={{
@@ -95,7 +103,48 @@ export function PerformanceChart({
       </div>
 
       <div className="chart-card">
-        {data.length > 0 ? (
+        {error ? (
+          <div
+            style={{
+              height: "100%",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 16,
+              textAlign: "center",
+              padding: 24,
+            }}
+          >
+            <div
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: "50%",
+                background: "rgba(255, 82, 82, 0.1)",
+                border: "1px solid var(--neon-red)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "var(--neon-red)",
+              }}
+            >
+              <AlertTriangle size={24} />
+            </div>
+            <div>
+              <div style={{ color: "var(--neon-red)", fontWeight: 600, marginBottom: 4 }}>
+                指数の計算に失敗しました
+              </div>
+              <div className="muted tiny">{error}</div>
+            </div>
+            {onRetry && (
+              <button className="btn btn-default" onClick={onRetry} style={{ marginTop: 8 }}>
+                <RefreshCw size={14} style={{ marginRight: 6 }} />
+                再試行
+              </button>
+            )}
+          </div>
+        ) : data.length > 0 ? (
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
               <CartesianGrid stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" vertical={false} />
@@ -122,8 +171,8 @@ export function PerformanceChart({
                   boxShadow: "0 0 20px rgba(0, 255, 242, 0.15)",
                 }}
                 itemStyle={{ padding: "2px 0" }}
-                formatter={(value: number, name: string) => [
-                  fmt.format(value),
+                formatter={(value: any, name: any) => [
+                  typeof value === "number" ? fmt.format(value) : String(value ?? ""),
                   name === "value" ? "カスタム指数" : "日経225",
                 ]}
                 labelStyle={{ color: "#8899ac", marginBottom: 4 }}
@@ -158,7 +207,7 @@ export function PerformanceChart({
             style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}
             className="muted mono tiny uppercase"
           >
-            データを受信中...
+            {loading ? "計算中..." : "データを受信中..."}
           </div>
         )}
       </div>

@@ -53,4 +53,52 @@ describe("buildChartData", () => {
     expect(buildChartData([], [{ date: "2026-04-01", close: 1, value: 1000 }], base)).toEqual([]);
     expect(buildChartData([{ date: "2026-04-01", close: 1000 }], [], base)).toEqual([]);
   });
+
+  it("aligns benchmark baseline to customSeries start date when nikkei starts earlier", () => {
+    const nikkei: PricePoint[] = [
+      { date: "2026-03-25", close: 36000 },
+      { date: "2026-04-01", close: 38000 },
+      { date: "2026-04-02", close: 39900 },
+    ];
+    const custom: PricePoint[] = [
+      { date: "2026-04-01", close: 1000, value: 1000 },
+      { date: "2026-04-02", close: 1050, value: 1050 },
+    ];
+    const result = buildChartData(nikkei, custom, base);
+    expect(result.length).toBe(2);
+    // On 2026-04-01 (start date), Nikkei benchmark should normalize to baseValue (1000)
+    expect(result[0].nikkei).toBe(1000);
+    // On 2026-04-02, Nikkei should be 1000 * (39900 / 38000) = 1050
+    expect(result[1].nikkei).toBe(1050);
+  });
+
+  it("handles fallback to point.close when point.value is omitted", () => {
+    const nikkei: PricePoint[] = [
+      { date: "2026-04-01", close: 1000 },
+    ];
+    const custom: PricePoint[] = [
+      { date: "2026-04-01", close: 1250 },
+    ];
+    const result = buildChartData(nikkei, custom, base);
+    expect(result[0].value).toBe(1250);
+    expect(result[0].close).toBe(1250);
+  });
+
+  it("handles custom and invalid baseValues gracefully", () => {
+    const nikkei: PricePoint[] = [
+      { date: "2026-04-01", close: 1000 },
+      { date: "2026-04-02", close: 1200 },
+    ];
+    const custom: PricePoint[] = [
+      { date: "2026-04-01", close: 500, value: 500 },
+      { date: "2026-04-02", close: 600, value: 600 },
+    ];
+    const result500 = buildChartData(nikkei, custom, 500);
+    expect(result500[0].nikkei).toBe(500);
+    expect(result500[1].nikkei).toBe(600);
+
+    const resultInvalid = buildChartData(nikkei, custom, -50 as any);
+    expect(resultInvalid[0].nikkei).toBe(1000);
+    expect(resultInvalid[1].nikkei).toBe(1200);
+  });
 });

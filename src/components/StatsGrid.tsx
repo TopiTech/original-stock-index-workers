@@ -12,9 +12,22 @@ interface StatsGridProps {
   selectedIndexName: string;
   latestCustomValue: number;
   loading: boolean;
+  nikkeiNormalizedValue?: number;
 }
 
-export function StatsGrid({ nikkeiData, nikkeiLoading, selectedIndexName, latestCustomValue, loading }: StatsGridProps) {
+export function StatsGrid({
+  nikkeiData,
+  nikkeiLoading,
+  selectedIndexName,
+  latestCustomValue,
+  loading,
+  nikkeiNormalizedValue,
+}: StatsGridProps) {
+  const hasBenchmark = typeof nikkeiNormalizedValue === "number" && nikkeiNormalizedValue > 0 && !loading;
+  const benchmarkDiff = hasBenchmark
+    ? ((latestCustomValue - nikkeiNormalizedValue) / nikkeiNormalizedValue) * 100
+    : 0;
+
   const items = [
     {
       label: "日経225",
@@ -41,10 +54,28 @@ export function StatsGrid({ nikkeiData, nikkeiLoading, selectedIndexName, latest
     },
     {
       label: "ベンチマーク対比",
-      value: "VS 日経225",
-      sub: null,
+      value: loading
+        ? "計算中..."
+        : nikkeiLoading
+          ? "読込中..."
+          : hasBenchmark
+            ? `${benchmarkDiff > 0 ? "+" : ""}${pct.format(benchmarkDiff)}%`
+            : "---",
+      sub: hasBenchmark
+        ? benchmarkDiff > 0
+          ? "日経225をアウトパフォーム"
+          : benchmarkDiff < 0
+            ? "日経225をアンダーパフォーム"
+            : "日経225と同等"
+        : null,
       icon: <TrendingUp size={18} />,
-      accent: "neutral" as const,
+      accent: hasBenchmark
+        ? benchmarkDiff > 0
+          ? "positive"
+          : benchmarkDiff < 0
+            ? "negative"
+            : "neutral"
+        : ("neutral" as const),
     },
   ];
 

@@ -106,7 +106,7 @@ async function parseJsonBody(request: Request): Promise<{ ok: true; body: Record
 
 // Rate limiting: check and update per-IP request count in D1
 const RATE_LIMIT_WINDOW = 60; // seconds
-const RATE_LIMIT_MAX = 30; // max requests per window per endpoint
+const RATE_LIMIT_MAX = 60; // max requests per window per endpoint
 
 async function checkRateLimit(env: Env, ip: string, endpoint: string): Promise<boolean> {
   const now = Math.floor(Date.now() / 1000);
@@ -171,6 +171,11 @@ export default {
         const prev = series[series.length - 2];
 
         if (!latest) {
+          // If fresh fetch fails but stale cache exists, fallback to stale cache
+          if (cacheRow) {
+            console.warn("Using stale snapshot cache due to Yahoo Finance failure");
+            return json(JSON.parse(cacheRow.data), 200, request);
+          }
           return json({ error: "No data available from Yahoo Finance" }, 502, request);
         }
 
@@ -277,7 +282,8 @@ export default {
             return json({ error: "Invalid ticker value" }, 400, request);
           }
         }
-        const tickers = (rawTickers as string[]).map((t) => t.trim()).slice(0, 100); // Max 100 tickers per request
+        // Deduplicate tickers and limit to max 100 per request
+        const tickers = Array.from(new Set((rawTickers as string[]).map((t) => t.trim()))).slice(0, 100);
         const force = body.force === true;
         const results: { ticker: string; status: string; count?: number; lastSynced?: number }[] =
           [];
@@ -335,12 +341,10 @@ export default {
             }),
           );
 
-          for (const r of batchResults) {
+          for (const [idx, r] of batchResults.entries()) {
             if (r.status === "fulfilled") {
               results.push(r.value);
             } else {
-              // Extract ticker from the failed batch
-              const idx = batchResults.indexOf(r);
               results.push({ ticker: batch[idx], status: "failed" });
             }
           }

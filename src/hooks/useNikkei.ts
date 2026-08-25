@@ -21,13 +21,21 @@ export function useNikkei() {
         if (!res.ok) throw new Error("日経平均データの取得に失敗しました");
         return res.json();
       })
-      .then((data: NikkeiData) => setNikkeiData(data))
+      .then((data: NikkeiData) => {
+        if (!controller.signal.aborted) {
+          setNikkeiData(data);
+        }
+      })
       .catch((err) => {
-        if (err.name !== "AbortError") {
+        if (err.name !== "AbortError" && !controller.signal.aborted) {
           setError(err.message);
         }
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      });
 
     return () => controller.abort();
   }, []);

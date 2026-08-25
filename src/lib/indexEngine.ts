@@ -1,15 +1,24 @@
-import type { BasketItem, StockSeries } from "../types";
+import type { BasketItem, PricePoint, StockSeries } from "../types";
 
-export function normalizeWeights(items: BasketItem[]) {
-  const total = items.reduce((sum, item) => sum + Number(item.weight || 0), 0);
+export function normalizeWeights(items: BasketItem[]): BasketItem[] {
+  const safeItems = items.map((item) => ({
+    ...item,
+    weight: typeof item.weight === "number" && Number.isFinite(item.weight) && item.weight > 0 ? item.weight : 0,
+  }));
+  const total = safeItems.reduce((sum, item) => sum + item.weight, 0);
   if (total <= 0) return items;
-  return items.map((item) => ({
+  return safeItems.map((item) => ({
     ...item,
     weight: Number(((item.weight / total) * 100).toFixed(4)),
   }));
 }
 
-export function calculateCustomIndex(basket: BasketItem[], stockUniverse: StockSeries[], baseValue = 1000) {
+export function calculateCustomIndex(
+  basket: BasketItem[],
+  stockUniverse: StockSeries[],
+  baseValue = 1000,
+): PricePoint[] {
+  const safeBase = typeof baseValue === "number" && Number.isFinite(baseValue) && baseValue > 0 ? baseValue : 1000;
   const normalized = normalizeWeights(basket);
   const selected = normalized
     .map((item) => {
@@ -25,17 +34,17 @@ export function calculateCustomIndex(basket: BasketItem[], stockUniverse: StockS
 
   // 全銘柄から存在する全日付を抽出してソート (YYYY-MM-DD sorts correctly as strings)
   const allDates = Array.from(new Set(
-    selected.flatMap(stock => stock.series.map(p => p.date))
+    selected.flatMap((stock) => stock.series.map((p) => p.date)),
   )).sort();
 
   if (allDates.length === 0) return [];
 
   // 各銘柄の各日付における価格をマッピング（データがない場合は前の日の価格を使用：フォワードフィル）
-  const stockPriceMatrix = selected.map(stock => {
-    const priceMap = new Map(stock.series.map(p => [p.date, p.close]));
+  const stockPriceMatrix = selected.map((stock) => {
+    const priceMap = new Map(stock.series.map((p) => [p.date, p.close]));
     let lastPrice = 0;
-    
-    return allDates.map(date => {
+
+    return allDates.map((date) => {
       const price = priceMap.get(date);
       if (price !== undefined && price > 0) {
         lastPrice = price;
@@ -46,12 +55,12 @@ export function calculateCustomIndex(basket: BasketItem[], stockUniverse: StockS
   });
 
   // 基準日の価格（全銘柄の最初の有効な価格）を取得
-  const basePrices = stockPriceMatrix.map(prices => {
-    return prices.find(p => p > 0) || 0;
+  const basePrices = stockPriceMatrix.map((prices) => {
+    return prices.find((p) => p > 0) || 0;
   });
 
   // いずれかの銘柄で一度も価格が取れなかった場合は計算不可
-  if (basePrices.some(bp => bp === 0)) return [];
+  if (basePrices.some((bp) => bp === 0)) return [];
 
   return allDates.map((date, dateIndex) => {
     // この日付で有効なデータ（価格 > 0 かつ 基準価格が存在する）を持つ銘柄を抽出
@@ -62,7 +71,7 @@ export function calculateCustomIndex(basket: BasketItem[], stockUniverse: StockS
     });
 
     if (availableStocks.length === 0) {
-      return { date, value: baseValue };
+      return { date, value: safeBase, close: safeBase };
     }
 
     // 利用可能な銘柄の合計ウェイトを計算して再正規化
@@ -72,12 +81,13 @@ export function calculateCustomIndex(basket: BasketItem[], stockUniverse: StockS
       const stockIndex = tickerIndexMap.get(stock.ticker)!;
       const start = basePrices[stockIndex];
       const current = stockPriceMatrix[stockIndex][dateIndex];
-      
+
       // ウェイトを再正規化して適用
       const normalizedWeight = stock.weight / totalWeightOfAvailable;
       return sum + (current / start) * normalizedWeight;
     }, 0);
 
-    return { date, value: Number((baseValue * weightedRelative).toFixed(2)) };
+    const calculatedValue = Number((safeBase * weightedRelative).toFixed(2));
+    return { date, value: calculatedValue, close: calculatedValue };
   });
 }

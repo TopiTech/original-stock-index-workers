@@ -18,15 +18,20 @@ export function useIndices() {
         return res.json();
       })
       .then((data: CustomIndex[]) => {
+        if (controller.signal.aborted) return;
         setIndices(data);
         if (data.length > 0) setSelectedIndex(data[0]);
       })
       .catch((err) => {
-        if (err.name !== "AbortError") {
+        if (err.name !== "AbortError" && !controller.signal.aborted) {
           setError(err.message);
         }
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      });
 
     return () => controller.abort();
   }, []);

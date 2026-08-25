@@ -15,10 +15,15 @@ import type { CustomIndex } from "./data/indices";
 export default function App() {
   const { indices, selectedIndex, selectIndex, loading: loadingIndices, error: indicesError } = useIndices();
   const { nikkeiData, loading: loadingNikkei, error: nikkeiError } = useNikkei();
-  const { customSeries, loading: loadingCalc, syncing, syncProgress, syncWarnings, error: calcError } = useCalculation(selectedIndex);
-
-  const errors = [indicesError, nikkeiError, calcError].filter(Boolean) as string[];
-  const error = errors[0] ?? null;
+  const {
+    customSeries,
+    loading: loadingCalc,
+    syncing,
+    syncProgress,
+    syncWarnings,
+    error: calcError,
+    recalculate,
+  } = useCalculation(selectedIndex);
 
   const handleSelectIndex = useCallback((index: CustomIndex) => {
     selectIndex(index);
@@ -29,8 +34,13 @@ export default function App() {
     return buildChartData(nikkeiData.series, customSeries, selectedIndex.baseValue);
   }, [nikkeiData, customSeries, selectedIndex]);
 
-  if (error) {
-    return <ErrorFallback error={errors.join(" / ")} onRetry={() => window.location.reload()} />;
+  const latestNikkeiNormalized = useMemo(() => {
+    if (chartData.length === 0) return undefined;
+    return chartData[chartData.length - 1]?.nikkei;
+  }, [chartData]);
+
+  if (indicesError) {
+    return <ErrorFallback error={indicesError} onRetry={() => window.location.reload()} />;
   }
 
   if (loadingIndices) {
@@ -52,6 +62,7 @@ export default function App() {
           selectedIndexName={selectedIndex?.name || "---"}
           latestCustomValue={customSeries[customSeries.length - 1]?.value ?? selectedIndex?.baseValue ?? 0}
           loading={loadingCalc}
+          nikkeiNormalizedValue={latestNikkeiNormalized}
         />
       </motion.div>
 
@@ -89,6 +100,8 @@ export default function App() {
                 syncWarnings={syncWarnings}
                 latestValue={customSeries[customSeries.length - 1]?.value}
                 baseValue={selectedIndex?.baseValue}
+                error={calcError}
+                onRetry={recalculate}
               />
             </motion.div>
           </AnimatePresence>

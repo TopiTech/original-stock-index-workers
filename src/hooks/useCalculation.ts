@@ -14,7 +14,12 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
   const abortRef = useRef<AbortController | null>(null);
 
   const calculate = useCallback(async () => {
-    if (!selectedIndex) return;
+    if (!selectedIndex) {
+      setCustomSeries([]);
+      setLoading(false);
+      setSyncing(false);
+      return;
+    }
 
     // Abort previous request to prevent race conditions
     if (abortRef.current) {
@@ -33,14 +38,13 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
       // 全銘柄の同期を走らせる
       if (selectedIndex.basket.length > 0) {
         setSyncing(true);
-        const BATCH_SIZE = 40;
+        const BATCH_SIZE = 100;
         const tickers = selectedIndex.basket.map((b) => b.ticker);
         const warnings: string[] = [];
 
         for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
           if (controller.signal.aborted) return;
 
-          setSyncProgress(Math.round((i / tickers.length) * 100));
           const chunk = tickers.slice(i, i + BATCH_SIZE);
           try {
             const syncRes = await fetch(`${API_BASE}/sync-prices`, {
@@ -49,6 +53,8 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
               body: JSON.stringify({ tickers: chunk }),
               signal: controller.signal,
             });
+            if (controller.signal.aborted) return;
+
             if (!syncRes.ok) {
               warnings.push(`同期バッチ ${Math.floor(i / BATCH_SIZE) + 1} が失敗しました`);
             } else {
@@ -63,11 +69,14 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
               }
             }
           } catch (err) {
-            if (err instanceof DOMException && err.name === "AbortError") return;
+            if (controller.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) return;
             warnings.push(`同期バッチ ${Math.floor(i / BATCH_SIZE) + 1} で通信エラー`);
           }
+
+          if (controller.signal.aborted) return;
+          setSyncProgress(Math.round(((i + chunk.length) / tickers.length) * 100));
         }
-        setSyncProgress(100);
+        if (controller.signal.aborted) return;
         setSyncing(false);
         if (warnings.length > 0) {
           setSyncWarnings(warnings);
@@ -90,13 +99,14 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
 
       if (!res.ok) throw new Error("指数の計算に失敗しました");
       const data = await res.json();
+      if (controller.signal.aborted) return;
       setCustomSeries(data.series);
     } catch (err: unknown) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
+      if (controller.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) return;
       const message = err instanceof Error ? err.message : "計算に失敗しました";
       setError(message);
     } finally {
-      if (!abortRef.current?.signal.aborted) {
+      if (!controller.signal.aborted) {
         setLoading(false);
         setSyncing(false);
       }
