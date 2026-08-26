@@ -33,6 +33,9 @@ async function fetchYahooFinance(symbol: string): Promise<PricePoint[]> {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1mo`;
   try {
     const res = await fetch(url, {
+      // Abort hung connections so a single slow Yahoo response cannot consume
+      // the entire worker CPU/wall-clock budget for the calling request.
+      signal: AbortSignal.timeout(8000),
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -126,8 +129,12 @@ async function checkRateLimit(env: Env, ip: string, endpoint: string): Promise<b
         .bind(ip, endpoint)
         .run();
     } else {
+      // Use ON CONFLICT DO UPDATE so concurrent first-window requests for the
+      // same (ip, endpoint) atomically increment the counter instead of having
+      // the second write overwrite the first (which INSERT OR REPLACE does,
+      // because it deletes + reinserts with the hard-coded count=1).
       await env.DB.prepare(
-        "INSERT OR REPLACE INTO rate_limits (ip, endpoint, request_count, window_start) VALUES (?, ?, 1, ?)",
+        "INSERT INTO rate_limits (ip, endpoint, request_count, window_start) VALUES (?, ?, 1, ?) ON CONFLICT(ip, endpoint) DO UPDATE SET request_count = request_count + 1, window_start = excluded.window_start",
       )
         .bind(ip, endpoint, now)
         .run();
@@ -337,6 +344,13 @@ export default {
                 await env.DB.batch(statements);
                 return { ticker, status: "synced", count: series.length };
               }
+              // Record the attempt in sync_logs so the next request within
+              // CACHE_DURATION short-circuits instead of re-hitting Yahoo.
+              await env.DB.prepare(
+                "INSERT OR REPLACE INTO sync_logs (ticker, last_synced_at) VALUES (?, ?)",
+              )
+                .bind(ticker, now)
+                .run();
               return { ticker, status: "failed" };
             }),
           );
