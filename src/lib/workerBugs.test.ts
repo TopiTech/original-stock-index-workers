@@ -42,17 +42,17 @@ function createStatefulEnv(): StatefulEnv {
     }
     if (query.includes("INSERT INTO rate_limits")) {
       // INSERT INTO ... ON CONFLICT DO UPDATE SET request_count = CASE WHEN ...
-      // Params: [ip, endpoint, now, now, RATE_LIMIT_WINDOW]
+      // Params: [ip, endpoint, now, now, RATE_LIMIT_WINDOW, now, RATE_LIMIT_WINDOW]
       const [ip, endpoint, , now, rateLimitWindow] = params as [string, string, number, number, number];
       const k = `${ip}::${endpoint}`;
       const existing = env._rateLimits.get(k);
       if (existing) {
         if (existing.window_start < now - rateLimitWindow) {
           existing.request_count = 1;
+          existing.window_start = now;
         } else {
           existing.request_count += 1;
         }
-        existing.window_start = now;
       } else {
         env._rateLimits.set(k, { ip, endpoint, request_count: 1, window_start: now });
       }

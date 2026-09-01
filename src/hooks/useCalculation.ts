@@ -14,10 +14,11 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
   const abortRef = useRef<AbortController | null>(null);
 
   const calculate = useCallback(async () => {
-    if (!selectedIndex) {
+    if (!selectedIndex || selectedIndex.basket.length === 0) {
       setCustomSeries([]);
       setLoading(false);
       setSyncing(false);
+      setError(null);
       return;
     }
 

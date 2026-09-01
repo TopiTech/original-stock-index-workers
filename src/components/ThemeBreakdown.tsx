@@ -100,6 +100,8 @@ export function ThemeBreakdown({
               whileTap={{ scale: 0.98 }}
               className={`theme-chip ${isSelected ? "active" : ""}`}
               onClick={() => onSelectTheme(isSelected ? null : t.theme)}
+              aria-pressed={isSelected}
+              aria-label={`テーマ ${t.theme} 構成比率 ${t.weight.toFixed(1)}%`}
               style={{
                 borderColor: isSelected ? t.color : undefined,
                 color: isSelected ? "#fff" : "var(--text-primary)",

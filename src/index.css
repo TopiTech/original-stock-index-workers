@@ -726,6 +726,8 @@ h3 {
 .table-wrapper {
   max-height: 420px;
   overflow-y: auto;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.2);
@@ -733,6 +735,7 @@ h3 {
 
 .custom-table {
   width: 100%;
+  min-width: 520px;
   border-collapse: collapse;
   font-size: 13px;
   text-align: left;

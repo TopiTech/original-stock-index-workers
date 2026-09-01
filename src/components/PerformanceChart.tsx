@@ -89,8 +89,10 @@ export function PerformanceChart({
     const endVal = filteredData[filteredData.length - 1].value;
     const periodReturn = startVal > 0 ? ((endVal - startVal) / startVal) * 100 : 0;
 
+    const startNikkei = filteredData[0].nikkei;
     const lastNikkei = filteredData[filteredData.length - 1].nikkei;
-    const alpha = lastNikkei > 0 ? ((endVal - lastNikkei) / lastNikkei) * 100 : 0;
+    const nikkeiReturn = startNikkei > 0 ? ((lastNikkei - startNikkei) / startNikkei) * 100 : 0;
+    const alpha = periodReturn - nikkeiReturn;
 
     return {
       min: minVal,
@@ -235,6 +237,8 @@ export function PerformanceChart({
                 tickLine={false}
                 axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
                 tick={{ fill: "#94a3b8", fontSize: 11, fontFamily: "var(--mono-font)" }}
+                tickFormatter={(d: string) => (typeof d === "string" && d.length >= 10 ? d.slice(5) : d)}
+                minTickGap={24}
               />
 
               <YAxis

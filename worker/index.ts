@@ -56,10 +56,10 @@ async function fetchYahooFinance(symbol: string): Promise<PricePoint[]> {
     return timestamps
       .map((ts: number, i: number) => {
         const date = new Date(ts * 1000);
-        // YYYY-MM-DD format: year-aware, sortable across year boundaries
-        const yyyy = date.getFullYear();
-        const mm = String(date.getMonth() + 1).padStart(2, "0");
-        const dd = String(date.getDate()).padStart(2, "0");
+        // YYYY-MM-DD format: year-aware, sortable across year boundaries (UTC-consistent)
+        const yyyy = date.getUTCFullYear();
+        const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
+        const dd = String(date.getUTCDate()).padStart(2, "0");
         return {
           date: `${yyyy}-${mm}-${dd}`,
           close: typeof closes[i] === "number" ? Number(closes[i].toFixed(2)) : 0,
@@ -144,9 +144,9 @@ async function checkRateLimit(env: Env, ip: string, endpoint: string): Promise<b
       // because it deletes + reinserts with the hard-coded count=1).
       // CASE resets the counter to 1 when the previous window has expired.
       await env.DB.prepare(
-        "INSERT INTO rate_limits (ip, endpoint, request_count, window_start) VALUES (?, ?, 1, ?) ON CONFLICT(ip, endpoint) DO UPDATE SET request_count = CASE WHEN rate_limits.window_start < ? - ? THEN 1 ELSE rate_limits.request_count + 1 END, window_start = excluded.window_start",
+        "INSERT INTO rate_limits (ip, endpoint, request_count, window_start) VALUES (?, ?, 1, ?) ON CONFLICT(ip, endpoint) DO UPDATE SET request_count = CASE WHEN rate_limits.window_start < ? - ? THEN 1 ELSE rate_limits.request_count + 1 END, window_start = CASE WHEN rate_limits.window_start < ? - ? THEN excluded.window_start ELSE rate_limits.window_start END",
       )
-        .bind(ip, endpoint, now, now, RATE_LIMIT_WINDOW)
+        .bind(ip, endpoint, now, now, RATE_LIMIT_WINDOW, now, RATE_LIMIT_WINDOW)
         .run();
     }
     return true;
@@ -246,11 +246,13 @@ export default {
         for (const row of results as D1Row[]) {
           const id = String(row.id);
           if (!indicesMap.has(id)) {
+            const rawBase = Number(row.base_value);
+            const baseValue = Number.isFinite(rawBase) && rawBase > 0 ? rawBase : 1000;
             indicesMap.set(id, {
               id,
               name: String(row.name),
               description: row.description ? String(row.description) : "",
-              baseValue: Number(row.base_value),
+              baseValue,
               basket: [],
             });
           }

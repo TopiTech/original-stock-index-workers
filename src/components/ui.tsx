@@ -46,11 +46,13 @@ export function SearchInput({
   onChange,
   placeholder = "検索...",
   className = "",
+  ariaLabel,
 }: {
   value: string;
   onChange: (val: string) => void;
   placeholder?: string;
   className?: string;
+  ariaLabel?: string;
 }) {
   return (
     <div className={`input-search-wrapper ${className}`}>
@@ -61,6 +63,7 @@ export function SearchInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        aria-label={ariaLabel || placeholder}
       />
     </div>
   );
@@ -78,13 +81,14 @@ export function ButtonGroup<T extends string>({
   className?: string;
 }) {
   return (
-    <div className={`btn-group ${className}`}>
+    <div className={`btn-group ${className}`} role="group">
       {items.map((item) => (
         <button
           key={item.value}
           type="button"
           className={`btn-group-item ${active === item.value ? "active" : ""}`}
           onClick={() => onChange(item.value)}
+          aria-pressed={active === item.value}
         >
           {item.label}
         </button>

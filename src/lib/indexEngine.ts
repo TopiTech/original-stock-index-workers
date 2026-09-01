@@ -6,7 +6,7 @@ export function normalizeWeights(items: BasketItem[]): BasketItem[] {
     weight: typeof item.weight === "number" && Number.isFinite(item.weight) && item.weight > 0 ? item.weight : 0,
   }));
   const total = safeItems.reduce((sum, item) => sum + item.weight, 0);
-  if (total <= 0) return items;
+  if (total <= 0) return safeItems;
   return safeItems.map((item) => ({
     ...item,
     weight: Number(((item.weight / total) * 100).toFixed(4)),
@@ -82,8 +82,10 @@ export function calculateCustomIndex(
       const start = basePrices[stockIndex];
       const current = stockPriceMatrix[stockIndex][dateIndex];
 
-      // ウェイトを再正規化して適用
-      const normalizedWeight = stock.weight / totalWeightOfAvailable;
+      // ウェイトを再正規化して適用 (合計ウェイトが0の場合は均等配分)
+      const normalizedWeight = totalWeightOfAvailable > 0
+        ? stock.weight / totalWeightOfAvailable
+        : 1 / availableStocks.length;
       return sum + (current / start) * normalizedWeight;
     }, 0);
 

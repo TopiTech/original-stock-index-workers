@@ -201,4 +201,22 @@ describe("calculateCustomIndex", () => {
     // Day 2: A is 120 (1.20), B is 220 (1.10) -> 1000 * (0.60 + 0.55) = 1150
     expect(result[2].value).toBe(1150);
   });
+
+  it("handles all zero weights without producing NaN", () => {
+    const basket: BasketItem[] = [
+      { ticker: "A", name: "Stock A", theme: "t", weight: 0 },
+      { ticker: "B", name: "Stock B", theme: "t", weight: 0 },
+    ];
+    const universe: StockSeries[] = [
+      makeStock("A", 1000, [1.0, 1.1]),
+      makeStock("B", 2000, [1.0, 1.0]),
+    ];
+    const result = calculateCustomIndex(basket, universe, 1000);
+    expect(result.length).toBe(2);
+    expect(Number.isNaN(result[0].value)).toBe(false);
+    expect(Number.isNaN(result[1].value)).toBe(false);
+    expect(result[0].value).toBe(1000);
+    // Both stocks weighted equally (50% each): (1.1 * 0.5 + 1.0 * 0.5) * 1000 = 1050
+    expect(result[1].value).toBe(1050);
+  });
 });

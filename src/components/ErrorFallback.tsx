@@ -1,3 +1,4 @@
+import { Component, type ErrorInfo, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { Card } from "./ui";
@@ -65,3 +66,45 @@ export function ErrorFallback({ error, onRetry }: ErrorFallbackProps) {
     </div>
   );
 }
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  public state: ErrorBoundaryState = {
+    hasError: false,
+    error: null,
+  };
+
+  public static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("Uncaught error in component tree:", error, errorInfo);
+  }
+
+  private handleReset = () => {
+    this.setState({ hasError: false, error: null });
+  };
+
+  public render() {
+    if (this.state.hasError) {
+      return (
+        <ErrorFallback
+          error={this.state.error?.message || "予期しないエラーが発生しました"}
+          onRetry={this.handleReset}
+        />
+      );
+    }
+
+    return this.props.children;
+  }
+}
+

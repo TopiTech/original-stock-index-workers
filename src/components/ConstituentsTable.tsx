@@ -133,7 +133,7 @@ export function ConstituentsTable({ basket, selectedTheme }: ConstituentsTablePr
                   <tr key={item.ticker}>
                     <td>
                       <a
-                        href={`https://finance.yahoo.co.jp/quote/${item.ticker}.T`}
+                        href={`https://finance.yahoo.co.jp/quote/${item.ticker.includes(".") ? item.ticker : `${item.ticker}.T`}`}
                         target="_blank"
                         rel="noreferrer"
                         className="tag mono row"
