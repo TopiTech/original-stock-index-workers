@@ -101,4 +101,25 @@ describe("buildChartData", () => {
     expect(resultInvalid[0].nikkei).toBe(1000);
     expect(resultInvalid[1].nikkei).toBe(1200);
   });
+
+  it("filters out customSeries dates prior to nikkei start date to avoid flat line", () => {
+    const nikkei: PricePoint[] = [
+      { date: "2026-08-01", close: 38000 },
+      { date: "2026-08-02", close: 39900 },
+    ];
+    const custom: PricePoint[] = [
+      { date: "2026-04-01", close: 1000, value: 1000 },
+      { date: "2026-05-01", close: 1020, value: 1020 },
+      { date: "2026-08-01", close: 1050, value: 1050 },
+      { date: "2026-08-02", close: 1100, value: 1100 },
+    ];
+    const result = buildChartData(nikkei, custom, base);
+    expect(result.length).toBe(2);
+    expect(result[0].date).toBe("2026-08-01");
+    expect(result[0].nikkei).toBe(1000);
+    expect(result[0].value).toBe(1050);
+    expect(result[1].date).toBe("2026-08-02");
+    expect(result[1].nikkei).toBe(1050);
+    expect(result[1].value).toBe(1100);
+  });
 });

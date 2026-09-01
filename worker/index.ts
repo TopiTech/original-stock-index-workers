@@ -338,6 +338,7 @@ export default {
               const series = await fetchYahooFinance(symbol);
               if (series.length > 0) {
                 const statements = [
+                  env.DB.prepare("DELETE FROM stock_prices WHERE ticker = ?").bind(ticker),
                   ...series.map((p) =>
                     env.DB.prepare(
                       "INSERT OR REPLACE INTO stock_prices (ticker, date, price) VALUES (?, ?, ?)",

@@ -68,6 +68,13 @@ function createStatefulEnv(): StatefulEnv {
       }
       return { results: rows };
     }
+    if (query.includes("DELETE") && query.includes("stock_prices")) {
+      const [ticker] = params as [string];
+      for (const key of Array.from(env._stockPrices.keys())) {
+        if (key.startsWith(`${ticker}::`)) env._stockPrices.delete(key);
+      }
+      return { results: [] };
+    }
     if (query.includes("INSERT") && query.includes("sync_logs")) {
       const [ticker, lastSyncedAt] = params as [string, number];
       env._syncLogs.set(ticker, { ticker, last_synced_at: lastSyncedAt });
@@ -222,5 +229,55 @@ describe("worker: R3 checkRateLimit first-window race", () => {
     // collapses to 1 because INSERT OR REPLACE overwrites the prior row.
     const row = env._rateLimits.get("9.9.9.9::sync-prices");
     expect(row?.request_count).toBe(5);
+  });
+});
+
+describe("worker: R4 sync-prices replaces stale stock_prices", () => {
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("deletes older cached stock_prices for a ticker when fresh 1-month data is synced", async () => {
+    // Old price from 5 months ago
+    const env = createStatefulEnv();
+    env._stockPrices.set("7203::2026-04-01", { ticker: "7203", date: "2026-04-01", price: 2000 });
+
+    // Yahoo returns fresh 1-month series (August 2026)
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          chart: {
+            result: [
+              {
+                timestamp: [1785542400], // 2026-08-01
+                indicators: { quote: [{ close: [2500] }] },
+              },
+            ],
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+
+    const req = new Request("http://localhost/api/sync-prices", {
+      method: "POST",
+      headers: { "cf-connecting-ip": "1.2.3.4" },
+      body: JSON.stringify({ tickers: ["7203"], force: true }),
+    });
+
+    const res = await worker.fetch(req, env as any);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.results[0].status).toBe("synced");
+
+    // Old price from April should have been deleted
+    expect(env._stockPrices.has("7203::2026-04-01")).toBe(false);
+    // New price from August should be present
+    expect(env._stockPrices.has("7203::2026-08-01")).toBe(true);
   });
 });
