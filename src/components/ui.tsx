@@ -13,25 +13,6 @@ export function Card({
   );
 }
 
-export function Button({
-  children,
-  className = "",
-  variant = "default",
-  size = "md",
-  ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "default" | "outline";
-  size?: "sm" | "md";
-}) {
-  const sizeClass = size === "sm" ? "btn-sm" : "";
-  const variantClass = variant === "outline" ? "btn-outline" : "btn-default";
-  return (
-    <button {...props} className={`btn ${variantClass} ${sizeClass} ${className}`}>
-      {children}
-    </button>
-  );
-}
-
 export function Badge({
   children,
   variant = "cyan",
@@ -148,27 +129,4 @@ export function StatCard({
   );
 }
 
-export function Pill({ children }: PropsWithChildren) {
-  return <span className="pill">{children}</span>;
-}
-
-export function Stat({
-  label,
-  value,
-  icon,
-}: {
-  label: string;
-  value: ReactNode;
-  icon?: ReactNode;
-}) {
-  return (
-    <div className="stat-card">
-      <div className="stat-header">
-        <div className="stat-label">{label}</div>
-        {icon && <div className="stat-icon-wrapper">{icon}</div>}
-      </div>
-      <div className="stat-value-main">{value}</div>
-    </div>
-  );
-}
 

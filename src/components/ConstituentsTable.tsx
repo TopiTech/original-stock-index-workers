@@ -104,26 +104,26 @@ export function ConstituentsTable({ basket, selectedTheme }: ConstituentsTablePr
         <table className="custom-table">
           <thead>
             <tr>
-              <th onClick={() => toggleSort("ticker")} style={{ width: "15%" }}>
-                <span className="row" style={{ gap: 2 }}>
-                  コード {renderSortIcon("ticker")}
-                </span>
-              </th>
-              <th onClick={() => toggleSort("name")} style={{ width: "35%" }}>
-                <span className="row" style={{ gap: 2 }}>
-                  銘柄名 {renderSortIcon("name")}
-                </span>
-              </th>
-              <th onClick={() => toggleSort("theme")} style={{ width: "25%" }}>
-                <span className="row" style={{ gap: 2 }}>
-                  テーマ {renderSortIcon("theme")}
-                </span>
-              </th>
-              <th onClick={() => toggleSort("weight")} style={{ width: "25%", textAlign: "right" }}>
-                <span className="row" style={{ gap: 2, justifyContent: "flex-end" }}>
-                  構成比率 {renderSortIcon("weight")}
-                </span>
-              </th>
+              {(["ticker", "name", "theme", "weight"] as SortField[]).map((field) => {
+                const labels: Record<SortField, string> = { ticker: "コード", name: "銘柄名", theme: "テーマ", weight: "構成比率" };
+                const widths: Record<SortField, string> = { ticker: "15%", name: "35%", theme: "25%", weight: "25%" };
+                const isWeight = field === "weight";
+                return (
+                  <th
+                    key={field}
+                    role="columnheader"
+                    aria-sort={sortField === field ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                    tabIndex={0}
+                    onClick={() => toggleSort(field)}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort(field); } }}
+                    style={{ width: widths[field], textAlign: isWeight ? "right" : undefined }}
+                  >
+                    <span className="row" style={{ gap: 2, justifyContent: isWeight ? "flex-end" : undefined }}>
+                      {labels[field]} {renderSortIcon(field)}
+                    </span>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>

@@ -142,10 +142,11 @@ async function checkRateLimit(env: Env, ip: string, endpoint: string): Promise<b
       // same (ip, endpoint) atomically increment the counter instead of having
       // the second write overwrite the first (which INSERT OR REPLACE does,
       // because it deletes + reinserts with the hard-coded count=1).
+      // CASE resets the counter to 1 when the previous window has expired.
       await env.DB.prepare(
-        "INSERT INTO rate_limits (ip, endpoint, request_count, window_start) VALUES (?, ?, 1, ?) ON CONFLICT(ip, endpoint) DO UPDATE SET request_count = request_count + 1, window_start = excluded.window_start",
+        "INSERT INTO rate_limits (ip, endpoint, request_count, window_start) VALUES (?, ?, 1, ?) ON CONFLICT(ip, endpoint) DO UPDATE SET request_count = CASE WHEN rate_limits.window_start < ? - ? THEN 1 ELSE rate_limits.request_count + 1 END, window_start = excluded.window_start",
       )
-        .bind(ip, endpoint, now)
+        .bind(ip, endpoint, now, now, RATE_LIMIT_WINDOW)
         .run();
     }
     return true;

@@ -41,12 +41,17 @@ function createStatefulEnv(): StatefulEnv {
       return { results: [] };
     }
     if (query.includes("INSERT INTO rate_limits")) {
-      // INSERT INTO ... ON CONFLICT DO UPDATE SET request_count = request_count + 1
-      const [ip, endpoint, , now] = params as [string, string, number, number];
+      // INSERT INTO ... ON CONFLICT DO UPDATE SET request_count = CASE WHEN ...
+      // Params: [ip, endpoint, now, now, RATE_LIMIT_WINDOW]
+      const [ip, endpoint, , now, rateLimitWindow] = params as [string, string, number, number, number];
       const k = `${ip}::${endpoint}`;
       const existing = env._rateLimits.get(k);
       if (existing) {
-        existing.request_count += 1;
+        if (existing.window_start < now - rateLimitWindow) {
+          existing.request_count = 1;
+        } else {
+          existing.request_count += 1;
+        }
         existing.window_start = now;
       } else {
         env._rateLimits.set(k, { ip, endpoint, request_count: 1, window_start: now });
@@ -229,6 +234,54 @@ describe("worker: R3 checkRateLimit first-window race", () => {
     // collapses to 1 because INSERT OR REPLACE overwrites the prior row.
     const row = env._rateLimits.get("9.9.9.9::sync-prices");
     expect(row?.request_count).toBe(5);
+  });
+});
+
+describe("worker: R5 rate limit counter resets after window expires", () => {
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("resets the rate limit counter to 1 when the window expires instead of incrementing from old count", async () => {
+    const env = createStatefulEnv();
+
+    // Pre-populate rate limit state as if 60 requests were made in a previous window
+    // that has now expired (window_start is 120 seconds ago, window is 60 seconds)
+    env._rateLimits.set("10.0.0.1::sync-prices", {
+      ip: "10.0.0.1",
+      endpoint: "sync-prices",
+      request_count: 60,
+      window_start: Math.floor(Date.now() / 1000) - 120,
+    });
+
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          chart: { result: [{ timestamp: [1785542400], indicators: { quote: [{ close: [2500] }] } }] },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+
+    // Make a request after the window expired
+    const res = await worker.fetch(
+      new Request("http://localhost/api/sync-prices", {
+        method: "POST",
+        headers: { "cf-connecting-ip": "10.0.0.1" },
+        body: JSON.stringify({ tickers: ["7203"] }),
+      }),
+      env as any,
+    );
+    expect(res.status).toBe(200);
+
+    // The counter should be reset to 1, not incremented to 61
+    const row = env._rateLimits.get("10.0.0.1::sync-prices");
+    expect(row?.request_count).toBe(1);
   });
 });
 
