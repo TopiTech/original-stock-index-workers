@@ -31,7 +31,16 @@ export function IndexSelector({ indices, selectedIndex, onSelect }: IndexSelecto
             whileTap={{ scale: 0.98 }}
             className={`item ${selectedIndex?.id === idx.id ? "active" : ""}`}
             style={{ cursor: "pointer" }}
+            role="button"
+            tabIndex={0}
+            aria-pressed={selectedIndex?.id === idx.id}
             onClick={() => onSelect(idx)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelect(idx);
+              }
+            }}
           >
             <div style={{ fontWeight: 700, fontSize: 14 }}>{idx.name}</div>
             <div className="muted tiny" style={{ marginTop: 4, lineHeight: 1.5 }}>

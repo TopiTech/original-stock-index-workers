@@ -72,16 +72,25 @@ async function fetchYahooFinance(symbol: string): Promise<PricePoint[]> {
   }
 }
 
+function isAllowedOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    return url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+
 function json(data: unknown, status = 200, request?: Request) {
   const headers: Record<string, string> = {
     "content-type": "application/json; charset=utf-8",
   };
 
-  // Cloudflare Assets 経由で同じドメインから呼ばれる場合は CORS 不要だが、
-  // 開発時やクロスドメインを許容したい場合に備えて Origin をチェックして返す。
+  // Cloudflare Assets 経由で同じドメインから呼ばれる場合は CORS 不要。
+  // 開発時のローカルホストからのクロスドメインリクエストのみ許可。
   if (request) {
     const origin = request.headers.get("origin");
-    if (origin) {
+    if (origin && isAllowedOrigin(origin)) {
       headers["access-control-allow-origin"] = origin;
       headers["access-control-allow-methods"] = "GET,POST,OPTIONS";
       headers["access-control-allow-headers"] = "content-type";
@@ -191,9 +200,6 @@ export default {
           current: latest.close,
           change: prev ? Number((latest.close - prev.close).toFixed(2)) : 0,
           changePct: prev ? Number(((latest.close / prev.close - 1) * 100).toFixed(2)) : 0,
-          open: latest.close,
-          high: latest.close,
-          low: latest.close,
           updatedAt: new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }),
           description: "Yahoo Finance から取得したリアルタイム（遅延あり）データです。",
         };

@@ -439,6 +439,7 @@ h3 {
 
 /* Text utilities */
 .muted { color: #8b95a8; font-family: var(--primary-font); }
+.mono { font-family: var(--mono-font); }
 .tiny { font-size: 12px; }
 .uppercase { text-transform: uppercase; letter-spacing: .15em; }
 .row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
@@ -649,6 +650,13 @@ h3 {
 }
 
 /* Progress Bar */
+.progress-bar-bg {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
 .progress-bar {
   width: 120px;
   height: 4px;

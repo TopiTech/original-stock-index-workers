@@ -66,7 +66,19 @@ function createMockEnv(overrides?: Partial<any>) {
 }
 
 describe("worker fetch handlers", () => {
-  it("handles OPTIONS request with CORS headers", async () => {
+  it("handles OPTIONS request with CORS headers for localhost origin", async () => {
+    const env = createMockEnv();
+    const req = new Request("http://localhost/api/health", {
+      method: "OPTIONS",
+      headers: { Origin: "http://localhost:5173" },
+    });
+    const res = await worker.fetch(req, env as any);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:5173");
+    expect(res.headers.get("vary")).toBe("Origin");
+  });
+
+  it("does not set CORS headers for non-localhost origins", async () => {
     const env = createMockEnv();
     const req = new Request("http://localhost/api/health", {
       method: "OPTIONS",
@@ -74,8 +86,7 @@ describe("worker fetch handlers", () => {
     });
     const res = await worker.fetch(req, env as any);
     expect(res.status).toBe(200);
-    expect(res.headers.get("access-control-allow-origin")).toBe("http://example.com");
-    expect(res.headers.get("vary")).toBe("Origin");
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
   });
 
   it("handles GET /api/health", async () => {

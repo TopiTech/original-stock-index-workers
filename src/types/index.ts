@@ -25,9 +25,6 @@ export type Snapshot = {
   current: number;
   change: number;
   changePct: number;
-  open: number;
-  high: number;
-  low: number;
   updatedAt: string;
   description: string;
 };
