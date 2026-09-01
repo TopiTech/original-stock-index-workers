@@ -158,13 +158,14 @@ async function checkRateLimit(env: Env, ip: string, endpoint: string): Promise<b
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    if (request.method === "OPTIONS") return json({ ok: true }, 200, request);
+    try {
+      if (request.method === "OPTIONS") return json({ ok: true }, 200, request);
 
-    const url = new URL(request.url);
+      const url = new URL(request.url);
 
-    if (url.pathname === "/api/health") {
-      return json({ ok: true, service: "original-stock-index-worker" }, 200, request);
-    }
+      if (url.pathname === "/api/health") {
+        return json({ ok: true, service: "original-stock-index-worker" }, 200, request);
+      }
 
     // 日経225スナップショットの取得（D1キャッシュ付き）
     if (url.pathname === "/api/snapshot" && request.method === "GET") {
@@ -493,6 +494,37 @@ export default {
       }
     }
 
-    return env.ASSETS.fetch(request);
+    // 静的アセットの配信（Cloudflare Assets）
+    if (env.ASSETS && typeof env.ASSETS.fetch === "function") {
+      try {
+        const assetRes = await env.ASSETS.fetch(request);
+        const pathname = url.pathname;
+        const headers = new Headers(assetRes.headers);
+
+        // HTML は常に最新を取得させ、ハッシュ付きアセットは長期キャッシュ
+        if (pathname === "/" || pathname === "" || pathname.endsWith(".html")) {
+          headers.set("Cache-Control", "no-cache, no-store, must-revalidate");
+        } else if (pathname.startsWith("/assets/")) {
+          headers.set("Cache-Control", "public, max-age=31536000, immutable");
+        }
+
+        return new Response(assetRes.body, {
+          status: assetRes.status,
+          statusText: assetRes.statusText,
+          headers,
+        });
+      } catch (assetErr) {
+        console.error("Failed to fetch static asset from env.ASSETS:", assetErr);
+        return json({ error: "Failed to load static asset from Cloudflare Assets" }, 502, request);
+      }
+    }
+
+    return json({ error: "Static asset handler not available" }, 404, request);
+  } catch (unhandledErr) {
+    console.error("Unhandled Worker error:", unhandledErr);
+    const message = unhandledErr instanceof Error ? unhandledErr.message : "Internal Server Error";
+    return json({ error: message }, 500, request);
+  }
   },
 };
+

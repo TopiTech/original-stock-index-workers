@@ -186,4 +186,59 @@ describe("worker fetch handlers", () => {
     expect(data.series[0].value).toBe(1000);
     expect(data.series[1].value).toBe(1100);
   });
+
+  it("serves static assets with immutable cache headers for /assets/*", async () => {
+    const env = createMockEnv({
+      ASSETS: {
+        fetch: vi.fn().mockResolvedValue(
+          new Response("console.log('asset')", {
+            status: 200,
+            headers: { "content-type": "application/javascript" },
+          }),
+        ),
+      },
+    });
+    const req = new Request("http://localhost/assets/index-DAfVT__E.js");
+    const res = await worker.fetch(req, env as any);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
+  });
+
+  it("serves HTML with no-cache headers for root", async () => {
+    const env = createMockEnv({
+      ASSETS: {
+        fetch: vi.fn().mockResolvedValue(
+          new Response("<!doctype html><html></html>", {
+            status: 200,
+            headers: { "content-type": "text/html" },
+          }),
+        ),
+      },
+    });
+    const req = new Request("http://localhost/");
+    const res = await worker.fetch(req, env as any);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("no-cache, no-store, must-revalidate");
+  });
+
+  it("safely handles missing env.ASSETS", async () => {
+    const env = createMockEnv({ ASSETS: undefined });
+    const req = new Request("http://localhost/assets/index.js");
+    const res = await worker.fetch(req, env as any);
+    expect(res.status).toBe(404);
+  });
+
+  it("safely catches and handles env.ASSETS.fetch exception without crashing", async () => {
+    const env = createMockEnv({
+      ASSETS: {
+        fetch: vi.fn().mockRejectedValue(new Error("Cloudflare Assets internal failure")),
+      },
+    });
+    const req = new Request("http://localhost/assets/index-DAfVT__E.js");
+    const res = await worker.fetch(req, env as any);
+    expect(res.status).toBe(502);
+    const data = await res.json();
+    expect(data.error).toContain("Failed to load static asset");
+  });
 });
+
