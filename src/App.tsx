@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useIndices } from "./hooks/useIndices";
 import { useNikkei } from "./hooks/useNikkei";
@@ -7,6 +7,8 @@ import { Header } from "./components/Header";
 import { StatsGrid } from "./components/StatsGrid";
 import { IndexSelector } from "./components/IndexSelector";
 import { PerformanceChart } from "./components/PerformanceChart";
+import { ThemeBreakdown } from "./components/ThemeBreakdown";
+import { ConstituentsTable } from "./components/ConstituentsTable";
 import { ErrorFallback } from "./components/ErrorFallback";
 import { LoadingScreen } from "./components/LoadingScreen";
 import { buildChartData } from "./lib/chartData";
@@ -14,7 +16,7 @@ import type { CustomIndex } from "./data/indices";
 
 export default function App() {
   const { indices, selectedIndex, selectIndex, loading: loadingIndices, error: indicesError } = useIndices();
-  const { nikkeiData, loading: loadingNikkei, error: nikkeiError } = useNikkei();
+  const { nikkeiData, loading: loadingNikkei } = useNikkei();
   const {
     customSeries,
     loading: loadingCalc,
@@ -25,7 +27,10 @@ export default function App() {
     recalculate,
   } = useCalculation(selectedIndex);
 
+  const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
+
   const handleSelectIndex = useCallback((index: CustomIndex) => {
+    setSelectedTheme(null);
     selectIndex(index);
   }, [selectIndex]);
 
@@ -52,14 +57,14 @@ export default function App() {
       <Header />
 
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.1 }}
+        transition={{ duration: 0.4, delay: 0.1 }}
       >
         <StatsGrid
           nikkeiData={nikkeiData}
           nikkeiLoading={loadingNikkei}
-          selectedIndexName={selectedIndex?.name || "---"}
+          selectedIndex={selectedIndex}
           latestCustomValue={customSeries[customSeries.length - 1]?.value ?? selectedIndex?.baseValue ?? 0}
           loading={loadingCalc}
           nikkeiNormalizedValue={latestNikkeiNormalized}
@@ -71,9 +76,9 @@ export default function App() {
           <AnimatePresence mode="wait">
             <motion.div
               key="sidebar"
-              initial={{ opacity: 0, x: -20 }}
+              initial={{ opacity: 0, x: -15 }}
               animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.4, delay: 0.2 }}
+              transition={{ duration: 0.35, delay: 0.15 }}
             >
               <IndexSelector
                 indices={indices}
@@ -84,14 +89,17 @@ export default function App() {
           </AnimatePresence>
         </aside>
 
-        <main className="grid">
+        <main className="grid" style={{ gap: 20 }}>
           <AnimatePresence mode="wait">
             <motion.div
               key={selectedIndex?.id || "chart"}
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.4, delay: 0.1 }}
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35 }}
+              className="grid"
+              style={{ gap: 20 }}
             >
+              {/* Main Performance Chart */}
               <PerformanceChart
                 data={chartData}
                 loading={loadingCalc}
@@ -103,6 +111,23 @@ export default function App() {
                 error={calcError}
                 onRetry={recalculate}
               />
+
+              {/* Theme Breakdown Visualizer */}
+              {selectedIndex && selectedIndex.basket.length > 0 && (
+                <ThemeBreakdown
+                  basket={selectedIndex.basket}
+                  selectedTheme={selectedTheme}
+                  onSelectTheme={setSelectedTheme}
+                />
+              )}
+
+              {/* Constituents Full Table */}
+              {selectedIndex && selectedIndex.basket.length > 0 && (
+                <ConstituentsTable
+                  basket={selectedIndex.basket}
+                  selectedTheme={selectedTheme}
+                />
+              )}
             </motion.div>
           </AnimatePresence>
         </main>
@@ -110,3 +135,4 @@ export default function App() {
     </div>
   );
 }
+

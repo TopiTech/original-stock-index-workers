@@ -1,7 +1,8 @@
 import { motion } from "framer-motion";
-import { Gauge, TrendingUp, LayoutGrid, Activity } from "lucide-react";
-import { Stat } from "./ui";
+import { Gauge, TrendingUp, Layers, Activity } from "lucide-react";
+import { StatCard } from "./ui";
 import type { Snapshot } from "../types";
+import type { CustomIndex } from "../data/indices";
 
 const fmt = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 2 });
 const pct = new Intl.NumberFormat("ja-JP", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -9,7 +10,7 @@ const pct = new Intl.NumberFormat("ja-JP", { minimumFractionDigits: 2, maximumFr
 interface StatsGridProps {
   nikkeiData: { snapshot: Snapshot } | null;
   nikkeiLoading: boolean;
-  selectedIndexName: string;
+  selectedIndex: CustomIndex | null;
   latestCustomValue: number;
   loading: boolean;
   nikkeiNormalizedValue?: number;
@@ -18,42 +19,50 @@ interface StatsGridProps {
 export function StatsGrid({
   nikkeiData,
   nikkeiLoading,
-  selectedIndexName,
+  selectedIndex,
   latestCustomValue,
   loading,
   nikkeiNormalizedValue,
 }: StatsGridProps) {
+  const baseValue = selectedIndex?.baseValue ?? 1000;
+  const customReturnPct = baseValue > 0 ? ((latestCustomValue - baseValue) / baseValue) * 100 : 0;
+
   const hasBenchmark = typeof nikkeiNormalizedValue === "number" && nikkeiNormalizedValue > 0 && !loading;
   const benchmarkDiff = hasBenchmark
     ? ((latestCustomValue - nikkeiNormalizedValue) / nikkeiNormalizedValue) * 100
     : 0;
 
+  // Distinct themes
+  const uniqueThemes = new Set(selectedIndex?.basket.map((b) => b.theme) || []);
+
   const items = [
     {
-      label: "日経225",
-      value: nikkeiLoading ? "読込中..." : nikkeiData ? fmt.format(nikkeiData.snapshot.current) : "---",
-      sub: nikkeiData
-        ? `${nikkeiData.snapshot.change >= 0 ? "+" : ""}${fmt.format(nikkeiData.snapshot.change)} (${pct.format(nikkeiData.snapshot.changePct)}%)`
-        : null,
-      icon: <Gauge size={18} />,
-      accent: nikkeiData ? (nikkeiData.snapshot.change >= 0 ? "positive" : "negative") : "neutral",
-    },
-    {
-      label: "選択中の指数",
-      value: selectedIndexName || "---",
-      sub: null,
-      icon: <LayoutGrid size={18} />,
-      accent: "neutral" as const,
-    },
-    {
-      label: "指数値",
+      label: selectedIndex ? `${selectedIndex.name}` : "選択中指数",
       value: loading ? "計算中..." : fmt.format(latestCustomValue),
-      sub: null,
-      icon: <Activity size={18} />,
-      accent: "neutral" as const,
+      trend: loading
+        ? undefined
+        : {
+            text: `${customReturnPct >= 0 ? "+" : ""}${pct.format(customReturnPct)}%`,
+            type: (customReturnPct > 0 ? "positive" : customReturnPct < 0 ? "negative" : "neutral") as "positive" | "negative" | "neutral",
+          },
+      sub: selectedIndex ? `基準値 ${fmt.format(baseValue)}` : undefined,
+      icon: <Activity size={16} />,
+      active: true,
     },
     {
-      label: "ベンチマーク対比",
+      label: "日経225 ベンチマーク",
+      value: nikkeiLoading ? "読込中..." : nikkeiData ? fmt.format(nikkeiData.snapshot.current) : "---",
+      trend: nikkeiData
+        ? {
+            text: `${nikkeiData.snapshot.changePct >= 0 ? "+" : ""}${pct.format(nikkeiData.snapshot.changePct)}%`,
+            type: (nikkeiData.snapshot.changePct > 0 ? "positive" : nikkeiData.snapshot.changePct < 0 ? "negative" : "neutral") as "positive" | "negative" | "neutral",
+          }
+        : undefined,
+      sub: nikkeiData ? `前日比 ${nikkeiData.snapshot.change >= 0 ? "+" : ""}${fmt.format(nikkeiData.snapshot.change)}` : undefined,
+      icon: <Gauge size={16} />,
+    },
+    {
+      label: "対日経アルファ (超過収益)",
       value: loading
         ? "計算中..."
         : nikkeiLoading
@@ -61,45 +70,56 @@ export function StatsGrid({
           : hasBenchmark
             ? `${benchmarkDiff > 0 ? "+" : ""}${pct.format(benchmarkDiff)}%`
             : "---",
+      trend: hasBenchmark
+        ? {
+            text: benchmarkDiff > 0 ? "OUTPERFORM" : benchmarkDiff < 0 ? "UNDERPERFORM" : "NEUTRAL",
+            type: (benchmarkDiff > 0 ? "positive" : benchmarkDiff < 0 ? "negative" : "neutral") as "positive" | "negative" | "neutral",
+          }
+        : undefined,
       sub: hasBenchmark
         ? benchmarkDiff > 0
-          ? "日経225をアウトパフォーム"
+          ? "日経225を上回る推移"
           : benchmarkDiff < 0
-            ? "日経225をアンダーパフォーム"
-            : "日経225と同等"
-        : null,
-      icon: <TrendingUp size={18} />,
-      accent: hasBenchmark
-        ? benchmarkDiff > 0
-          ? "positive"
-          : benchmarkDiff < 0
-            ? "negative"
-            : "neutral"
-        : ("neutral" as const),
+            ? "日経225を下回る推移"
+            : "日経225と同等の推移"
+        : undefined,
+      icon: <TrendingUp size={16} />,
+    },
+    {
+      label: "構成バスケット概要",
+      value: selectedIndex ? `${selectedIndex.basket.length} 銘柄` : "---",
+      sub: selectedIndex ? `${uniqueThemes.size} テーマカテゴリ` : undefined,
+      trend: selectedIndex
+        ? {
+            text: `BASE ${selectedIndex.baseValue}`,
+            type: "neutral" as const,
+          }
+        : undefined,
+      icon: <Layers size={16} />,
     },
   ];
+
 
   return (
     <div className="grid grid-4">
       {items.map((item, i) => (
         <motion.div
           key={item.label}
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: i * 0.1, duration: 0.5 }}
+          transition={{ delay: i * 0.08, duration: 0.4 }}
         >
-          <Stat
+          <StatCard
             label={item.label}
-            value={
-              <div>
-                <div className={`stat-value ${item.accent}`}>{item.value}</div>
-                {item.sub && <div className="muted tiny" style={{ marginTop: 4 }}>{item.sub}</div>}
-              </div>
-            }
+            value={item.value}
+            trend={item.trend}
+            sub={item.sub}
             icon={item.icon}
+            active={item.active}
           />
         </motion.div>
       ))}
     </div>
   );
 }
+
