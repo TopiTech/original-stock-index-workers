@@ -188,8 +188,6 @@ export default {
 
         const BENCHMARK_MAP: Record<string, { label: string; desc: string }> = {
           "^N225": { label: "日経225", desc: "日経平均株価 (日足)" },
-          "^TOPX": { label: "TOPIX", desc: "東証株価指数 (日足)" },
-          "^TSI250": { label: "東証グロース250", desc: "東証グロース市場250指数 (日足)" },
           "^GSPC": { label: "S&P 500", desc: "S&P 500 米国株価指数" },
           "USDJPY=X": { label: "米ドル/円", desc: "USD/JPY 為替レート" },
         };
