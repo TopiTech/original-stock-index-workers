@@ -150,4 +150,50 @@ describe("integration: worker indices query edge cases", () => {
     const data = await res.json();
     expect(data[0].basket).toEqual([]);
   });
+
+  it("creates and deletes a custom user index via worker API", async () => {
+    const mockBatch = vi.fn().mockResolvedValue([]);
+    const mockPrepare = vi.fn().mockReturnValue({
+      bind: vi.fn().mockReturnThis(),
+      run: vi.fn().mockResolvedValue({}),
+      all: vi.fn().mockResolvedValue({ results: [] }),
+    });
+
+    const mockEnv = {
+      ASSETS: { fetch: vi.fn() },
+      DB: {
+        prepare: mockPrepare,
+        batch: mockBatch,
+      },
+    };
+
+    // POST /api/indices
+    const postReq = new Request("http://localhost/api/indices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "custom-test-1",
+        name: "My Tech Index",
+        description: "Test description",
+        baseValue: 1000,
+        basket: [{ ticker: "9984", name: "SBG", weight: 100, theme: "AI" }],
+      }),
+    });
+
+    const postRes = await worker.fetch(postReq, mockEnv as any);
+    expect(postRes.status).toBe(200);
+    const postData = await postRes.json();
+    expect(postData.ok).toBe(true);
+    expect(mockBatch).toHaveBeenCalled();
+
+    // DELETE /api/indices?id=custom-test-1
+    const delReq = new Request("http://localhost/api/indices?id=custom-test-1", {
+      method: "DELETE",
+    });
+    const delRes = await worker.fetch(delReq, mockEnv as any);
+    expect(delRes.status).toBe(200);
+    const delData = await delRes.json();
+    expect(delData.ok).toBe(true);
+  });
 });
+

@@ -1,7 +1,7 @@
-import { useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, Tag, Badge, SearchInput } from "./ui";
-import { Layers, CheckCircle2, TrendingUp } from "lucide-react";
+import { Layers, CheckCircle2, Plus, Trash2 } from "lucide-react";
 import type { CustomIndex } from "../data/indices";
 import { normalizeWeights } from "../lib/indexEngine";
 
@@ -9,9 +9,17 @@ interface IndexSelectorProps {
   indices: CustomIndex[];
   selectedIndex: CustomIndex | null;
   onSelect: (index: CustomIndex) => void;
+  onCreateIndex?: () => void;
+  onDeleteIndex?: (id: string) => void;
 }
 
-export function IndexSelector({ indices, selectedIndex, onSelect }: IndexSelectorProps) {
+export function IndexSelector({
+  indices,
+  selectedIndex,
+  onSelect,
+  onCreateIndex,
+  onDeleteIndex,
+}: IndexSelectorProps) {
   const [search, setSearch] = useState("");
 
   const filteredIndices = useMemo(() => {
@@ -21,7 +29,7 @@ export function IndexSelector({ indices, selectedIndex, onSelect }: IndexSelecto
       (idx) =>
         idx.name.toLowerCase().includes(q) ||
         idx.description.toLowerCase().includes(q) ||
-        idx.basket.some((b) => b.name.toLowerCase().includes(q) || b.ticker.includes(q))
+        idx.basket.some((b) => b.name.toLowerCase().includes(q) || b.ticker.includes(q)),
     );
   }, [indices, search]);
 
@@ -44,6 +52,17 @@ export function IndexSelector({ indices, selectedIndex, onSelect }: IndexSelecto
         <Badge variant="cyan">{indices.length} 指数</Badge>
       </div>
 
+      {onCreateIndex && (
+        <button
+          type="button"
+          onClick={onCreateIndex}
+          className="btn btn-default"
+          style={{ width: "100%", marginBottom: 12, padding: "8px 12px" }}
+        >
+          <Plus size={14} /> 独自指数を新規作成
+        </button>
+      )}
+
       <div style={{ marginBottom: 12 }}>
         <SearchInput
           value={search}
@@ -55,6 +74,8 @@ export function IndexSelector({ indices, selectedIndex, onSelect }: IndexSelecto
       <div className="index-list">
         {filteredIndices.map((idx) => {
           const isSelected = selectedIndex?.id === idx.id;
+          const isCustom = idx.id.startsWith("idx-") || idx.id.startsWith("custom-");
+
           return (
             <motion.div
               key={idx.id}
@@ -76,9 +97,33 @@ export function IndexSelector({ indices, selectedIndex, onSelect }: IndexSelecto
                 <div style={{ fontWeight: 700, fontSize: 14, color: isSelected ? "var(--neon-cyan)" : "#fff" }}>
                   {idx.name}
                 </div>
-                {isSelected ? (
-                  <CheckCircle2 size={16} style={{ color: "var(--neon-cyan)", flexShrink: 0 }} />
-                ) : null}
+                <div className="row" style={{ gap: 6 }}>
+                  {isCustom && onDeleteIndex && (
+                    <button
+                      type="button"
+                      onClick={(e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        if (confirm(`指数「${idx.name}」を削除しますか？`)) {
+                          onDeleteIndex(idx.id);
+                        }
+                      }}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        color: "var(--neon-red)",
+                        cursor: "pointer",
+                        padding: 2,
+                        opacity: 0.7,
+                      }}
+                      title="指数を削除"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                  {isSelected ? (
+                    <CheckCircle2 size={16} style={{ color: "var(--neon-cyan)", flexShrink: 0 }} />
+                  ) : null}
+                </div>
               </div>
 
               <div className="muted tiny" style={{ lineHeight: 1.4, marginBottom: 8 }}>
@@ -179,4 +224,3 @@ export function IndexSelector({ indices, selectedIndex, onSelect }: IndexSelecto
     </Card>
   );
 }
-

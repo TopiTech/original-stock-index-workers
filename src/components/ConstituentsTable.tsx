@@ -1,30 +1,102 @@
 import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, Tag, SearchInput } from "./ui";
-import { ExternalLink, ArrowUpDown, ArrowUp, ArrowDown, ListOrdered } from "lucide-react";
-import type { BasketItem } from "../types";
+import {
+  ExternalLink,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  ListOrdered,
+  Download,
+  TrendingUp,
+  TrendingDown,
+} from "lucide-react";
+import type { BasketItem, StockDetail } from "../types";
 import { normalizeWeights } from "../lib/indexEngine";
 
 interface ConstituentsTableProps {
   basket: BasketItem[];
+  stockDetails?: StockDetail[];
   selectedTheme: string | null;
+  indexName?: string;
 }
 
-type SortField = "weight" | "ticker" | "name" | "theme";
+type SortField =
+  | "weight"
+  | "ticker"
+  | "name"
+  | "theme"
+  | "currentPrice"
+  | "changePct"
+  | "contributionPt";
 type SortOrder = "asc" | "desc";
 
-export function ConstituentsTable({ basket, selectedTheme }: ConstituentsTableProps) {
+function Sparkline({ data, isPositive }: { data: number[]; isPositive: boolean }) {
+  if (!data || data.length < 2) return null;
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1;
+  const width = 64;
+  const height = 22;
+
+  const points = data
+    .map((val, idx) => {
+      const x = (idx / (data.length - 1)) * width;
+      const y = height - ((val - min) / range) * (height - 4) - 2;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+
+  const color = isPositive ? "var(--neon-green)" : "var(--neon-red)";
+
+  return (
+    <svg width={width} height={height} style={{ overflow: "visible" }}>
+      <polyline
+        fill="none"
+        stroke={color}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        points={points}
+      />
+    </svg>
+  );
+}
+
+export function ConstituentsTable({
+  basket,
+  stockDetails = [],
+  selectedTheme,
+  indexName = "カスタム指数",
+}: ConstituentsTableProps) {
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<SortField>("weight");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
 
-  // Normalize weights first so they sum to 100%
-  const normalizedBasket = useMemo(() => {
-    return normalizeWeights(basket);
-  }, [basket]);
+  // Merge basket and stockDetails
+  const combinedList = useMemo(() => {
+    const detailsMap = new Map(stockDetails.map((d) => [d.ticker, d]));
+    const normalized = normalizeWeights(basket);
+
+    return normalized.map((item) => {
+      const detail = detailsMap.get(item.ticker);
+      return {
+        ticker: item.ticker,
+        name: item.name,
+        theme: item.theme || "その他",
+        weight: item.weight,
+        currentPrice: detail?.currentPrice ?? 0,
+        change: detail?.change ?? 0,
+        changePct: detail?.changePct ?? 0,
+        contributionPt: detail?.contributionPt ?? 0,
+        contributionPct: detail?.contributionPct ?? 0,
+        sparkline: detail?.sparkline ?? [],
+      };
+    });
+  }, [basket, stockDetails]);
 
   const filteredAndSorted = useMemo(() => {
-    let list = [...normalizedBasket];
+    let list = [...combinedList];
 
     // Filter by selected theme
     if (selectedTheme) {
@@ -38,7 +110,7 @@ export function ConstituentsTable({ basket, selectedTheme }: ConstituentsTablePr
         (item) =>
           item.ticker.toLowerCase().includes(q) ||
           item.name.toLowerCase().includes(q) ||
-          item.theme?.toLowerCase().includes(q)
+          item.theme?.toLowerCase().includes(q),
       );
     }
 
@@ -53,25 +125,31 @@ export function ConstituentsTable({ basket, selectedTheme }: ConstituentsTablePr
         cmp = a.name.localeCompare(b.name, "ja");
       } else if (sortField === "theme") {
         cmp = (a.theme || "").localeCompare(b.theme || "", "ja");
+      } else if (sortField === "currentPrice") {
+        cmp = a.currentPrice - b.currentPrice;
+      } else if (sortField === "changePct") {
+        cmp = a.changePct - b.changePct;
+      } else if (sortField === "contributionPt") {
+        cmp = a.contributionPt - b.contributionPt;
       }
       return sortOrder === "asc" ? cmp : -cmp;
     });
 
     return list;
-  }, [normalizedBasket, selectedTheme, search, sortField, sortOrder]);
+  }, [combinedList, selectedTheme, search, sortField, sortOrder]);
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
       setSortOrder(sortOrder === "asc" ? "desc" : "asc");
     } else {
       setSortField(field);
-      setSortOrder(field === "weight" ? "desc" : "asc");
+      setSortOrder(field === "weight" || field === "changePct" || field === "contributionPt" ? "desc" : "asc");
     }
   };
 
   const renderSortIcon = (field: SortField) => {
     if (sortField !== field) {
-      return <ArrowUpDown size={12} style={{ opacity: 0.4, marginLeft: 4 }} />;
+      return <ArrowUpDown size={12} style={{ opacity: 0.35, marginLeft: 4 }} />;
     }
     return sortOrder === "asc" ? (
       <ArrowUp size={12} style={{ color: "var(--neon-cyan)", marginLeft: 4 }} />
@@ -80,23 +158,65 @@ export function ConstituentsTable({ basket, selectedTheme }: ConstituentsTablePr
     );
   };
 
+  const exportCSV = () => {
+    const headers = [
+      "銘柄コード",
+      "銘柄名",
+      "テーマ",
+      "構成比率(%)",
+      "最新株価(円)",
+      "前日比(%)",
+      "指数寄与度(pt)",
+    ];
+    const rows = filteredAndSorted.map((item) => [
+      item.ticker,
+      `"${item.name.replace(/"/g, '""')}"`,
+      `"${item.theme.replace(/"/g, '""')}"`,
+      item.weight.toFixed(2),
+      item.currentPrice,
+      item.changePct.toFixed(2),
+      item.contributionPt.toFixed(2),
+    ]);
+
+    const csvContent =
+      "data:text/csv;charset=utf-8,\uFEFF" +
+      [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `${indexName}_constituents_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <Card className="section">
       <div className="row space-between flex-wrap" style={{ marginBottom: 16, gap: 12 }}>
         <div className="row" style={{ gap: 8 }}>
           <ListOrdered size={16} style={{ color: "var(--neon-cyan)" }} />
-          <h2 style={{ fontSize: 15, margin: 0 }}>構成銘柄リスト</h2>
+          <h2 style={{ fontSize: 15, margin: 0 }}>構成銘柄リスト & 寄与度分析</h2>
           <Tag variant="cyan" className="mono tiny">
             {filteredAndSorted.length} / {basket.length} 銘柄
           </Tag>
         </div>
 
-        <div style={{ width: "100%", maxWidth: 260 }}>
-          <SearchInput
-            value={search}
-            onChange={setSearch}
-            placeholder="銘柄名・コード・テーマ検索..."
-          />
+        <div className="row flex-wrap" style={{ gap: 8 }}>
+          <div style={{ width: "100%", maxWidth: 220 }}>
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              placeholder="銘柄名・コード・テーマ検索..."
+            />
+          </div>
+          <button
+            type="button"
+            className="btn btn-sm btn-outline"
+            onClick={exportCSV}
+            title="CSV形式でエクスポート"
+          >
+            <Download size={12} /> CSV
+          </button>
         </div>
       </div>
 
@@ -104,84 +224,185 @@ export function ConstituentsTable({ basket, selectedTheme }: ConstituentsTablePr
         <table className="custom-table">
           <thead>
             <tr>
-              {(["ticker", "name", "theme", "weight"] as SortField[]).map((field) => {
-                const labels: Record<SortField, string> = { ticker: "コード", name: "銘柄名", theme: "テーマ", weight: "構成比率" };
-                const widths: Record<SortField, string> = { ticker: "15%", name: "35%", theme: "25%", weight: "25%" };
-                const isWeight = field === "weight";
-                return (
-                  <th
-                    key={field}
-                    role="columnheader"
-                    aria-sort={sortField === field ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
-                    tabIndex={0}
-                    onClick={() => toggleSort(field)}
-                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort(field); } }}
-                    style={{ width: widths[field], textAlign: isWeight ? "right" : undefined }}
-                  >
-                    <span className="row" style={{ gap: 2, justifyContent: isWeight ? "flex-end" : undefined }}>
-                      {labels[field]} {renderSortIcon(field)}
-                    </span>
-                  </th>
-                );
-              })}
+              <th
+                role="columnheader"
+                aria-sort={sortField === "ticker" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                tabIndex={0}
+                onClick={() => toggleSort("ticker")}
+                style={{ width: "11%" }}
+              >
+                <span className="row" style={{ gap: 2 }}>
+                  コード {renderSortIcon("ticker")}
+                </span>
+              </th>
+              <th
+                role="columnheader"
+                aria-sort={sortField === "name" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                tabIndex={0}
+                onClick={() => toggleSort("name")}
+                style={{ width: "24%" }}
+              >
+                <span className="row" style={{ gap: 2 }}>
+                  銘柄名 {renderSortIcon("name")}
+                </span>
+              </th>
+              <th
+                role="columnheader"
+                aria-sort={sortField === "theme" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                tabIndex={0}
+                onClick={() => toggleSort("theme")}
+                style={{ width: "15%" }}
+              >
+                <span className="row" style={{ gap: 2 }}>
+                  テーマ {renderSortIcon("theme")}
+                </span>
+              </th>
+              <th
+                role="columnheader"
+                aria-sort={sortField === "currentPrice" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                tabIndex={0}
+                onClick={() => toggleSort("currentPrice")}
+                style={{ width: "13%", textAlign: "right" }}
+              >
+                <span className="row" style={{ gap: 2, justifyContent: "flex-end" }}>
+                  株価 {renderSortIcon("currentPrice")}
+                </span>
+              </th>
+              <th
+                role="columnheader"
+                aria-sort={sortField === "changePct" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                tabIndex={0}
+                onClick={() => toggleSort("changePct")}
+                style={{ width: "12%", textAlign: "right" }}
+              >
+                <span className="row" style={{ gap: 2, justifyContent: "flex-end" }}>
+                  前日比 {renderSortIcon("changePct")}
+                </span>
+              </th>
+              <th style={{ width: "10%", textAlign: "center" }}>トレンド</th>
+              <th
+                role="columnheader"
+                aria-sort={sortField === "contributionPt" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                tabIndex={0}
+                onClick={() => toggleSort("contributionPt")}
+                style={{ width: "15%", textAlign: "right" }}
+              >
+                <span className="row" style={{ gap: 2, justifyContent: "flex-end" }}>
+                  寄与度 {renderSortIcon("contributionPt")}
+                </span>
+              </th>
+              <th
+                role="columnheader"
+                aria-sort={sortField === "weight" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                tabIndex={0}
+                onClick={() => toggleSort("weight")}
+                style={{ width: "15%", textAlign: "right" }}
+              >
+                <span className="row" style={{ gap: 2, justifyContent: "flex-end" }}>
+                  比率 {renderSortIcon("weight")}
+                </span>
+              </th>
             </tr>
           </thead>
           <tbody>
             <AnimatePresence mode="popLayout">
               {filteredAndSorted.length > 0 ? (
-                filteredAndSorted.map((item) => (
-                  <tr key={item.ticker}>
-                    <td>
-                      <a
-                        href={`https://finance.yahoo.co.jp/quote/${item.ticker.includes(".") ? item.ticker : `${item.ticker}.T`}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="tag mono row"
-                        style={{
-                          textDecoration: "none",
-                          gap: 4,
-                          display: "inline-flex",
-                          transition: "all 0.2s ease",
-                        }}
-                        title="Yahoo!ファイナンスで開く"
-                      >
-                        {item.ticker}
-                        <ExternalLink size={10} style={{ opacity: 0.7 }} />
-                      </a>
-                    </td>
-                    <td>
-                      <span style={{ fontWeight: 500 }}>{item.name}</span>
-                    </td>
-                    <td>
-                      <Tag variant="theme" style={{ fontSize: 11 }}>
-                        {item.theme || "その他"}
-                      </Tag>
-                    </td>
-                    <td>
-                      <div className="row" style={{ justifyContent: "flex-end", gap: 10 }}>
-                        <div className="weight-progress-cell">
-                          <div className="weight-progress-bg">
-                            <motion.div
-                              className="weight-progress-bar"
-                              initial={{ width: 0 }}
-                              animate={{ width: `${Math.min(item.weight * 2.5, 100)}%` }}
-                              transition={{ duration: 0.5 }}
-                            />
+                filteredAndSorted.map((item) => {
+                  const isUp = item.changePct > 0;
+                  const isDown = item.changePct < 0;
+                  return (
+                    <tr key={item.ticker}>
+                      <td>
+                        <a
+                          href={`https://finance.yahoo.co.jp/quote/${item.ticker.includes(".") ? item.ticker : `${item.ticker}.T`}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="tag mono row"
+                          style={{
+                            textDecoration: "none",
+                            gap: 4,
+                            display: "inline-flex",
+                            transition: "all 0.2s ease",
+                          }}
+                          title="Yahoo!ファイナンスで開く"
+                        >
+                          {item.ticker}
+                          <ExternalLink size={10} style={{ opacity: 0.7 }} />
+                        </a>
+                      </td>
+                      <td>
+                        <span style={{ fontWeight: 500 }}>{item.name}</span>
+                      </td>
+                      <td>
+                        <Tag variant="theme" style={{ fontSize: 11 }}>
+                          {item.theme}
+                        </Tag>
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        <span className="mono bold" style={{ fontSize: 12 }}>
+                          {item.currentPrice > 0 ? `¥${item.currentPrice.toLocaleString()}` : "---"}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        <span
+                          className="mono bold row"
+                          style={{
+                            justifyContent: "flex-end",
+                            gap: 2,
+                            color: isUp ? "var(--neon-green)" : isDown ? "var(--neon-red)" : "inherit",
+                          }}
+                        >
+                          {isUp && <TrendingUp size={11} />}
+                          {isDown && <TrendingDown size={11} />}
+                          {item.changePct >= 0 ? "+" : ""}
+                          {item.changePct.toFixed(2)}%
+                        </span>
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        <Sparkline data={item.sparkline} isPositive={item.changePct >= 0} />
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        <span
+                          className="mono bold"
+                          style={{
+                            color:
+                              item.contributionPt > 0
+                                ? "var(--neon-green)"
+                                : item.contributionPt < 0
+                                  ? "var(--neon-red)"
+                                  : "inherit",
+                          }}
+                        >
+                          {item.contributionPt >= 0 ? "+" : ""}
+                          {item.contributionPt.toFixed(2)}pt
+                        </span>
+                      </td>
+                      <td>
+                        <div className="row" style={{ justifyContent: "flex-end", gap: 10 }}>
+                          <div className="weight-progress-cell">
+                            <div className="weight-progress-bg">
+                              <motion.div
+                                className="weight-progress-bar"
+                                initial={{ width: 0 }}
+                                animate={{ width: `${Math.min(item.weight * 2.5, 100)}%` }}
+                                transition={{ duration: 0.5 }}
+                              />
+                            </div>
+                            <span
+                              className="mono tiny"
+                              style={{ minWidth: 42, textAlign: "right", fontWeight: 600 }}
+                            >
+                              {item.weight.toFixed(2)}%
+                            </span>
                           </div>
-                          <span
-                            className="mono tiny"
-                            style={{ minWidth: 42, textAlign: "right", fontWeight: 600 }}
-                          >
-                            {item.weight.toFixed(2)}%
-                          </span>
                         </div>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                    </tr>
+                  );
+                })
               ) : (
                 <tr>
-                  <td colSpan={4} style={{ textAlign: "center", padding: "32px 16px" }}>
+                  <td colSpan={8} style={{ textAlign: "center", padding: "32px 16px" }}>
                     <span className="muted mono tiny">該当する銘柄が見つかりません</span>
                   </td>
                 </tr>

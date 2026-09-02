@@ -1,24 +1,45 @@
 import { useState, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useIndices } from "./hooks/useIndices";
-import { useNikkei } from "./hooks/useNikkei";
+import { useBenchmark } from "./hooks/useBenchmark";
 import { useCalculation } from "./hooks/useCalculation";
 import { Header } from "./components/Header";
 import { StatsGrid } from "./components/StatsGrid";
+import { BenchmarkSelector } from "./components/BenchmarkSelector";
 import { IndexSelector } from "./components/IndexSelector";
 import { PerformanceChart } from "./components/PerformanceChart";
+import { ThemeHeatmap } from "./components/ThemeHeatmap";
 import { ThemeBreakdown } from "./components/ThemeBreakdown";
+import { RiskMetricsCard } from "./components/RiskMetricsCard";
 import { ConstituentsTable } from "./components/ConstituentsTable";
+import { IndexBuilderModal } from "./components/IndexBuilderModal";
 import { ErrorFallback } from "./components/ErrorFallback";
 import { LoadingScreen } from "./components/LoadingScreen";
 import { buildChartData } from "./lib/chartData";
 import type { CustomIndex } from "./data/indices";
 
 export default function App() {
-  const { indices, selectedIndex, selectIndex, loading: loadingIndices, error: indicesError } = useIndices();
-  const { nikkeiData, loading: loadingNikkei } = useNikkei();
+  const {
+    indices,
+    selectedIndex,
+    selectIndex,
+    loading: loadingIndices,
+    error: indicesError,
+    saveCustomIndex,
+    deleteCustomIndex,
+  } = useIndices();
+
+  const {
+    selectedBenchmark,
+    setSelectedBenchmark,
+    benchmarkData,
+    loading: loadingBenchmark,
+    availableBenchmarks,
+  } = useBenchmark("^N225");
+
   const {
     customSeries,
+    stockDetails,
     loading: loadingCalc,
     syncing,
     syncProgress,
@@ -28,18 +49,35 @@ export default function App() {
   } = useCalculation(selectedIndex);
 
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
+  const [isBuilderOpen, setIsBuilderOpen] = useState(false);
 
-  const handleSelectIndex = useCallback((index: CustomIndex) => {
-    setSelectedTheme(null);
-    selectIndex(index);
-  }, [selectIndex]);
+  const handleSelectIndex = useCallback(
+    (index: CustomIndex) => {
+      setSelectedTheme(null);
+      selectIndex(index);
+    },
+    [selectIndex],
+  );
+
+  const currentBenchmarkOption = useMemo(() => {
+    return (
+      availableBenchmarks.find((b) => b.symbol === selectedBenchmark) || availableBenchmarks[0]
+    );
+  }, [availableBenchmarks, selectedBenchmark]);
 
   const chartData = useMemo(() => {
-    if (!nikkeiData || nikkeiData.series.length === 0 || customSeries.length === 0 || !selectedIndex) return [];
-    return buildChartData(nikkeiData.series, customSeries, selectedIndex.baseValue);
-  }, [nikkeiData, customSeries, selectedIndex]);
+    if (
+      !benchmarkData ||
+      benchmarkData.series.length === 0 ||
+      customSeries.length === 0 ||
+      !selectedIndex
+    ) {
+      return [];
+    }
+    return buildChartData(benchmarkData.series, customSeries, selectedIndex.baseValue);
+  }, [benchmarkData, customSeries, selectedIndex]);
 
-  const latestNikkeiNormalized = useMemo(() => {
+  const latestBenchmarkNormalized = useMemo(() => {
     if (chartData.length === 0) return undefined;
     return chartData[chartData.length - 1]?.nikkei;
   }, [chartData]);
@@ -62,12 +100,15 @@ export default function App() {
         transition={{ duration: 0.4, delay: 0.1 }}
       >
         <StatsGrid
-          nikkeiData={nikkeiData}
-          nikkeiLoading={loadingNikkei}
+          benchmarkData={benchmarkData}
+          benchmarkLoading={loadingBenchmark}
           selectedIndex={selectedIndex}
-          latestCustomValue={customSeries[customSeries.length - 1]?.value ?? selectedIndex?.baseValue ?? 0}
+          latestCustomValue={
+            customSeries[customSeries.length - 1]?.value ?? selectedIndex?.baseValue ?? 0
+          }
           loading={loadingCalc}
-          nikkeiNormalizedValue={latestNikkeiNormalized}
+          benchmarkNormalizedValue={latestBenchmarkNormalized}
+          benchmarkLabel={currentBenchmarkOption.shortLabel}
         />
       </motion.div>
 
@@ -84,12 +125,33 @@ export default function App() {
                 indices={indices}
                 selectedIndex={selectedIndex}
                 onSelect={handleSelectIndex}
+                onCreateIndex={() => setIsBuilderOpen(true)}
+                onDeleteIndex={deleteCustomIndex}
               />
             </motion.div>
           </AnimatePresence>
         </aside>
 
         <main className="grid" style={{ gap: 20 }}>
+          {/* Benchmark Selector Bar */}
+          <div
+            className="row space-between flex-wrap"
+            style={{
+              padding: "10px 16px",
+              background: "rgba(13, 19, 38, 0.6)",
+              border: "1px solid var(--border-subtle)",
+              borderRadius: 10,
+              gap: 12,
+            }}
+          >
+            <BenchmarkSelector
+              benchmarks={availableBenchmarks}
+              selectedBenchmark={selectedBenchmark}
+              onSelectBenchmark={setSelectedBenchmark}
+              loading={loadingBenchmark}
+            />
+          </div>
+
           <AnimatePresence mode="wait">
             <motion.div
               key={selectedIndex?.id || "chart"}
@@ -108,9 +170,29 @@ export default function App() {
                 syncWarnings={syncWarnings}
                 latestValue={customSeries[customSeries.length - 1]?.value}
                 baseValue={selectedIndex?.baseValue}
+                benchmarkLabel={currentBenchmarkOption.shortLabel}
                 error={calcError}
                 onRetry={recalculate}
               />
+
+              {/* Quantitative Risk Metrics Card */}
+              {benchmarkData && (
+                <RiskMetricsCard
+                  customSeries={customSeries}
+                  benchmarkSeries={benchmarkData.series}
+                  benchmarkName={currentBenchmarkOption.shortLabel}
+                  loading={loadingCalc || loadingBenchmark}
+                />
+              )}
+
+              {/* Stock Heatmap (TreeMap style) */}
+              {stockDetails.length > 0 && (
+                <ThemeHeatmap
+                  stockDetails={stockDetails}
+                  selectedTheme={selectedTheme}
+                  onSelectTheme={setSelectedTheme}
+                />
+              )}
 
               {/* Theme Breakdown Visualizer */}
               {selectedIndex && selectedIndex.basket.length > 0 && (
@@ -121,18 +203,26 @@ export default function App() {
                 />
               )}
 
-              {/* Constituents Full Table */}
+              {/* Constituents Full Table with Sparklines & Contribution */}
               {selectedIndex && selectedIndex.basket.length > 0 && (
                 <ConstituentsTable
                   basket={selectedIndex.basket}
+                  stockDetails={stockDetails}
                   selectedTheme={selectedTheme}
+                  indexName={selectedIndex.name}
                 />
               )}
             </motion.div>
           </AnimatePresence>
         </main>
       </div>
+
+      {/* Index Builder Modal */}
+      <IndexBuilderModal
+        isOpen={isBuilderOpen}
+        onClose={() => setIsBuilderOpen(false)}
+        onSave={saveCustomIndex}
+      />
     </div>
   );
 }
-

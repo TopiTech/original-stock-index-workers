@@ -35,6 +35,12 @@ CREATE TABLE IF NOT EXISTS snapshot_cache (
     cached_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS benchmark_cache (
+    symbol TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    cached_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS rate_limits (
     ip TEXT NOT NULL,
     endpoint TEXT NOT NULL,
@@ -45,3 +51,4 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 
 CREATE INDEX IF NOT EXISTS idx_stock_prices_ticker ON stock_prices(ticker);
 CREATE INDEX IF NOT EXISTS idx_basket_items_index_id ON basket_items(index_id);
+

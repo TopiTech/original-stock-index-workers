@@ -8,28 +8,30 @@ const fmt = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 2 });
 const pct = new Intl.NumberFormat("ja-JP", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 interface StatsGridProps {
-  nikkeiData: { snapshot: Snapshot } | null;
-  nikkeiLoading: boolean;
+  benchmarkData: { snapshot: Snapshot } | null;
+  benchmarkLoading: boolean;
   selectedIndex: CustomIndex | null;
   latestCustomValue: number;
   loading: boolean;
-  nikkeiNormalizedValue?: number;
+  benchmarkNormalizedValue?: number;
+  benchmarkLabel?: string;
 }
 
 export function StatsGrid({
-  nikkeiData,
-  nikkeiLoading,
+  benchmarkData,
+  benchmarkLoading,
   selectedIndex,
   latestCustomValue,
   loading,
-  nikkeiNormalizedValue,
+  benchmarkNormalizedValue,
+  benchmarkLabel = "日経225",
 }: StatsGridProps) {
   const baseValue = selectedIndex?.baseValue ?? 1000;
   const customReturnPct = baseValue > 0 ? ((latestCustomValue - baseValue) / baseValue) * 100 : 0;
 
-  const hasBenchmark = typeof nikkeiNormalizedValue === "number" && nikkeiNormalizedValue > 0 && !loading;
+  const hasBenchmark = typeof benchmarkNormalizedValue === "number" && benchmarkNormalizedValue > 0 && !loading;
   const benchmarkDiff = hasBenchmark
-    ? ((latestCustomValue - nikkeiNormalizedValue) / nikkeiNormalizedValue) * 100
+    ? ((latestCustomValue - benchmarkNormalizedValue) / benchmarkNormalizedValue) * 100
     : 0;
 
   // Distinct themes
@@ -50,22 +52,22 @@ export function StatsGrid({
       active: true,
     },
     {
-      label: "日経225 ベンチマーク",
-      value: nikkeiLoading ? "読込中..." : nikkeiData ? fmt.format(nikkeiData.snapshot.current) : "---",
-      trend: nikkeiData
+      label: `${benchmarkLabel} ベンチマーク`,
+      value: benchmarkLoading ? "読込中..." : benchmarkData ? fmt.format(benchmarkData.snapshot.current) : "---",
+      trend: benchmarkData
         ? {
-            text: `${nikkeiData.snapshot.changePct >= 0 ? "+" : ""}${pct.format(nikkeiData.snapshot.changePct)}%`,
-            type: (nikkeiData.snapshot.changePct > 0 ? "positive" : nikkeiData.snapshot.changePct < 0 ? "negative" : "neutral") as "positive" | "negative" | "neutral",
+            text: `${benchmarkData.snapshot.changePct >= 0 ? "+" : ""}${pct.format(benchmarkData.snapshot.changePct)}%`,
+            type: (benchmarkData.snapshot.changePct > 0 ? "positive" : benchmarkData.snapshot.changePct < 0 ? "negative" : "neutral") as "positive" | "negative" | "neutral",
           }
         : undefined,
-      sub: nikkeiData ? `前日比 ${nikkeiData.snapshot.change >= 0 ? "+" : ""}${fmt.format(nikkeiData.snapshot.change)}` : undefined,
+      sub: benchmarkData ? `前日比 ${benchmarkData.snapshot.change >= 0 ? "+" : ""}${fmt.format(benchmarkData.snapshot.change)}` : undefined,
       icon: <Gauge size={16} />,
     },
     {
-      label: "対日経アルファ (超過収益)",
+      label: `対${benchmarkLabel} アルファ (超過収益)`,
       value: loading
         ? "計算中..."
-        : nikkeiLoading
+        : benchmarkLoading
           ? "読込中..."
           : hasBenchmark
             ? `${benchmarkDiff > 0 ? "+" : ""}${pct.format(benchmarkDiff)}%`
@@ -78,10 +80,10 @@ export function StatsGrid({
         : undefined,
       sub: hasBenchmark
         ? benchmarkDiff > 0
-          ? "日経225を上回る推移"
+          ? `${benchmarkLabel}を上回る推移`
           : benchmarkDiff < 0
-            ? "日経225を下回る推移"
-            : "日経225と同等の推移"
+            ? `${benchmarkLabel}を下回る推移`
+            : `${benchmarkLabel}と同等の推移`
         : undefined,
       icon: <TrendingUp size={16} />,
     },
@@ -98,7 +100,6 @@ export function StatsGrid({
       icon: <Layers size={16} />,
     },
   ];
-
 
   return (
     <div className="grid grid-4">
@@ -122,4 +123,3 @@ export function StatsGrid({
     </div>
   );
 }
-

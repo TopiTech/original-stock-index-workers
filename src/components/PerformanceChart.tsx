@@ -11,8 +11,10 @@ import {
   Tooltip,
   ReferenceLine,
 } from "recharts";
-import { Loader2, AlertTriangle, RefreshCw, TrendingUp, BarChart2 } from "lucide-react";
-import { Card, ButtonGroup, Tag } from "./ui";
+import { Loader2, AlertTriangle, RefreshCw, BarChart2 } from "lucide-react";
+import { Card, ButtonGroup } from "./ui";
+import type { Timeframe } from "../types";
+import { calculateSMA } from "../lib/analytics";
 
 const fmt = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 2 });
 const pct = new Intl.NumberFormat("ja-JP", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -31,12 +33,12 @@ interface PerformanceChartProps {
   syncWarnings?: string[];
   latestValue?: number;
   baseValue?: number;
+  benchmarkLabel?: string;
   error?: string | null;
   onRetry?: () => void;
 }
 
 type ViewMode = "value" | "percent";
-type Timeframe = "1W" | "2W" | "1M";
 
 export function PerformanceChart({
   data,
@@ -46,38 +48,67 @@ export function PerformanceChart({
   syncWarnings = [],
   latestValue,
   baseValue = 1000,
+  benchmarkLabel = "日経225",
   error,
   onRetry,
 }: PerformanceChartProps) {
   const [viewMode, setViewMode] = useState<ViewMode>("value");
   const [timeframe, setTimeframe] = useState<Timeframe>("1M");
+  const [showSMA5, setShowSMA5] = useState(false);
+  const [showSMA25, setShowSMA25] = useState(false);
 
   // Filter data by timeframe
   const filteredData = useMemo(() => {
     if (data.length === 0) return [];
     if (timeframe === "1W") return data.slice(-5);
-    if (timeframe === "2W") return data.slice(-10);
-    return data;
+    if (timeframe === "1M") return data.slice(-22);
+    if (timeframe === "3M") return data.slice(-65);
+    if (timeframe === "6M") return data.slice(-130);
+    if (timeframe === "YTD") {
+      const currentYear = new Date().getFullYear().toString();
+      const ytdData = data.filter((d) => d.date.startsWith(currentYear));
+      return ytdData.length > 0 ? ytdData : data.slice(-22);
+    }
+    return data; // 1Y
   }, [data, timeframe]);
+
+  // Compute SMA for custom index
+  const sma5 = useMemo(() => {
+    if (!showSMA5 || filteredData.length === 0) return [];
+    return calculateSMA(filteredData.map((d) => d.value), 5);
+  }, [filteredData, showSMA5]);
+
+  const sma25 = useMemo(() => {
+    if (!showSMA25 || filteredData.length === 0) return [];
+    return calculateSMA(filteredData.map((d) => d.value), 25);
+  }, [filteredData, showSMA25]);
 
   // Compute transformed series for % mode vs value mode
   const displayData = useMemo(() => {
     if (filteredData.length === 0) return [];
-    if (viewMode === "value") return filteredData;
+    if (viewMode === "value") {
+      return filteredData.map((d, i) => ({
+        ...d,
+        sma5: sma5[i] ?? undefined,
+        sma25: sma25[i] ?? undefined,
+      }));
+    }
 
     // Percent mode: relative to the first point of the filtered window
     const firstPoint = filteredData[0];
     const firstVal = firstPoint.value || baseValue;
     const firstNikkei = firstPoint.nikkei || baseValue;
 
-    return filteredData.map((d) => ({
+    return filteredData.map((d, i) => ({
       date: d.date,
       value: firstVal > 0 ? ((d.value - firstVal) / firstVal) * 100 : 0,
       nikkei: firstNikkei > 0 ? ((d.nikkei - firstNikkei) / firstNikkei) * 100 : 0,
+      sma5: sma5[i] !== null && firstVal > 0 ? ((sma5[i]! - firstVal) / firstVal) * 100 : undefined,
+      sma25: sma25[i] !== null && firstVal > 0 ? ((sma25[i]! - firstVal) / firstVal) * 100 : undefined,
       rawCustom: d.value,
       rawNikkei: d.nikkei,
     }));
-  }, [filteredData, viewMode, baseValue]);
+  }, [filteredData, viewMode, baseValue, sma5, sma25]);
 
   // Key chart statistics
   const stats = useMemo(() => {
@@ -102,11 +133,6 @@ export function PerformanceChart({
     };
   }, [filteredData]);
 
-  const latestCustomValue = latestValue ?? baseValue;
-  const latestNikkeiValue = data[data.length - 1]?.nikkei ?? baseValue;
-  const performanceDiff =
-    latestNikkeiValue > 0 ? ((latestCustomValue - latestNikkeiValue) / latestNikkeiValue) * 100 : 0;
-
   return (
     <Card className="section">
       {/* Header Controls */}
@@ -117,16 +143,19 @@ export function PerformanceChart({
             <h2 style={{ margin: 0, fontSize: 17 }}>パフォーマンス分析チャート</h2>
           </div>
           <div className="muted tiny" style={{ marginTop: 2 }}>
-            カスタム指数 vs 日経225（正規化比較）
+            独自指数 vs {benchmarkLabel}（基準値正規化・比較）
           </div>
         </div>
 
-        <div className="row flex-wrap" style={{ gap: 10 }}>
+        <div className="row flex-wrap" style={{ gap: 8 }}>
           <ButtonGroup<Timeframe>
             items={[
               { label: "1W", value: "1W" },
-              { label: "2W", value: "2W" },
-              { label: "1M (全期間)", value: "1M" },
+              { label: "1M", value: "1M" },
+              { label: "3M", value: "3M" },
+              { label: "6M", value: "6M" },
+              { label: "YTD", value: "YTD" },
+              { label: "1Y (全期間)", value: "1Y" },
             ]}
             active={timeframe}
             onChange={setTimeframe}
@@ -140,6 +169,28 @@ export function PerformanceChart({
             active={viewMode}
             onChange={setViewMode}
           />
+
+          {/* Technical overlays */}
+          <div className="btn-group">
+            <button
+              type="button"
+              className={`btn-group-item ${showSMA5 ? "active" : ""}`}
+              onClick={() => setShowSMA5(!showSMA5)}
+              style={{ fontSize: 11, padding: "4px 8px" }}
+              title="5日単純移動平均線"
+            >
+              SMA5
+            </button>
+            <button
+              type="button"
+              className={`btn-group-item ${showSMA25 ? "active" : ""}`}
+              onClick={() => setShowSMA25(!showSMA25)}
+              style={{ fontSize: 11, padding: "4px 8px" }}
+              title="25日単純移動平均線"
+            >
+              SMA25
+            </button>
+          </div>
         </div>
       </div>
 
@@ -254,17 +305,19 @@ export function PerformanceChart({
                 content={({ active, payload, label }) => {
                   if (!active || !payload || !payload.length) return null;
                   const customItem = payload.find((p) => p.dataKey === "value");
-                  const nikkeiItem = payload.find((p) => p.dataKey === "nikkei");
+                  const benchItem = payload.find((p) => p.dataKey === "nikkei");
+                  const sma5Item = payload.find((p) => p.dataKey === "sma5");
+                  const sma25Item = payload.find((p) => p.dataKey === "sma25");
 
                   const cVal = customItem?.value as number;
-                  const nVal = nikkeiItem?.value as number;
-                  const spread = cVal !== undefined && nVal !== undefined ? cVal - nVal : null;
+                  const bVal = benchItem?.value as number;
+                  const spread = cVal !== undefined && bVal !== undefined ? cVal - bVal : null;
 
                   return (
                     <div className="custom-tooltip">
                       <div className="tooltip-date">{label}</div>
                       <div className="tooltip-row">
-                        <span style={{ color: "var(--neon-cyan)" }}>カスタム指数:</span>
+                        <span style={{ color: "var(--neon-cyan)" }}>独自指数:</span>
                         <span style={{ fontWeight: 700 }}>
                           {viewMode === "percent"
                             ? `${cVal >= 0 ? "+" : ""}${pct.format(cVal)}%`
@@ -272,13 +325,25 @@ export function PerformanceChart({
                         </span>
                       </div>
                       <div className="tooltip-row">
-                        <span style={{ color: "#94a3b8" }}>日経225:</span>
+                        <span style={{ color: "#94a3b8" }}>{benchmarkLabel}:</span>
                         <span>
                           {viewMode === "percent"
-                            ? `${nVal >= 0 ? "+" : ""}${pct.format(nVal)}%`
-                            : fmt.format(nVal)}
+                            ? `${bVal >= 0 ? "+" : ""}${pct.format(bVal)}%`
+                            : fmt.format(bVal)}
                         </span>
                       </div>
+                      {showSMA5 && sma5Item?.value !== undefined && (
+                        <div className="tooltip-row">
+                          <span style={{ color: "var(--neon-yellow)" }}>SMA (5):</span>
+                          <span>{viewMode === "percent" ? `${pct.format(sma5Item.value as number)}%` : fmt.format(sma5Item.value as number)}</span>
+                        </div>
+                      )}
+                      {showSMA25 && sma25Item?.value !== undefined && (
+                        <div className="tooltip-row">
+                          <span style={{ color: "var(--neon-magenta)" }}>SMA (25):</span>
+                          <span>{viewMode === "percent" ? `${pct.format(sma25Item.value as number)}%` : fmt.format(sma25Item.value as number)}</span>
+                        </div>
+                      )}
                       {spread !== null && (
                         <div
                           className="tooltip-row"
@@ -289,7 +354,7 @@ export function PerformanceChart({
                           }}
                         >
                           <span style={{ color: spread >= 0 ? "var(--neon-green)" : "var(--neon-red)" }}>
-                            乖離 (Spread):
+                            対市場乖離:
                           </span>
                           <span
                             style={{
@@ -330,7 +395,7 @@ export function PerformanceChart({
                 />
               )}
 
-              {/* Nikkei 225 Benchmark Line */}
+              {/* Benchmark Line */}
               <Line
                 type="monotone"
                 dataKey="nikkei"
@@ -340,6 +405,30 @@ export function PerformanceChart({
                 strokeDasharray="4 4"
                 name="nikkei"
               />
+
+              {/* SMA 5 Line */}
+              {showSMA5 && (
+                <Line
+                  type="monotone"
+                  dataKey="sma5"
+                  stroke="var(--neon-yellow)"
+                  strokeWidth={1.5}
+                  dot={false}
+                  name="sma5"
+                />
+              )}
+
+              {/* SMA 25 Line */}
+              {showSMA25 && (
+                <Line
+                  type="monotone"
+                  dataKey="sma25"
+                  stroke="var(--neon-magenta)"
+                  strokeWidth={1.5}
+                  dot={false}
+                  name="sma25"
+                />
+              )}
 
               {/* Custom Index Area & Line */}
               <Area
@@ -418,7 +507,7 @@ export function PerformanceChart({
           </div>
 
           <div className="chart-stat-item">
-            <span className="chart-stat-title">対日経超過幅</span>
+            <span className="chart-stat-title">対ベンチマーク超過幅 (α)</span>
             <span
               className="chart-stat-val"
               style={{
@@ -456,14 +545,15 @@ export function PerformanceChart({
         </div>
       )}
 
-      <div className="row space-between" style={{ marginTop: 14 }}>
+      <div className="row space-between flex-wrap" style={{ marginTop: 14, gap: 8 }}>
         <div className="muted tiny mono">
-          <span style={{ color: "var(--neon-cyan)" }}>―</span> カスタム指数　
-          <span style={{ color: "#64748b" }}>---</span> 日経225 (Base 1,000正規化)
+          <span style={{ color: "var(--neon-cyan)" }}>―</span> 独自指数　
+          <span style={{ color: "#64748b" }}>---</span> {benchmarkLabel} (Base {baseValue}正規化)
+          {showSMA5 && <span style={{ color: "var(--neon-yellow)" }}> ― SMA5</span>}
+          {showSMA25 && <span style={{ color: "var(--neon-magenta)" }}> ― SMA25</span>}
         </div>
         <div className="muted tiny mono">ソース: Yahoo Finance API (日足終値)</div>
       </div>
     </Card>
   );
 }
-

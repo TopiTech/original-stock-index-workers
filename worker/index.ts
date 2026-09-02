@@ -29,8 +29,8 @@ interface BasketItemInput {
 }
 
 // Yahoo Finance API fetcher
-async function fetchYahooFinance(symbol: string): Promise<PricePoint[]> {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1mo`;
+async function fetchYahooFinance(symbol: string, range = "1y"): Promise<PricePoint[]> {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=${range}`;
   try {
     const res = await fetch(url, {
       // Abort hung connections so a single slow Yahoo response cannot consume
@@ -167,53 +167,88 @@ export default {
         return json({ ok: true, service: "original-stock-index-worker" }, 200, request);
       }
 
-    // 日経225スナップショットの取得（D1キャッシュ付き）
+    // ベンチマーク・スナップショットの取得（D1キャッシュ付き・複数ベンチマーク対応）
     if (url.pathname === "/api/snapshot" && request.method === "GET") {
       try {
         const now = Math.floor(Date.now() / 1000);
         const SNAPSHOT_CACHE_TTL = 5 * 60; // 5 minutes
+        const symbol = url.searchParams.get("symbol") || "^N225";
 
-        // Check D1 cache first
-        const { results: cached } = await env.DB.prepare(
-          "SELECT data, cached_at FROM snapshot_cache WHERE id = 1",
-        ).all();
+        const BENCHMARK_MAP: Record<string, { label: string; desc: string }> = {
+          "^N225": { label: "日経225", desc: "日経平均株価 (日足)" },
+          "^TOPX": { label: "TOPIX", desc: "東証株価指数 (日足)" },
+          "^TSI250": { label: "東証グロース250", desc: "東証グロース市場250指数 (日足)" },
+          "^GSPC": { label: "S&P 500", desc: "S&P 500 米国株価指数" },
+          "USDJPY=X": { label: "米ドル/円", desc: "USD/JPY 為替レート" },
+        };
+        const benchInfo = BENCHMARK_MAP[symbol] || { label: symbol, desc: `${symbol} 市場データ` };
 
-        const cacheRow = (cached as { data: string; cached_at: number }[])[0];
+        // For ^N225, check snapshot_cache (id = 1) for backward compatibility
+        let cacheRow: { data: string; cached_at: number } | undefined;
+        if (symbol === "^N225") {
+          const { results: cached } = await env.DB.prepare(
+            "SELECT data, cached_at FROM snapshot_cache WHERE id = 1",
+          ).all();
+          cacheRow = (cached as { data: string; cached_at: number }[])[0];
+        } else {
+          try {
+            const { results: cached } = await env.DB.prepare(
+              "SELECT data, cached_at FROM benchmark_cache WHERE symbol = ?",
+            ).bind(symbol).all();
+            cacheRow = (cached as { data: string; cached_at: number }[])[0];
+          } catch {
+            // benchmark_cache table might not exist yet
+          }
+        }
+
         if (cacheRow && now - cacheRow.cached_at < SNAPSHOT_CACHE_TTL) {
           return json(JSON.parse(cacheRow.data), 200, request);
         }
 
         // Cache miss or stale — fetch from Yahoo Finance
-        const series = await fetchYahooFinance("^N225");
+        const series = await fetchYahooFinance(symbol, "1y");
         const latest = series[series.length - 1];
         const prev = series[series.length - 2];
 
         if (!latest) {
           // If fresh fetch fails but stale cache exists, fallback to stale cache
           if (cacheRow) {
-            console.warn("Using stale snapshot cache due to Yahoo Finance failure");
+            console.warn(`Using stale snapshot cache for ${symbol} due to Yahoo Finance failure`);
             return json(JSON.parse(cacheRow.data), 200, request);
           }
-          return json({ error: "No data available from Yahoo Finance" }, 502, request);
+          return json({ error: `No data available from Yahoo Finance for ${symbol}` }, 502, request);
         }
 
         const snapshot = {
-          label: "日経225",
+          symbol,
+          label: benchInfo.label,
           current: latest.close,
           change: prev ? Number((latest.close - prev.close).toFixed(2)) : 0,
           changePct: prev ? Number(((latest.close / prev.close - 1) * 100).toFixed(2)) : 0,
           updatedAt: new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }),
-          description: "Yahoo Finance から取得したリアルタイム（遅延あり）データです。",
+          description: benchInfo.desc,
         };
 
         const responseData = { snapshot, series };
 
         // Save to cache
-        await env.DB.prepare(
-          "INSERT OR REPLACE INTO snapshot_cache (id, data, cached_at) VALUES (1, ?, ?)",
-        )
-          .bind(JSON.stringify(responseData), now)
-          .run();
+        if (symbol === "^N225") {
+          await env.DB.prepare(
+            "INSERT OR REPLACE INTO snapshot_cache (id, data, cached_at) VALUES (1, ?, ?)",
+          )
+            .bind(JSON.stringify(responseData), now)
+            .run();
+        } else {
+          try {
+            await env.DB.prepare(
+              "INSERT OR REPLACE INTO benchmark_cache (symbol, data, cached_at) VALUES (?, ?, ?)",
+            )
+              .bind(symbol, JSON.stringify(responseData), now)
+              .run();
+          } catch {
+            // ignore if table not created
+          }
+        }
 
         return json(responseData, 200, request);
       } catch (err) {
@@ -271,6 +306,62 @@ export default {
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to fetch indices";
         console.error("API Error [indices]:", err);
+        return json({ error: message }, 500, request);
+      }
+    }
+
+    // 指数の新規登録・更新 (D1への永続化)
+    if (url.pathname === "/api/indices" && request.method === "POST") {
+      try {
+        const parsed = await parseJsonBody(request);
+        if (!parsed.ok) return parsed.response;
+        const body = parsed.body;
+        const id = typeof body.id === "string" && body.id.trim().length > 0 ? body.id.trim() : `custom-${Date.now()}`;
+        const name = typeof body.name === "string" && body.name.trim().length > 0 ? body.name.trim() : "マイカスタム指数";
+        const description = typeof body.description === "string" ? body.description.trim() : "";
+        const baseValue = typeof body.baseValue === "number" && body.baseValue > 0 ? body.baseValue : 1000;
+        const basket = Array.isArray(body.basket) ? body.basket : [];
+
+        if (basket.length === 0) {
+          return json({ error: "Basket cannot be empty" }, 400, request);
+        }
+
+        const statements = [
+          env.DB.prepare(
+            "INSERT OR REPLACE INTO indices (id, name, description, base_value, sort_order) VALUES (?, ?, ?, ?, 50)",
+          ).bind(id, name, description, baseValue),
+          env.DB.prepare("DELETE FROM basket_items WHERE index_id = ?").bind(id),
+          ...basket.map((b: any) =>
+            env.DB.prepare(
+              "INSERT INTO basket_items (index_id, ticker, name, weight, theme) VALUES (?, ?, ?, ?, ?)",
+            ).bind(id, String(b.ticker).trim(), String(b.name).trim(), Number(b.weight), String(b.theme || "カスタム").trim()),
+          ),
+        ];
+
+        await env.DB.batch(statements);
+        return json({ ok: true, id, message: "Index saved successfully" }, 200, request);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to save index";
+        console.error("API Error [POST indices]:", err);
+        return json({ error: message }, 500, request);
+      }
+    }
+
+    // 指数の削除
+    if (url.pathname === "/api/indices" && request.method === "DELETE") {
+      try {
+        const id = url.searchParams.get("id");
+        if (!id) return json({ error: "Missing index id parameter" }, 400, request);
+
+        const statements = [
+          env.DB.prepare("DELETE FROM basket_items WHERE index_id = ?").bind(id),
+          env.DB.prepare("DELETE FROM indices WHERE id = ?").bind(id),
+        ];
+        await env.DB.batch(statements);
+        return json({ ok: true, id, message: "Index deleted successfully" }, 200, request);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to delete index";
+        console.error("API Error [DELETE indices]:", err);
         return json({ error: message }, 500, request);
       }
     }
@@ -478,6 +569,7 @@ export default {
             baseValue,
             basket: validatedBasket,
             series,
+            stockUniverse: fullStockUniverse,
             latest: series[series.length - 1] ?? null,
             syncStatus: {
               total: validatedBasket.length,

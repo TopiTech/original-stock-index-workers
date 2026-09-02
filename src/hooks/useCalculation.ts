@@ -1,11 +1,13 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { CustomIndex } from "../data/indices";
-import type { PricePoint } from "../types";
+import type { PricePoint, StockDetail, StockSeries } from "../types";
+import { calculateStockDetails } from "../lib/analytics";
 
 const API_BASE = "/api";
 
 export function useCalculation(selectedIndex: CustomIndex | null) {
   const [customSeries, setCustomSeries] = useState<PricePoint[]>([]);
+  const [stockUniverse, setStockUniverse] = useState<StockSeries[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -16,6 +18,7 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
   const calculate = useCallback(async () => {
     if (!selectedIndex || selectedIndex.basket.length === 0) {
       setCustomSeries([]);
+      setStockUniverse([]);
       setLoading(false);
       setSyncing(false);
       setError(null);
@@ -102,6 +105,9 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
       const data = await res.json();
       if (controller.signal.aborted) return;
       setCustomSeries(data.series);
+      if (Array.isArray(data.stockUniverse)) {
+        setStockUniverse(data.stockUniverse);
+      }
     } catch (err: unknown) {
       if (controller.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) return;
       const message = err instanceof Error ? err.message : "計算に失敗しました";
@@ -114,6 +120,16 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
     }
   }, [selectedIndex]);
 
+  const stockDetails: StockDetail[] = useMemo(() => {
+    if (!selectedIndex || selectedIndex.basket.length === 0) return [];
+    return calculateStockDetails(
+      selectedIndex.basket,
+      stockUniverse,
+      selectedIndex.baseValue,
+      customSeries,
+    );
+  }, [selectedIndex, stockUniverse, customSeries]);
+
   useEffect(() => {
     calculate();
     return () => {
@@ -125,6 +141,8 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
 
   return {
     customSeries,
+    stockUniverse,
+    stockDetails,
     loading,
     error,
     syncing,
