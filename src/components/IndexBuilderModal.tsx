@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { X, Plus, Trash2, Sliders, Check, RefreshCw } from "lucide-react";
 import type { BasketItem } from "../types";
@@ -44,6 +44,17 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const handleAddStock = (stock: { ticker: string; name: string; theme: string }) => {
@@ -63,6 +74,10 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
       return;
     }
     const cleanTicker = customTicker.trim().toUpperCase();
+    if (!/^[A-Za-z0-9.\-]+$/.test(cleanTicker) || cleanTicker.length > 20) {
+      setError("銘柄コードは半角英数字、ハイフン、ピリオド（最大20文字）のみ使用可能です (例: 7203, AAPL)");
+      return;
+    }
     if (basket.some((b) => b.ticker === cleanTicker)) {
       setError(`銘柄コード ${cleanTicker} は既に追加されています`);
       return;
@@ -72,8 +87,8 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
       ...basket,
       {
         ticker: cleanTicker,
-        name: customName.trim(),
-        theme: customTheme.trim() || "カスタム",
+        name: customName.trim().slice(0, 100),
+        theme: customTheme.trim().slice(0, 100) || "カスタム",
         weight: 10,
       },
     ]);
@@ -105,10 +120,18 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
       setError("指数名を入力してください");
       return;
     }
+    if (name.trim().length > 100) {
+      setError("指数名は100文字以内で入力してください");
+      return;
+    }
     if (basket.length === 0) {
       setError("構成銘柄を1つ以上追加してください");
       return;
     }
+
+    const safeBase = typeof baseValue === "number" && Number.isFinite(baseValue) && baseValue > 0 && baseValue <= 1000000
+      ? baseValue
+      : 1000;
 
     setSaving(true);
     setError(null);
@@ -116,8 +139,8 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
     const newIndex: CustomIndex = {
       id: `idx-${Date.now()}`,
       name: name.trim(),
-      description: description.trim() || `${basket.length}銘柄で構成されたカスタム指数`,
-      baseValue: Number(baseValue) || 1000,
+      description: description.trim().slice(0, 500) || `${basket.length}銘柄で構成されたカスタム指数`,
+      baseValue: safeBase,
       basket,
     };
 
@@ -133,6 +156,9 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-builder-title"
       style={{
         position: "fixed",
         inset: 0,
@@ -173,11 +199,12 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
         >
           <div className="row" style={{ gap: 8 }}>
             <Sliders size={18} style={{ color: "var(--neon-cyan)" }} />
-            <h2 style={{ fontSize: 16, margin: 0 }}>独自指数ビルダー & シミュレーター</h2>
+            <h2 id="modal-builder-title" style={{ fontSize: 16, margin: 0 }}>独自指数ビルダー & シミュレーター</h2>
           </div>
           <button
             type="button"
             onClick={onClose}
+            aria-label="閉じる"
             style={{
               background: "transparent",
               border: "none",

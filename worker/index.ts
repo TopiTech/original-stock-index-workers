@@ -30,7 +30,8 @@ interface BasketItemInput {
 
 // Yahoo Finance API fetcher
 async function fetchYahooFinance(symbol: string, range = "1y"): Promise<PricePoint[]> {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=${range}`;
+  const encodedSymbol = encodeURIComponent(symbol);
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodedSymbol}?interval=1d&range=${range}`;
   try {
     const res = await fetch(url, {
       // Abort hung connections so a single slow Yahoo response cannot consume
@@ -170,9 +171,20 @@ export default {
     // ベンチマーク・スナップショットの取得（D1キャッシュ付き・複数ベンチマーク対応）
     if (url.pathname === "/api/snapshot" && request.method === "GET") {
       try {
+        const ip = request.headers.get("cf-connecting-ip") || "unknown";
+        const allowed = await checkRateLimit(env, ip, "snapshot");
+        if (!allowed) {
+          return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
+        }
+
         const now = Math.floor(Date.now() / 1000);
         const SNAPSHOT_CACHE_TTL = 5 * 60; // 5 minutes
-        const symbol = url.searchParams.get("symbol") || "^N225";
+        const rawSymbol = url.searchParams.get("symbol") || "^N225";
+        const symbol = rawSymbol.trim();
+
+        if (symbol.length === 0 || symbol.length > 20 || !/^[A-Za-z0-9.^=\-_]+$/.test(symbol)) {
+          return json({ error: "Invalid symbol parameter" }, 400, request);
+        }
 
         const BENCHMARK_MAP: Record<string, { label: string; desc: string }> = {
           "^N225": { label: "日経225", desc: "日経平均株価 (日足)" },
@@ -316,14 +328,49 @@ export default {
         const parsed = await parseJsonBody(request);
         if (!parsed.ok) return parsed.response;
         const body = parsed.body;
-        const id = typeof body.id === "string" && body.id.trim().length > 0 ? body.id.trim() : `custom-${Date.now()}`;
-        const name = typeof body.name === "string" && body.name.trim().length > 0 ? body.name.trim() : "マイカスタム指数";
-        const description = typeof body.description === "string" ? body.description.trim() : "";
-        const baseValue = typeof body.baseValue === "number" && body.baseValue > 0 ? body.baseValue : 1000;
-        const basket = Array.isArray(body.basket) ? body.basket : [];
 
-        if (basket.length === 0) {
-          return json({ error: "Basket cannot be empty" }, 400, request);
+        if (body.name !== undefined && (typeof body.name !== "string" || body.name.trim().length === 0 || body.name.trim().length > 100)) {
+          return json({ error: "Invalid name: must be 1-100 characters" }, 400, request);
+        }
+        const name = typeof body.name === "string" && body.name.trim().length > 0 ? body.name.trim() : "マイカスタム指数";
+
+        if (body.id !== undefined && (typeof body.id !== "string" || body.id.trim().length === 0 || body.id.trim().length > 100 || !/^[A-Za-z0-9.\-_]+$/.test(body.id.trim()))) {
+          return json({ error: "Invalid id" }, 400, request);
+        }
+        const id = typeof body.id === "string" && body.id.trim().length > 0 ? body.id.trim() : `custom-${Date.now()}`;
+
+        if (body.description !== undefined && (typeof body.description !== "string" || body.description.length > 500)) {
+          return json({ error: "Invalid description: max 500 characters" }, 400, request);
+        }
+        const description = typeof body.description === "string" ? body.description.trim() : "";
+
+        if (body.baseValue !== undefined && (typeof body.baseValue !== "number" || !Number.isFinite(body.baseValue) || body.baseValue <= 0 || body.baseValue > 1000000)) {
+          return json({ error: "Invalid baseValue" }, 400, request);
+        }
+        const baseValue = typeof body.baseValue === "number" ? body.baseValue : 1000;
+
+        const basket = Array.isArray(body.basket) ? body.basket : [];
+        if (basket.length === 0 || basket.length > 100) {
+          return json({ error: "Basket must contain between 1 and 100 items" }, 400, request);
+        }
+
+        for (const item of basket) {
+          if (!item || typeof item !== "object") {
+            return json({ error: "Invalid basket item" }, 400, request);
+          }
+          const r = item as Record<string, unknown>;
+          if (typeof r.ticker !== "string" || r.ticker.trim().length === 0 || r.ticker.trim().length > 20 || !/^[A-Za-z0-9.\-]+$/.test(r.ticker.trim())) {
+            return json({ error: "Invalid basket item: ticker" }, 400, request);
+          }
+          if (typeof r.name !== "string" || r.name.trim().length === 0 || r.name.trim().length > 100) {
+            return json({ error: "Invalid basket item: name" }, 400, request);
+          }
+          if (r.theme !== undefined && (typeof r.theme !== "string" || r.theme.trim().length > 100)) {
+            return json({ error: "Invalid basket item: theme" }, 400, request);
+          }
+          if (typeof r.weight !== "number" || !Number.isFinite(r.weight) || r.weight <= 0 || r.weight > 100) {
+            return json({ error: "Invalid basket item: weight must be > 0 and <= 100" }, 400, request);
+          }
         }
 
         const statements = [
@@ -350,8 +397,11 @@ export default {
     // 指数の削除
     if (url.pathname === "/api/indices" && request.method === "DELETE") {
       try {
-        const id = url.searchParams.get("id");
-        if (!id) return json({ error: "Missing index id parameter" }, 400, request);
+        const rawId = url.searchParams.get("id");
+        if (!rawId || typeof rawId !== "string" || rawId.trim().length === 0 || rawId.trim().length > 100 || !/^[A-Za-z0-9.\-_]+$/.test(rawId.trim())) {
+          return json({ error: "Invalid or missing index id parameter" }, 400, request);
+        }
+        const id = rawId.trim();
 
         const statements = [
           env.DB.prepare("DELETE FROM basket_items WHERE index_id = ?").bind(id),
@@ -584,6 +634,11 @@ export default {
         console.error("API Error [calculate]:", err);
         return json({ error: message }, 500, request);
       }
+    }
+
+    // 未知のAPIエンドポイントは404 JSONを返却（静的アセットへのフォールスルーを防止）
+    if (url.pathname.startsWith("/api/")) {
+      return json({ error: "Endpoint not found" }, 404, request);
     }
 
     // 静的アセットの配信（Cloudflare Assets）

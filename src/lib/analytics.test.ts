@@ -15,6 +15,11 @@ describe("analytics library", () => {
       const sma = calculateSMA(data, 5);
       expect(sma).toEqual([null, null]);
     });
+
+    it("handles invalid window <= 0 or empty array", () => {
+      expect(calculateSMA([10, 20], 0)).toEqual([null, null]);
+      expect(calculateSMA([], 5)).toEqual([]);
+    });
   });
 
   describe("calculateRiskMetrics", () => {
@@ -37,6 +42,33 @@ describe("analytics library", () => {
       expect(metrics.winRate).toBeGreaterThan(0);
       expect(typeof metrics.beta).toBe("number");
       expect(typeof metrics.annualVolatility).toBe("number");
+    });
+
+    it("returns safe default metrics for empty or single-point series", () => {
+      const metrics = calculateRiskMetrics([], []);
+      expect(metrics.annualReturn).toBe(0);
+      expect(metrics.annualVolatility).toBe(0);
+      expect(metrics.sharpeRatio).toBe(0);
+      expect(metrics.maxDrawdown).toBe(0);
+      expect(metrics.beta).toBe(1.0);
+    });
+
+    it("handles negative returns and down markets correctly", () => {
+      const custom: PricePoint[] = [
+        { date: "2026-01-01", close: 1000, value: 1000 },
+        { date: "2026-01-02", close: 900, value: 900 },
+        { date: "2026-01-03", close: 800, value: 800 },
+      ];
+      const bench: PricePoint[] = [
+        { date: "2026-01-01", close: 38000 },
+        { date: "2026-01-02", close: 36000 },
+        { date: "2026-01-03", close: 34000 },
+      ];
+      const metrics = calculateRiskMetrics(custom, bench);
+      expect(metrics.annualReturn).toBeLessThan(0);
+      expect(metrics.maxDrawdown).toBe(20);
+      expect(metrics.winRate).toBe(0);
+      expect(metrics.worstDay).toBeLessThan(0);
     });
   });
 

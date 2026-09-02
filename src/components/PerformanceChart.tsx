@@ -175,6 +175,7 @@ export function PerformanceChart({
             <button
               type="button"
               className={`btn-group-item ${showSMA5 ? "active" : ""}`}
+              aria-pressed={showSMA5}
               onClick={() => setShowSMA5(!showSMA5)}
               style={{ fontSize: 11, padding: "4px 8px" }}
               title="5日単純移動平均線"
@@ -184,6 +185,7 @@ export function PerformanceChart({
             <button
               type="button"
               className={`btn-group-item ${showSMA25 ? "active" : ""}`}
+              aria-pressed={showSMA25}
               onClick={() => setShowSMA25(!showSMA25)}
               style={{ fontSize: 11, padding: "4px 8px" }}
               title="25日単純移動平均線"

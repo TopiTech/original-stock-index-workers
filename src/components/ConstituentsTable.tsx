@@ -179,15 +179,24 @@ export function ConstituentsTable({
     ]);
 
     const csvContent =
-      "data:text/csv;charset=utf-8,\uFEFF" +
+      "\uFEFF" +
       [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
-    const encodedUri = encodeURI(csvContent);
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
+    link.setAttribute("href", url);
     link.setAttribute("download", `${indexName}_constituents_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleHeaderKeyDown = (e: React.KeyboardEvent, field: SortField) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggleSort(field);
+    }
   };
 
   return (
@@ -229,6 +238,7 @@ export function ConstituentsTable({
                 aria-sort={sortField === "ticker" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
                 tabIndex={0}
                 onClick={() => toggleSort("ticker")}
+                onKeyDown={(e) => handleHeaderKeyDown(e, "ticker")}
                 style={{ width: "11%" }}
               >
                 <span className="row" style={{ gap: 2 }}>
@@ -240,6 +250,7 @@ export function ConstituentsTable({
                 aria-sort={sortField === "name" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
                 tabIndex={0}
                 onClick={() => toggleSort("name")}
+                onKeyDown={(e) => handleHeaderKeyDown(e, "name")}
                 style={{ width: "24%" }}
               >
                 <span className="row" style={{ gap: 2 }}>
@@ -251,6 +262,7 @@ export function ConstituentsTable({
                 aria-sort={sortField === "theme" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
                 tabIndex={0}
                 onClick={() => toggleSort("theme")}
+                onKeyDown={(e) => handleHeaderKeyDown(e, "theme")}
                 style={{ width: "15%" }}
               >
                 <span className="row" style={{ gap: 2 }}>
@@ -262,6 +274,7 @@ export function ConstituentsTable({
                 aria-sort={sortField === "currentPrice" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
                 tabIndex={0}
                 onClick={() => toggleSort("currentPrice")}
+                onKeyDown={(e) => handleHeaderKeyDown(e, "currentPrice")}
                 style={{ width: "13%", textAlign: "right" }}
               >
                 <span className="row" style={{ gap: 2, justifyContent: "flex-end" }}>
@@ -273,6 +286,7 @@ export function ConstituentsTable({
                 aria-sort={sortField === "changePct" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
                 tabIndex={0}
                 onClick={() => toggleSort("changePct")}
+                onKeyDown={(e) => handleHeaderKeyDown(e, "changePct")}
                 style={{ width: "12%", textAlign: "right" }}
               >
                 <span className="row" style={{ gap: 2, justifyContent: "flex-end" }}>
@@ -285,6 +299,7 @@ export function ConstituentsTable({
                 aria-sort={sortField === "contributionPt" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
                 tabIndex={0}
                 onClick={() => toggleSort("contributionPt")}
+                onKeyDown={(e) => handleHeaderKeyDown(e, "contributionPt")}
                 style={{ width: "15%", textAlign: "right" }}
               >
                 <span className="row" style={{ gap: 2, justifyContent: "flex-end" }}>
@@ -296,6 +311,7 @@ export function ConstituentsTable({
                 aria-sort={sortField === "weight" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
                 tabIndex={0}
                 onClick={() => toggleSort("weight")}
+                onKeyDown={(e) => handleHeaderKeyDown(e, "weight")}
                 style={{ width: "15%", textAlign: "right" }}
               >
                 <span className="row" style={{ gap: 2, justifyContent: "flex-end" }}>

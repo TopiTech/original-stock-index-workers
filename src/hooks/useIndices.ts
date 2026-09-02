@@ -23,6 +23,8 @@ export function useIndices() {
           const found = data.find((d) => d.id === prev.id);
           return found || data[0];
         });
+      } else {
+        setSelectedIndex(null);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "指数一覧の取得に失敗しました";

@@ -34,7 +34,9 @@ export default function App() {
     setSelectedBenchmark,
     benchmarkData,
     loading: loadingBenchmark,
+    error: benchmarkError,
     availableBenchmarks,
+    refetch: refetchBenchmark,
   } = useBenchmark("^N225");
 
   const {
@@ -58,6 +60,13 @@ export default function App() {
     },
     [selectIndex],
   );
+
+  const handleRetry = useCallback(() => {
+    if (benchmarkError) refetchBenchmark();
+    if (calcError || !customSeries.length) recalculate();
+  }, [benchmarkError, calcError, customSeries.length, refetchBenchmark, recalculate]);
+
+  const unifiedError = calcError || benchmarkError;
 
   const currentBenchmarkOption = useMemo(() => {
     return (
@@ -164,15 +173,15 @@ export default function App() {
               {/* Main Performance Chart */}
               <PerformanceChart
                 data={chartData}
-                loading={loadingCalc}
+                loading={loadingCalc || loadingBenchmark}
                 syncing={syncing}
                 syncProgress={syncProgress}
                 syncWarnings={syncWarnings}
                 latestValue={customSeries[customSeries.length - 1]?.value}
                 baseValue={selectedIndex?.baseValue}
                 benchmarkLabel={currentBenchmarkOption.shortLabel}
-                error={calcError}
-                onRetry={recalculate}
+                error={unifiedError}
+                onRetry={handleRetry}
               />
 
               {/* Quantitative Risk Metrics Card */}

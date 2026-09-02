@@ -831,3 +831,30 @@ h3 {
   box-shadow: 0 0 8px var(--neon-green);
 }
 
+/* Accessibility Focus Visible */
+:focus-visible {
+  outline: 2px solid var(--neon-cyan);
+  outline-offset: 2px;
+}
+
+.btn:focus-visible,
+.btn-group-item:focus-visible,
+.theme-chip:focus-visible,
+.tag:focus-visible {
+  outline: 2px solid var(--neon-cyan);
+  outline-offset: 2px;
+  box-shadow: var(--glow-cyan);
+}
+
+.index-item:focus-visible {
+  outline: 2px solid var(--neon-cyan);
+  outline-offset: 2px;
+  border-color: var(--neon-cyan);
+}
+
+.custom-table th:focus-visible {
+  outline: 2px solid var(--neon-cyan);
+  outline-offset: -2px;
+}
+
+

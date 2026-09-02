@@ -79,7 +79,17 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
               key={stock.ticker}
               whileHover={{ scale: 1.03, zIndex: 5 }}
               whileTap={{ scale: 0.98 }}
+              role="button"
+              tabIndex={0}
+              aria-pressed={selectedTheme === stock.theme}
+              aria-label={`${stock.name} (${stock.ticker}) テーマ: ${stock.theme}, 騰落率: ${stock.changePct >= 0 ? "+" : ""}${stock.changePct}%, 構成比: ${stock.weight.toFixed(1)}%`}
               onClick={() => onSelectTheme(selectedTheme === stock.theme ? null : stock.theme)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onSelectTheme(selectedTheme === stock.theme ? null : stock.theme);
+                }
+              }}
               style={{
                 background: getBackgroundColor(stock.changePct),
                 border: `1px solid ${getBorderColor(stock.changePct)}`,

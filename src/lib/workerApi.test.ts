@@ -221,6 +221,103 @@ describe("worker fetch handlers", () => {
     expect(res.headers.get("Cache-Control")).toBe("no-cache, no-store, must-revalidate");
   });
 
+  it("returns 404 JSON for unmatched /api/* endpoints instead of falling through to static assets", async () => {
+    const env = createMockEnv();
+    const req = new Request("http://localhost/api/nonexistent-endpoint");
+    const res = await worker.fetch(req, env as any);
+    expect(res.status).toBe(404);
+    const data = await res.json();
+    expect(data.error).toBe("Endpoint not found");
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+  });
+
+  it("validates POST /api/indices inputs strictly", async () => {
+    const env = createMockEnv();
+
+    // Invalid baseValue
+    const res1 = await worker.fetch(
+      new Request("http://localhost/api/indices", {
+        method: "POST",
+        body: JSON.stringify({
+          name: "Test",
+          baseValue: -100,
+          basket: [{ ticker: "7203", name: "Toyota", weight: 100 }],
+        }),
+      }),
+      env as any,
+    );
+    expect(res1.status).toBe(400);
+
+    // Invalid ticker characters
+    const res2 = await worker.fetch(
+      new Request("http://localhost/api/indices", {
+        method: "POST",
+        body: JSON.stringify({
+          name: "Test",
+          basket: [{ ticker: "7203<script>", name: "Toyota", weight: 100 }],
+        }),
+      }),
+      env as any,
+    );
+    expect(res2.status).toBe(400);
+
+    // Invalid weight
+    const res3 = await worker.fetch(
+      new Request("http://localhost/api/indices", {
+        method: "POST",
+        body: JSON.stringify({
+          name: "Test",
+          basket: [{ ticker: "7203", name: "Toyota", weight: 0 }],
+        }),
+      }),
+      env as any,
+    );
+    expect(res3.status).toBe(400);
+
+    // Empty basket
+    const res4 = await worker.fetch(
+      new Request("http://localhost/api/indices", {
+        method: "POST",
+        body: JSON.stringify({ name: "Test", basket: [] }),
+      }),
+      env as any,
+    );
+    expect(res4.status).toBe(400);
+  });
+
+  it("validates DELETE /api/indices parameter", async () => {
+    const env = createMockEnv();
+
+    // Missing id
+    const res1 = await worker.fetch(
+      new Request("http://localhost/api/indices", {
+        method: "DELETE",
+      }),
+      env as any,
+    );
+    expect(res1.status).toBe(400);
+
+    // Invalid id characters
+    const res2 = await worker.fetch(
+      new Request("http://localhost/api/indices?id=invalid;id", {
+        method: "DELETE",
+      }),
+      env as any,
+    );
+    expect(res2.status).toBe(400);
+  });
+
+  it("validates GET /api/snapshot symbol parameter", async () => {
+    const env = createMockEnv();
+
+    // Invalid characters in symbol
+    const res = await worker.fetch(
+      new Request("http://localhost/api/snapshot?symbol=INVALID/SYMBOL<script>"),
+      env as any,
+    );
+    expect(res.status).toBe(400);
+  });
+
   it("safely handles missing env.ASSETS", async () => {
     const env = createMockEnv({ ASSETS: undefined });
     const req = new Request("http://localhost/assets/index.js");

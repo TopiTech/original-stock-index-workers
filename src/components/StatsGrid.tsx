@@ -30,9 +30,8 @@ export function StatsGrid({
   const customReturnPct = baseValue > 0 ? ((latestCustomValue - baseValue) / baseValue) * 100 : 0;
 
   const hasBenchmark = typeof benchmarkNormalizedValue === "number" && benchmarkNormalizedValue > 0 && !loading;
-  const benchmarkDiff = hasBenchmark
-    ? ((latestCustomValue - benchmarkNormalizedValue) / benchmarkNormalizedValue) * 100
-    : 0;
+  const benchmarkReturnPct = hasBenchmark && baseValue > 0 ? ((benchmarkNormalizedValue - baseValue) / baseValue) * 100 : 0;
+  const benchmarkDiff = hasBenchmark ? customReturnPct - benchmarkReturnPct : 0;
 
   // Distinct themes
   const uniqueThemes = new Set(selectedIndex?.basket.map((b) => b.theme) || []);

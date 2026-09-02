@@ -27,6 +27,7 @@ export function BenchmarkSelector({
               type="button"
               disabled={loading}
               className={`btn-group-item ${isActive ? "active" : ""}`}
+              aria-pressed={isActive}
               onClick={() => onSelectBenchmark(b.symbol)}
               style={{
                 fontSize: 11,

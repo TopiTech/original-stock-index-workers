@@ -101,7 +101,10 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
 
       if (controller.signal.aborted) return;
 
-      if (!res.ok) throw new Error("指数の計算に失敗しました");
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || "指数の計算に失敗しました");
+      }
       const data = await res.json();
       if (controller.signal.aborted) return;
       setCustomSeries(data.series);

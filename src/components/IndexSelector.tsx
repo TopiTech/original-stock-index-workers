@@ -116,6 +116,7 @@ export function IndexSelector({
                         opacity: 0.7,
                       }}
                       title="指数を削除"
+                      aria-label={`指数「${idx.name}」を削除`}
                     >
                       <Trash2 size={13} />
                     </button>
