@@ -73,7 +73,7 @@ export function ThemeBreakdown({
       </div>
 
       {/* Visual Stacked Bar */}
-      <div className="theme-bar-container">
+      <div className="theme-bar-container" role="img" aria-label="テーマ別構成比率グラフ">
         {themeData.map((t) => (
           <div
             key={t.theme}

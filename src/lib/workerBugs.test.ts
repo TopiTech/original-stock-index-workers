@@ -86,8 +86,12 @@ function createStatefulEnv(): StatefulEnv {
       return { results: [] };
     }
     if (query.includes("INSERT") && query.includes("stock_prices")) {
-      const [ticker, date, price] = params as [string, string, number];
-      env._stockPrices.set(`${ticker}::${date}`, { ticker, date, price });
+      for (let p = 0; p < params.length; p += 3) {
+        const [ticker, date, price] = params.slice(p, p + 3) as [string, string, number];
+        if (ticker && date) {
+          env._stockPrices.set(`${ticker}::${date}`, { ticker, date, price });
+        }
+      }
       return { results: [] };
     }
     if (query.includes("FROM indices")) {

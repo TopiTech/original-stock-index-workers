@@ -129,9 +129,11 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
       return;
     }
 
-    const safeBase = typeof baseValue === "number" && Number.isFinite(baseValue) && baseValue > 0 && baseValue <= 1000000
-      ? baseValue
-      : 1000;
+    if (typeof baseValue !== "number" || !Number.isFinite(baseValue) || baseValue <= 0 || baseValue > 1000000) {
+      setError("基準値は1〜1,000,000の正の数値を入力してください");
+      return;
+    }
+    const safeBase = baseValue;
 
     setSaving(true);
     setError(null);
@@ -356,7 +358,8 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
           <div>
             <div className="row space-between" style={{ marginBottom: 10 }}>
               <span className="mono tiny bold uppercase" style={{ color: "var(--neon-cyan)" }}>
-                構成銘柄とウェイト設定 ({basket.length} 銘柄 / 合計: {totalWeight.toFixed(1)}%)
+                構成銘柄とウェイト設定 ({basket.length} 銘柄 / 合計: {totalWeight.toFixed(1)}%
+                {Math.abs(totalWeight - 100) > 0.05 ? " ※保存時に100%へ自動正規化" : ""})
               </span>
               <button
                 type="button"

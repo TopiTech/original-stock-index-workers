@@ -83,14 +83,17 @@ export function calculateRiskMetrics(
   let peak = -Infinity;
   let maxDrawdown = 0;
   for (const pt of customSeries) {
-    const val = pt.value ?? pt.close;
-    if (val > peak) {
-      peak = val;
-    }
-    if (peak > 0) {
-      const dd = ((peak - val) / peak) * 100;
-      if (dd > maxDrawdown) {
-        maxDrawdown = dd;
+    const rawVal = pt.value ?? pt.close;
+    const val = typeof rawVal === "number" && Number.isFinite(rawVal) && rawVal > 0 ? rawVal : 0;
+    if (val > 0) {
+      if (val > peak) {
+        peak = val;
+      }
+      if (peak > 0) {
+        const dd = ((peak - val) / peak) * 100;
+        if (dd > maxDrawdown) {
+          maxDrawdown = dd;
+        }
       }
     }
   }
@@ -141,15 +144,17 @@ export function calculateRiskMetrics(
   const bestDay = Number((Math.max(...customReturns) * 100).toFixed(2));
   const worstDay = Number((Math.min(...customReturns) * 100).toFixed(2));
 
+  const safeNum = (n: number, fallback = 0) => (Number.isFinite(n) ? n : fallback);
+
   return {
-    annualReturn: Number(annualReturn.toFixed(2)),
-    annualVolatility: Number(annualVolatility.toFixed(2)),
-    sharpeRatio,
-    maxDrawdown: Number(maxDrawdown.toFixed(2)),
-    beta,
-    winRate,
-    bestDay,
-    worstDay,
+    annualReturn: Number(safeNum(annualReturn).toFixed(2)),
+    annualVolatility: Number(safeNum(annualVolatility).toFixed(2)),
+    sharpeRatio: safeNum(sharpeRatio),
+    maxDrawdown: Number(safeNum(maxDrawdown).toFixed(2)),
+    beta: safeNum(beta, 1.0),
+    winRate: safeNum(winRate),
+    bestDay: safeNum(bestDay),
+    worstDay: safeNum(worstDay),
   };
 }
 

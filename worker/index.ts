@@ -28,6 +28,29 @@ interface BasketItemInput {
   weight: number;
 }
 
+// Built-in system index IDs that cannot be deleted
+export const SYSTEM_INDICES = new Set([
+  "nikkei-175",
+  "eroge-index",
+  "ai-semi",
+  "infra-tech",
+  "jp-core",
+]);
+
+// Normalize ticker to Yahoo Finance query symbol
+// Japanese stock tickers (start with a digit) map to Tokyo Exchange (.T)
+// US and global tickers (e.g. AAPL, NVDA) or index/forex symbols (^N225, USDJPY=X) remain as-is
+export function toYahooSymbol(ticker: string): string {
+  const trimmed = ticker.trim();
+  if (trimmed.includes(".") || trimmed.startsWith("^") || trimmed.endsWith("=X")) {
+    return trimmed;
+  }
+  if (/^\d/.test(trimmed)) {
+    return `${trimmed}.T`;
+  }
+  return trimmed;
+}
+
 // Yahoo Finance API fetcher
 async function fetchYahooFinance(symbol: string, range = "1y"): Promise<PricePoint[]> {
   const encodedSymbol = encodeURIComponent(symbol);
@@ -63,7 +86,7 @@ async function fetchYahooFinance(symbol: string, range = "1y"): Promise<PricePoi
         const dd = String(date.getUTCDate()).padStart(2, "0");
         return {
           date: `${yyyy}-${mm}-${dd}`,
-          close: typeof closes[i] === "number" ? Number(closes[i].toFixed(2)) : 0,
+          close: typeof closes[i] === "number" && Number.isFinite(closes[i]) ? Number(closes[i].toFixed(2)) : 0,
         };
       })
       .filter((p: PricePoint) => p.close > 0);
@@ -212,7 +235,11 @@ export default {
         }
 
         if (cacheRow && now - cacheRow.cached_at < SNAPSHOT_CACHE_TTL) {
-          return json(JSON.parse(cacheRow.data), 200, request);
+          try {
+            return json(JSON.parse(cacheRow.data), 200, request);
+          } catch {
+            // Malformed cache, proceed to fresh fetch
+          }
         }
 
         // Cache miss or stale — fetch from Yahoo Finance
@@ -223,8 +250,12 @@ export default {
         if (!latest) {
           // If fresh fetch fails but stale cache exists, fallback to stale cache
           if (cacheRow) {
-            console.warn(`Using stale snapshot cache for ${symbol} due to Yahoo Finance failure`);
-            return json(JSON.parse(cacheRow.data), 200, request);
+            try {
+              console.warn(`Using stale snapshot cache for ${symbol} due to Yahoo Finance failure`);
+              return json(JSON.parse(cacheRow.data), 200, request);
+            } catch {
+              // Corrupted cache, continue to 502 error
+            }
           }
           return json({ error: `No data available from Yahoo Finance for ${symbol}` }, 502, request);
         }
@@ -352,6 +383,7 @@ export default {
           return json({ error: "Basket must contain between 1 and 100 items" }, 400, request);
         }
 
+        const seenTickers = new Set<string>();
         for (const item of basket) {
           if (!item || typeof item !== "object") {
             return json({ error: "Invalid basket item" }, 400, request);
@@ -360,6 +392,12 @@ export default {
           if (typeof r.ticker !== "string" || r.ticker.trim().length === 0 || r.ticker.trim().length > 20 || !/^[A-Za-z0-9.\-]+$/.test(r.ticker.trim())) {
             return json({ error: "Invalid basket item: ticker" }, 400, request);
           }
+          const ticker = r.ticker.trim();
+          if (seenTickers.has(ticker)) {
+            return json({ error: `Duplicate ticker in basket: ${ticker}` }, 400, request);
+          }
+          seenTickers.add(ticker);
+
           if (typeof r.name !== "string" || r.name.trim().length === 0 || r.name.trim().length > 100) {
             return json({ error: "Invalid basket item: name" }, 400, request);
           }
@@ -378,7 +416,7 @@ export default {
           env.DB.prepare("DELETE FROM basket_items WHERE index_id = ?").bind(id),
           ...basket.map((b: any) =>
             env.DB.prepare(
-              "INSERT INTO basket_items (index_id, ticker, name, weight, theme) VALUES (?, ?, ?, ?, ?)",
+              "INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES (?, ?, ?, ?, ?)",
             ).bind(id, String(b.ticker).trim(), String(b.name).trim(), Number(b.weight), String(b.theme || "カスタム").trim()),
           ),
         ];
@@ -400,6 +438,10 @@ export default {
           return json({ error: "Invalid or missing index id parameter" }, 400, request);
         }
         const id = rawId.trim();
+
+        if (SYSTEM_INDICES.has(id)) {
+          return json({ error: "Cannot delete built-in system index" }, 403, request);
+        }
 
         const statements = [
           env.DB.prepare("DELETE FROM basket_items WHERE index_id = ?").bind(id),
@@ -477,16 +519,30 @@ export default {
           const batch = toFetch.slice(i, i + CONCURRENCY);
           const batchResults = await Promise.allSettled(
             batch.map(async (ticker) => {
-              const symbol = ticker.includes(".") ? ticker : `${ticker}.T`;
+              const symbol = toYahooSymbol(ticker);
               const series = await fetchYahooFinance(symbol);
               if (series.length > 0) {
+                // Chunk prices into multi-row statements (up to 25 rows = 75 parameters <= D1 100-parameter limit)
+                // to stay well within Cloudflare Worker query count and execution limits.
+                const CHUNK_SIZE = 25;
+                const insertStatements: any[] = [];
+                for (let c = 0; c < series.length; c += CHUNK_SIZE) {
+                  const slice = series.slice(c, c + CHUNK_SIZE);
+                  const placeholders = slice.map(() => "(?, ?, ?)").join(", ");
+                  const params: (string | number)[] = [];
+                  for (const p of slice) {
+                    params.push(ticker, p.date, p.close);
+                  }
+                  insertStatements.push(
+                    env.DB.prepare(
+                      `INSERT OR REPLACE INTO stock_prices (ticker, date, price) VALUES ${placeholders}`,
+                    ).bind(...params),
+                  );
+                }
+
                 const statements = [
                   env.DB.prepare("DELETE FROM stock_prices WHERE ticker = ?").bind(ticker),
-                  ...series.map((p) =>
-                    env.DB.prepare(
-                      "INSERT OR REPLACE INTO stock_prices (ticker, date, price) VALUES (?, ?, ?)",
-                    ).bind(ticker, p.date, p.close),
-                  ),
+                  ...insertStatements,
                   env.DB.prepare(
                     "INSERT OR REPLACE INTO sync_logs (ticker, last_synced_at) VALUES (?, ?)",
                   ).bind(ticker, now),
@@ -545,6 +601,7 @@ export default {
         }
 
         // Strict basket validation: fail on any invalid entry
+        const seenCalcTickers = new Set<string>();
         for (const item of basket) {
           if (!item || typeof item !== "object") {
             return json({ error: "Invalid basket item" }, 400, request);
@@ -553,6 +610,12 @@ export default {
           if (typeof r.ticker !== "string" || r.ticker.trim().length === 0 || r.ticker.trim().length > 20 || !/^[A-Za-z0-9.\-]+$/.test(r.ticker.trim())) {
             return json({ error: "Invalid basket item: ticker" }, 400, request);
           }
+          const ticker = r.ticker.trim();
+          if (seenCalcTickers.has(ticker)) {
+            return json({ error: `Duplicate ticker in basket: ${ticker}` }, 400, request);
+          }
+          seenCalcTickers.add(ticker);
+
           if (typeof r.name !== "string" || r.name.trim().length === 0 || r.name.trim().length > 100) {
             return json({ error: "Invalid basket item: name" }, 400, request);
           }

@@ -239,7 +239,7 @@ export function ConstituentsTable({
                 tabIndex={0}
                 onClick={() => toggleSort("ticker")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "ticker")}
-                style={{ width: "11%" }}
+                style={{ width: "10%" }}
               >
                 <span className="row" style={{ gap: 2 }}>
                   コード {renderSortIcon("ticker")}
@@ -251,7 +251,7 @@ export function ConstituentsTable({
                 tabIndex={0}
                 onClick={() => toggleSort("name")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "name")}
-                style={{ width: "24%" }}
+                style={{ width: "22%" }}
               >
                 <span className="row" style={{ gap: 2 }}>
                   銘柄名 {renderSortIcon("name")}
@@ -263,7 +263,7 @@ export function ConstituentsTable({
                 tabIndex={0}
                 onClick={() => toggleSort("theme")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "theme")}
-                style={{ width: "15%" }}
+                style={{ width: "14%" }}
               >
                 <span className="row" style={{ gap: 2 }}>
                   テーマ {renderSortIcon("theme")}
@@ -275,7 +275,7 @@ export function ConstituentsTable({
                 tabIndex={0}
                 onClick={() => toggleSort("currentPrice")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "currentPrice")}
-                style={{ width: "13%", textAlign: "right" }}
+                style={{ width: "12%", textAlign: "right" }}
               >
                 <span className="row" style={{ gap: 2, justifyContent: "flex-end" }}>
                   株価 {renderSortIcon("currentPrice")}
@@ -300,7 +300,7 @@ export function ConstituentsTable({
                 tabIndex={0}
                 onClick={() => toggleSort("contributionPt")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "contributionPt")}
-                style={{ width: "15%", textAlign: "right" }}
+                style={{ width: "10%", textAlign: "right" }}
               >
                 <span className="row" style={{ gap: 2, justifyContent: "flex-end" }}>
                   寄与度 {renderSortIcon("contributionPt")}
@@ -312,7 +312,7 @@ export function ConstituentsTable({
                 tabIndex={0}
                 onClick={() => toggleSort("weight")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "weight")}
-                style={{ width: "15%", textAlign: "right" }}
+                style={{ width: "10%", textAlign: "right" }}
               >
                 <span className="row" style={{ gap: 2, justifyContent: "flex-end" }}>
                   比率 {renderSortIcon("weight")}

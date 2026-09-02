@@ -70,6 +70,46 @@ describe("analytics library", () => {
       expect(metrics.winRate).toBe(0);
       expect(metrics.worstDay).toBeLessThan(0);
     });
+
+    it("ignores corrupted non-positive points and prevents false 100% MDD", () => {
+      const customWithZero: PricePoint[] = [
+        { date: "2026-01-01", close: 1000, value: 1000 },
+        { date: "2026-01-02", close: 0, value: 0 }, // corrupted point
+        { date: "2026-01-03", close: 950, value: 950 },
+      ];
+      const bench: PricePoint[] = [
+        { date: "2026-01-01", close: 38000 },
+        { date: "2026-01-02", close: 38000 },
+        { date: "2026-01-03", close: 38000 },
+      ];
+      const metrics = calculateRiskMetrics(customWithZero, bench);
+      // MDD should be based on valid positive points (1000 to 950 = 5%), not 100% from 0
+      expect(metrics.maxDrawdown).toBe(5);
+      expect(Number.isFinite(metrics.beta)).toBe(true);
+      expect(Number.isFinite(metrics.sharpeRatio)).toBe(true);
+    });
+
+    it("ensures all returned metrics are finite numbers for flat series", () => {
+      const flatCustom: PricePoint[] = [
+        { date: "2026-01-01", close: 1000, value: 1000 },
+        { date: "2026-01-02", close: 1000, value: 1000 },
+        { date: "2026-01-03", close: 1000, value: 1000 },
+      ];
+      const flatBench: PricePoint[] = [
+        { date: "2026-01-01", close: 38000 },
+        { date: "2026-01-02", close: 38000 },
+        { date: "2026-01-03", close: 38000 },
+      ];
+      const metrics = calculateRiskMetrics(flatCustom, flatBench);
+      expect(Number.isFinite(metrics.annualReturn)).toBe(true);
+      expect(Number.isFinite(metrics.annualVolatility)).toBe(true);
+      expect(Number.isFinite(metrics.sharpeRatio)).toBe(true);
+      expect(Number.isFinite(metrics.maxDrawdown)).toBe(true);
+      expect(Number.isFinite(metrics.beta)).toBe(true);
+      expect(Number.isFinite(metrics.winRate)).toBe(true);
+      expect(Number.isFinite(metrics.bestDay)).toBe(true);
+      expect(Number.isFinite(metrics.worstDay)).toBe(true);
+    });
   });
 
   describe("calculateStockDetails", () => {

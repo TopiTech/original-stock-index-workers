@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import worker from "../../worker/index";
+import worker, { toYahooSymbol, SYSTEM_INDICES } from "../../worker/index";
 
 function createMockEnv(overrides?: Partial<any>) {
   const executeQuery = async (query: string) => {
@@ -336,6 +336,118 @@ describe("worker fetch handlers", () => {
     expect(res.status).toBe(502);
     const data = await res.json();
     expect(data.error).toContain("Failed to load static asset");
+  });
+
+  it("normalizes Japanese TSE tickers and US/global tickers correctly with toYahooSymbol", () => {
+    // Japanese numeric and new alphanumeric codes
+    expect(toYahooSymbol("7203")).toBe("7203.T");
+    expect(toYahooSymbol("9984")).toBe("9984.T");
+    expect(toYahooSymbol("130A")).toBe("130A.T");
+    expect(toYahooSymbol("256A")).toBe("256A.T");
+    expect(toYahooSymbol("7203.T")).toBe("7203.T");
+
+    // US and global tickers
+    expect(toYahooSymbol("AAPL")).toBe("AAPL");
+    expect(toYahooSymbol("NVDA")).toBe("NVDA");
+    expect(toYahooSymbol("MSFT")).toBe("MSFT");
+
+    // Benchmarks and Forex
+    expect(toYahooSymbol("^N225")).toBe("^N225");
+    expect(toYahooSymbol("^GSPC")).toBe("^GSPC");
+    expect(toYahooSymbol("USDJPY=X")).toBe("USDJPY=X");
+  });
+
+  it("rejects duplicate tickers in POST /api/indices with 400 Bad Request", async () => {
+    const env = createMockEnv();
+    const req = new Request("http://localhost/api/indices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "custom-dup",
+        name: "Duplicate Test",
+        basket: [
+          { ticker: "7203", name: "Toyota 1", weight: 50, theme: "Auto" },
+          { ticker: "7203", name: "Toyota 2", weight: 50, theme: "Auto" },
+        ],
+      }),
+    });
+    const res = await worker.fetch(req, env as any);
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toContain("Duplicate ticker in basket");
+  });
+
+  it("rejects duplicate tickers in POST /api/calculate with 400 Bad Request", async () => {
+    const env = createMockEnv();
+    const req = new Request("http://localhost/api/calculate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        baseValue: 1000,
+        basket: [
+          { ticker: "9984", name: "SBG 1", weight: 50, theme: "AI" },
+          { ticker: "9984", name: "SBG 2", weight: 50, theme: "AI" },
+        ],
+      }),
+    });
+    const res = await worker.fetch(req, env as any);
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toContain("Duplicate ticker in basket");
+  });
+
+  it("prevents deletion of built-in system indices and returns 403 Forbidden", async () => {
+    const env = createMockEnv();
+
+    for (const sysId of Array.from(SYSTEM_INDICES)) {
+      const req = new Request(`http://localhost/api/indices?id=${sysId}`, {
+        method: "DELETE",
+      });
+      const res = await worker.fetch(req, env as any);
+      expect(res.status).toBe(403);
+      const data = await res.json();
+      expect(data.error).toContain("Cannot delete built-in system index");
+    }
+  });
+
+  it("safely handles corrupted snapshot cache JSON without throwing a 500 error", async () => {
+    const env = createMockEnv({
+      DB: {
+        prepare: vi.fn().mockImplementation((query: string) => {
+          return {
+            bind: vi.fn().mockReturnThis(),
+            all: vi.fn().mockImplementation(() => {
+              if (query.includes("rate_limits")) return { results: [] };
+              if (query.includes("snapshot_cache")) {
+                return {
+                  results: [{ data: "INVALID_JSON_CORRUPT{", cached_at: Math.floor(Date.now() / 1000) }],
+                };
+              }
+              return { results: [] };
+            }),
+            run: vi.fn().mockResolvedValue({ success: true }),
+          };
+        }),
+        batch: vi.fn().mockResolvedValue([]),
+      },
+    });
+
+    // Mock fetch to return empty series (fresh fetch fails)
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ chart: { result: [] } }), { status: 200 }),
+    );
+
+    try {
+      const req = new Request("http://localhost/api/snapshot?symbol=%5EN225");
+      const res = await worker.fetch(req, env as any);
+      // Because cache is corrupt and fresh fetch returns no data, it cleanly returns 502 instead of unhandled 500 crash
+      expect(res.status).toBe(502);
+      const data = await res.json();
+      expect(data.error).toBeDefined();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 

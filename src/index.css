@@ -600,6 +600,12 @@ h3 {
   position: relative;
 }
 
+@media (max-width: 640px) {
+  .chart-container {
+    height: 320px;
+  }
+}
+
 .chart-stats-summary {
   display: flex;
   align-items: center;

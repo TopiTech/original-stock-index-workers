@@ -29,12 +29,23 @@ export function buildChartData(
 
   const nikkeiMap = new Map(sortedNikkei.map((p) => [p.date, p.close]));
 
-  // Find the benchmark baseline price corresponding to the first date of alignedCustom
+  // Find the benchmark baseline price corresponding to the first date of alignedCustom.
+  // If the benchmark market was closed on startDate (e.g. US market holiday for S&P 500),
+  // pick the most recent benchmark price on or immediately before startDate.
   const startDate = alignedCustom[0]?.date;
-  const nikkeiAtStart = startDate ? nikkeiMap.get(startDate) : undefined;
-  const firstNikkei = nikkeiAtStart && nikkeiAtStart > 0
-    ? nikkeiAtStart
-    : (sortedNikkei[0]?.close && sortedNikkei[0].close > 0 ? sortedNikkei[0].close : safeBase);
+  let firstNikkei = 0;
+  if (startDate) {
+    for (const p of sortedNikkei) {
+      if (p.date <= startDate && p.close > 0) {
+        firstNikkei = p.close;
+      } else if (p.date > startDate) {
+        break;
+      }
+    }
+  }
+  if (firstNikkei <= 0) {
+    firstNikkei = sortedNikkei.find((p) => p.close > 0)?.close || safeBase;
+  }
 
   let lastKnownClose: number = firstNikkei;
   return alignedCustom.map((point) => {

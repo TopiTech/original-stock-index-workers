@@ -122,4 +122,29 @@ describe("buildChartData", () => {
     expect(result[1].nikkei).toBe(1050);
     expect(result[1].value).toBe(1100);
   });
+
+  it("aligns benchmark baseline to closest preceding price when custom startDate falls on a benchmark market holiday", () => {
+    // Benchmark market was closed on 2026-07-04 (e.g. US holiday)
+    // Most recent benchmark price before 2026-07-04 was on 2026-07-03 (close = 5000)
+    const benchmark: PricePoint[] = [
+      { date: "2026-07-01", close: 4800 },
+      { date: "2026-07-02", close: 4900 },
+      { date: "2026-07-03", close: 5000 },
+      { date: "2026-07-06", close: 5100 },
+    ];
+    const custom: PricePoint[] = [
+      { date: "2026-07-04", close: 1000, value: 1000 }, // TSE traded on 07-04
+      { date: "2026-07-06", close: 1020, value: 1020 },
+    ];
+
+    const result = buildChartData(benchmark, custom, base);
+    expect(result.length).toBe(2);
+    // On 2026-07-04, benchmark was closed, so it uses 5000 (07-03 close) as baseline (1000 * 5000 / 5000 = 1000)
+    expect(result[0].date).toBe("2026-07-04");
+    expect(result[0].nikkei).toBe(1000);
+
+    // On 2026-07-06, benchmark was 5100, normalized to (1000 * 5100 / 5000 = 1020)
+    expect(result[1].date).toBe("2026-07-06");
+    expect(result[1].nikkei).toBe(1020);
+  });
 });
