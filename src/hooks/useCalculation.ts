@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { CustomIndex } from "../data/indices";
 import type { PricePoint, StockDetail, StockSeries } from "../types";
 import { calculateStockDetails } from "../lib/analytics";
+import { getAuthHeaders } from "../lib/auth";
+import { useAuth } from "./useAuth";
 
 const API_BASE = "/api";
 const SYNC_STORAGE_KEY = "osi_stock_sync_cache";
@@ -39,6 +41,7 @@ function updateLocalSyncCache(tickers: string[]): void {
 const clientCalcCache = new Map<string, { series: PricePoint[]; stockUniverse: StockSeries[]; timestamp: number }>();
 
 export function useCalculation(selectedIndex: CustomIndex | null) {
+  const { session } = useAuth();
   const [customSeries, setCustomSeries] = useState<PricePoint[]>([]);
   const [stockUniverse, setStockUniverse] = useState<StockSeries[]>([]);
   const [loading, setLoading] = useState(false);
@@ -167,7 +170,10 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
 
       const res = await fetch(`${API_BASE}/calculate`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(session),
+        },
         body: JSON.stringify({
           basket: selectedIndex.basket,
           baseValue: selectedIndex.baseValue,
@@ -201,7 +207,7 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
         setSyncing(false);
       }
     }
-  }, [selectedIndex]);
+  }, [selectedIndex, session]);
 
   const stockDetails: StockDetail[] = useMemo(() => {
     if (!selectedIndex || selectedIndex.basket.length === 0) return [];

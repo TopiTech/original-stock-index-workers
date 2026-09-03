@@ -66,7 +66,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
       setError(`このパスワードの上限（最大${maxStocks}銘柄）に達しているため、これ以上追加できません`);
       return;
     }
-    if (basket.length >= 100) {
+    if (!isAdmin && basket.length >= 100) {
       setError("構成銘柄は最大100銘柄までです");
       return;
     }
@@ -85,7 +85,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
       setError(`このパスワードの上限（最大${maxStocks}銘柄）に達しているため、これ以上追加できません`);
       return;
     }
-    if (basket.length >= 100) {
+    if (!isAdmin && basket.length >= 100) {
       setError("構成銘柄は最大100銘柄までです");
       return;
     }

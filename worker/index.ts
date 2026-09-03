@@ -48,6 +48,7 @@ export const SYSTEM_INDICES = new Set([
 ]);
 
 const DEFAULT_ADMIN_PASSWORD = "admin1234";
+const MAX_BASKET_ITEMS = 100;
 export function getDefaultAdminPassword(): string {
   return DEFAULT_ADMIN_PASSWORD;
 }
@@ -1167,7 +1168,7 @@ export default {
         const baseValue = typeof body.baseValue === "number" ? body.baseValue : 1000;
 
         const basket = Array.isArray(body.basket) ? body.basket : [];
-        if (basket.length === 0 || basket.length > 100) {
+        if (basket.length === 0 || (!isAdmin && basket.length > MAX_BASKET_ITEMS)) {
           return json({ error: "Basket must contain between 1 and 100 items" }, 400, request);
         }
 
@@ -1568,7 +1569,9 @@ export default {
           return json({ error: "Invalid baseValue" }, 400, request);
         }
         const baseValue = typeof rawBaseValue === "number" ? rawBaseValue : 1000;
-        if (!Array.isArray(basket) || basket.length === 0 || basket.length > 100) {
+        const calcAuth = basket.length > MAX_BASKET_ITEMS ? await authenticatePassword(request, env) : null;
+        const isCalcAdmin = calcAuth?.authenticated === true && calcAuth.role === "admin";
+        if (!Array.isArray(basket) || basket.length === 0 || (!isCalcAdmin && basket.length > MAX_BASKET_ITEMS)) {
           return json({ error: "Invalid basket: must contain between 1 and 100 items" }, 400, request);
         }
 

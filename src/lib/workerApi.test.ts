@@ -854,6 +854,42 @@ describe("worker fetch handlers", () => {
       const data = await res.json();
       expect(data.error).toContain("between 1 and 100 items");
     });
+
+    it("allows admins to save and calculate an index with more than 100 basket items", async () => {
+      const env = createMockEnv();
+      const items = Array.from({ length: 101 }, (_, i) => ({
+        ticker: `T${i}`,
+        name: `Stock ${i}`,
+        weight: 1,
+        theme: "Test",
+      }));
+      const adminHeaders = {
+        "Content-Type": "application/json",
+        "x-auth-password": "admin1234",
+      };
+
+      const saveRes = await worker.fetch(
+        new Request("http://localhost/api/indices", {
+          method: "POST",
+          headers: adminHeaders,
+          body: JSON.stringify({ id: "admin-large-index", basket: items }),
+        }),
+        env as any,
+      );
+      expect(saveRes.status).toBe(200);
+
+      const calculateRes = await worker.fetch(
+        new Request("http://localhost/api/calculate", {
+          method: "POST",
+          headers: adminHeaders,
+          body: JSON.stringify({ basket: items, baseValue: 1000 }),
+        }),
+        env as any,
+      );
+      expect(calculateRes.status).toBe(200);
+      const data = await calculateRes.json();
+      expect(data.ok).toBe(true);
+      expect(data.basket).toHaveLength(101);
+    });
   });
 });
-
