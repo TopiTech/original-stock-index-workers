@@ -13,6 +13,7 @@ interface StatefulEnv {
   _syncLogs: Map<string, SyncLogRow>;
   _rateLimits: Map<string, RateLimitRow>;
   _stockPrices: Map<string, { ticker: string; date: string; price: number }>;
+  _stockSeries: Map<string, { ticker: string; prices: string; updated_at: number }>;
 }
 
 function createStatefulEnv(): StatefulEnv {
@@ -23,6 +24,7 @@ function createStatefulEnv(): StatefulEnv {
     _syncLogs: new Map(),
     _rateLimits: new Map(),
     _stockPrices: new Map(),
+    _stockSeries: new Map(),
     DB: undefined as unknown as StatefulEnv["DB"],
     batch: vi.fn(),
   } as StatefulEnv;
@@ -83,6 +85,11 @@ function createStatefulEnv(): StatefulEnv {
     if (query.includes("INSERT") && query.includes("sync_logs")) {
       const [ticker, lastSyncedAt] = params as [string, number];
       env._syncLogs.set(ticker, { ticker, last_synced_at: lastSyncedAt });
+      return { results: [] };
+    }
+    if (query.includes("INSERT") && query.includes("stock_series")) {
+      const [ticker, prices, updatedAt] = params as [string, string, number];
+      env._stockSeries.set(ticker, { ticker, prices, updated_at: updatedAt });
       return { results: [] };
     }
     if (query.includes("INSERT") && query.includes("stock_prices")) {
@@ -332,9 +339,13 @@ describe("worker: R4 sync-prices replaces stale stock_prices", () => {
     const data = await res.json();
     expect(data.results[0].status).toBe("synced");
 
-    // Old price from April should have been deleted
+    // Old price from April should have been deleted from legacy stock_prices
     expect(env._stockPrices.has("7203::2026-04-01")).toBe(false);
-    // New price from August should be present
-    expect(env._stockPrices.has("7203::2026-08-01")).toBe(true);
+    // New price from August should be present in stock_series (1 row atomic write)
+    const seriesRow = env._stockSeries.get("7203");
+    expect(seriesRow).toBeDefined();
+    const parsedPrices = JSON.parse(seriesRow!.prices);
+    expect(parsedPrices[0].date).toBe("2026-08-01");
+    expect(parsedPrices[0].close).toBe(2500);
   });
 });

@@ -7,7 +7,7 @@ import type { CustomIndex } from "../data/indices";
 interface IndexBuilderModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (index: CustomIndex) => Promise<{ ok: boolean; error?: string }>;
+  onSave: (index: CustomIndex, ownerToken?: string) => Promise<{ ok: boolean; error?: string; ownerToken?: string }>;
 }
 
 const SAMPLE_STOCKS: { ticker: string; name: string; theme: string }[] = [
@@ -138,6 +138,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
     setSaving(true);
     setError(null);
 
+    const ownerToken = crypto.randomUUID();
     const newIndex: CustomIndex = {
       id: `idx-${Date.now()}`,
       name: name.trim(),
@@ -146,7 +147,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
       basket,
     };
 
-    const res = await onSave(newIndex);
+    const res = await onSave(newIndex, ownerToken);
     setSaving(false);
 
     if (res.ok) {
@@ -440,7 +441,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
           }}
         >
           <div className="tiny muted mono">
-            ※ 保存時に Yahoo Finance から株価履歴が自動取得・D1キャッシュされます
+            ※ 作成端末が記録され、あなたのみ削除・編集できるよう暗号化保護されます
           </div>
 
           <div className="row" style={{ gap: 10 }}>

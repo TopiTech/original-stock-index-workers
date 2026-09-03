@@ -27,6 +27,7 @@ export default function App() {
     error: indicesError,
     saveCustomIndex,
     deleteCustomIndex,
+    isOwner,
   } = useIndices();
 
   const {
@@ -63,7 +64,7 @@ export default function App() {
 
   const handleRetry = useCallback(() => {
     if (benchmarkError) refetchBenchmark();
-    if (calcError || !customSeries.length) recalculate();
+    if (calcError || !customSeries.length) recalculate(true);
   }, [benchmarkError, calcError, customSeries.length, refetchBenchmark, recalculate]);
 
   const unifiedError = calcError || benchmarkError;
@@ -136,6 +137,7 @@ export default function App() {
                 onSelect={handleSelectIndex}
                 onCreateIndex={() => setIsBuilderOpen(true)}
                 onDeleteIndex={deleteCustomIndex}
+                isOwner={isOwner}
               />
             </motion.div>
           </AnimatePresence>

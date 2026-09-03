@@ -37,6 +37,58 @@ export const SYSTEM_INDICES = new Set([
   "jp-core",
 ]);
 
+// Hash an owner token for secure storage
+export async function hashToken(token: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(token.trim());
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// In-memory cache for warm worker isolates to minimize D1 reads
+interface MemoryCacheEntry<T> {
+  data: T;
+  expiresAt: number;
+}
+const memoryCache = new Map<string, MemoryCacheEntry<unknown>>();
+
+export function getMemoryCache<T>(key: string): T | null {
+  if (typeof process !== "undefined" && process.env?.NODE_ENV === "test") {
+    return null;
+  }
+  const entry = memoryCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    memoryCache.delete(key);
+    return null;
+  }
+  return entry.data as T;
+}
+
+export function setMemoryCache(key: string, data: unknown, ttlSeconds: number): void {
+  if (memoryCache.size > 500) {
+    const oldestKey = memoryCache.keys().next().value;
+    if (oldestKey) memoryCache.delete(oldestKey);
+  }
+  memoryCache.set(key, {
+    data,
+    expiresAt: Date.now() + ttlSeconds * 1000,
+  });
+}
+
+export function clearMemoryCache(prefix?: string): void {
+  if (!prefix) {
+    memoryCache.clear();
+    return;
+  }
+  for (const key of Array.from(memoryCache.keys())) {
+    if (key.startsWith(prefix)) {
+      memoryCache.delete(key);
+    }
+  }
+}
+
 // Normalize ticker to Yahoo Finance query symbol
 // Japanese stock tickers (start with a digit) map to Tokyo Exchange (.T)
 // US and global tickers (e.g. AAPL, NVDA) or index/forex symbols (^N225, USDJPY=X) remain as-is
@@ -105,9 +157,10 @@ function isAllowedOrigin(origin: string): boolean {
   }
 }
 
-function json(data: unknown, status = 200, request?: Request) {
+function json(data: unknown, status = 200, request?: Request, customHeaders?: Record<string, string>) {
   const headers: Record<string, string> = {
     "content-type": "application/json; charset=utf-8",
+    ...customHeaders,
   };
 
   // Cloudflare Assets 経由で同じドメインから呼ばれる場合は CORS 不要。
@@ -116,8 +169,8 @@ function json(data: unknown, status = 200, request?: Request) {
     const origin = request.headers.get("origin");
     if (origin && isAllowedOrigin(origin)) {
       headers["access-control-allow-origin"] = origin;
-      headers["access-control-allow-methods"] = "GET,POST,OPTIONS";
-      headers["access-control-allow-headers"] = "content-type";
+      headers["access-control-allow-methods"] = "GET,POST,DELETE,OPTIONS";
+      headers["access-control-allow-headers"] = "content-type,x-owner-token,x-admin-key";
       headers["vary"] = "Origin";
     }
   }
@@ -191,7 +244,7 @@ export default {
         return json({ ok: true, service: "original-stock-index-worker" }, 200, request);
       }
 
-    // ベンチマーク・スナップショットの取得（D1キャッシュ付き・複数ベンチマーク対応）
+    // ベンチマーク・スナップショットの取得（D1キャッシュ付き・複数ベンチマーク対応・インメモリ&エッジキャッシュ）
     if (url.pathname === "/api/snapshot" && request.method === "GET") {
       try {
         const ip = request.headers.get("cf-connecting-ip") || "unknown";
@@ -207,6 +260,14 @@ export default {
 
         if (symbol.length === 0 || symbol.length > 20 || !/^[A-Za-z0-9.^=\-_]+$/.test(symbol)) {
           return json({ error: "Invalid symbol parameter" }, 400, request);
+        }
+
+        const memKey = `snapshot:${symbol}`;
+        const memCached = getMemoryCache<unknown>(memKey);
+        if (memCached) {
+          return json(memCached, 200, request, {
+            "cache-control": "public, max-age=60, s-maxage=300",
+          });
         }
 
         const BENCHMARK_MAP: Record<string, { label: string; desc: string }> = {
@@ -236,7 +297,11 @@ export default {
 
         if (cacheRow && now - cacheRow.cached_at < SNAPSHOT_CACHE_TTL) {
           try {
-            return json(JSON.parse(cacheRow.data), 200, request);
+            const parsedData = JSON.parse(cacheRow.data);
+            setMemoryCache(memKey, parsedData, 60);
+            return json(parsedData, 200, request, {
+              "cache-control": "public, max-age=60, s-maxage=300",
+            });
           } catch {
             // Malformed cache, proceed to fresh fetch
           }
@@ -291,7 +356,10 @@ export default {
           }
         }
 
-        return json(responseData, 200, request);
+        setMemoryCache(memKey, responseData, 60);
+        return json(responseData, 200, request, {
+          "cache-control": "public, max-age=60, s-maxage=300",
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Snapshot fetch failed";
         console.error("API Error [snapshot]:", err);
@@ -299,9 +367,16 @@ export default {
       }
     }
 
-    // 登録されている指数一覧の取得 (D1から取得、sort_order使用)
+    // 登録されている指数一覧の取得 (D1から取得、sort_order使用、インメモリ&HTTPキャッシュ付き)
     if (url.pathname === "/api/indices" && request.method === "GET") {
       try {
+        const cachedIndices = getMemoryCache<unknown>("api:indices");
+        if (cachedIndices) {
+          return json(cachedIndices, 200, request, {
+            "cache-control": "public, max-age=15, stale-while-revalidate=60",
+          });
+        }
+
         const { results } = await env.DB.prepare(
           `
           SELECT
@@ -343,7 +418,12 @@ export default {
           }
         }
 
-        return json(Array.from(indicesMap.values()), 200, request);
+        const indicesList = Array.from(indicesMap.values());
+        setMemoryCache("api:indices", indicesList, 15);
+
+        return json(indicesList, 200, request, {
+          "cache-control": "public, max-age=15, stale-while-revalidate=60",
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to fetch indices";
         console.error("API Error [indices]:", err);
@@ -351,7 +431,7 @@ export default {
       }
     }
 
-    // 指数の新規登録・更新 (D1への永続化)
+    // 指数の新規登録・更新 (D1への永続化 + 作成者権限チェック)
     if (url.pathname === "/api/indices" && request.method === "POST") {
       try {
         const parsed = await parseJsonBody(request);
@@ -367,6 +447,10 @@ export default {
           return json({ error: "Invalid id" }, 400, request);
         }
         const id = typeof body.id === "string" && body.id.trim().length > 0 ? body.id.trim() : `custom-${Date.now()}`;
+
+        if (SYSTEM_INDICES.has(id)) {
+          return json({ error: "Cannot modify built-in system index" }, 403, request);
+        }
 
         if (body.description !== undefined && (typeof body.description !== "string" || body.description.length > 500)) {
           return json({ error: "Invalid description: max 500 characters" }, 400, request);
@@ -409,10 +493,74 @@ export default {
           }
         }
 
-        const statements = [
-          env.DB.prepare(
+        // Owner token verification
+        let providedToken =
+          (typeof body.ownerToken === "string" && body.ownerToken.trim().length > 0 ? body.ownerToken.trim() : null) ||
+          request.headers.get("x-owner-token")?.trim() ||
+          "";
+
+        // Check if index already exists in D1
+        let existingHash: string | null = null;
+        let isExisting = false;
+        try {
+          const { results } = await env.DB.prepare(
+            "SELECT id, owner_token_hash FROM indices WHERE id = ?",
+          ).bind(id).all();
+          if (results && results.length > 0) {
+            isExisting = true;
+            existingHash = (results[0] as { owner_token_hash?: string }).owner_token_hash || null;
+          }
+        } catch {
+          // In case owner_token_hash column doesn't exist yet on unmigrated db
+          try {
+            const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(id).all();
+            if (results && results.length > 0) isExisting = true;
+          } catch {}
+        }
+
+        let targetHash: string | null = null;
+
+        if (isExisting) {
+          // If index already exists and has an owner token hash, require authorization
+          if (existingHash) {
+            if (!providedToken) {
+              return json({ error: "この指数を更新する権限がありません（作成者トークンが必要です）" }, 403, request);
+            }
+            const providedHash = await hashToken(providedToken);
+            if (providedHash !== existingHash) {
+              return json({ error: "この指数を更新する権限がありません（作成者トークンが一致しません）" }, 403, request);
+            }
+            targetHash = existingHash;
+          } else {
+            // Legacy index without hash - if a token is provided, assign it now
+            if (providedToken) {
+              targetHash = await hashToken(providedToken);
+            }
+          }
+        } else {
+          // Brand new index
+          if (!providedToken) {
+            providedToken = crypto.randomUUID();
+          }
+          targetHash = await hashToken(providedToken);
+        }
+
+        const nowMs = Math.floor(Date.now() / 1000);
+
+        let insertIndexStmt;
+        try {
+          insertIndexStmt = env.DB.prepare(
+            "INSERT OR REPLACE INTO indices (id, name, description, base_value, sort_order, owner_token_hash, created_at) VALUES (?, ?, ?, ?, 50, ?, COALESCE((SELECT created_at FROM indices WHERE id = ?), ?))",
+          ).bind(id, name, description, baseValue, targetHash, id, nowMs);
+        } catch {
+          // Fallback if columns not migrated yet
+          insertIndexStmt = env.DB.prepare(
             "INSERT OR REPLACE INTO indices (id, name, description, base_value, sort_order) VALUES (?, ?, ?, ?, 50)",
-          ).bind(id, name, description, baseValue),
+          ).bind(id, name, description, baseValue);
+        }
+
+        const statements = [
+          insertIndexStmt,
           env.DB.prepare("DELETE FROM basket_items WHERE index_id = ?").bind(id),
           ...basket.map((b: any) =>
             env.DB.prepare(
@@ -422,7 +570,9 @@ export default {
         ];
 
         await env.DB.batch(statements);
-        return json({ ok: true, id, message: "Index saved successfully" }, 200, request);
+        clearMemoryCache("api:indices");
+
+        return json({ ok: true, id, ownerToken: providedToken, message: "Index saved successfully" }, 200, request);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to save index";
         console.error("API Error [POST indices]:", err);
@@ -430,7 +580,7 @@ export default {
       }
     }
 
-    // 指数の削除
+    // 指数の削除 (作成者認証付き)
     if (url.pathname === "/api/indices" && request.method === "DELETE") {
       try {
         const rawId = url.searchParams.get("id");
@@ -443,11 +593,55 @@ export default {
           return json({ error: "Cannot delete built-in system index" }, 403, request);
         }
 
+        // Verify index existence and ownership if index exists
+        let existingHash: string | null = null;
+        let hasCheckedIndex = false;
+        try {
+          const { results } = await env.DB.prepare(
+            "SELECT id, owner_token_hash FROM indices WHERE id = ?",
+          ).bind(id).all();
+          if (results && results.length > 0) {
+            hasCheckedIndex = true;
+            existingHash = (results[0] as { owner_token_hash?: string }).owner_token_hash || null;
+          }
+        } catch {
+          // Column might not exist in unmigrated db
+          try {
+            const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(id).all();
+            if (results && results.length > 0) hasCheckedIndex = true;
+          } catch {}
+        }
+
+        const providedToken =
+          request.headers.get("x-owner-token")?.trim() ||
+          url.searchParams.get("token")?.trim() ||
+          "";
+
+        if (hasCheckedIndex) {
+          if (existingHash) {
+            if (!providedToken) {
+              return json({ error: "この指数を削除する権限がありません（作成者トークンが必要です）" }, 403, request);
+            }
+            const providedHash = await hashToken(providedToken);
+            if (providedHash !== existingHash) {
+              return json({ error: "この指数を削除する権限がありません（作成者トークンが一致しません）" }, 403, request);
+            }
+          } else {
+            // Legacy index with no hash
+            const adminKey = request.headers.get("x-admin-key")?.trim() || url.searchParams.get("adminKey")?.trim();
+            if (!adminKey && !providedToken) {
+              return json({ error: "この指数は保護されているため削除できません" }, 403, request);
+            }
+          }
+        }
+
         const statements = [
           env.DB.prepare("DELETE FROM basket_items WHERE index_id = ?").bind(id),
           env.DB.prepare("DELETE FROM indices WHERE id = ?").bind(id),
         ];
         await env.DB.batch(statements);
+        clearMemoryCache("api:indices");
+
         return json({ ok: true, id, message: "Index deleted successfully" }, 200, request);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to delete index";
@@ -486,7 +680,7 @@ export default {
         const results: { ticker: string; status: string; count?: number; lastSynced?: number }[] =
           [];
         const now = Math.floor(Date.now() / 1000);
-        const CACHE_DURATION = 4 * 60 * 60; // 4 hours
+        const CACHE_DURATION = 12 * 60 * 60; // 12 hours (daily candles)
 
         // すでに同期済みの銘柄を確認
         const { results: syncLogs } = await env.DB.prepare(
@@ -522,32 +716,45 @@ export default {
               const symbol = toYahooSymbol(ticker);
               const series = await fetchYahooFinance(symbol);
               if (series.length > 0) {
-                // Chunk prices into multi-row statements (up to 25 rows = 75 parameters <= D1 100-parameter limit)
-                // to stay well within Cloudflare Worker query count and execution limits.
-                const CHUNK_SIZE = 25;
-                const insertStatements: any[] = [];
-                for (let c = 0; c < series.length; c += CHUNK_SIZE) {
-                  const slice = series.slice(c, c + CHUNK_SIZE);
-                  const placeholders = slice.map(() => "(?, ?, ?)").join(", ");
-                  const params: (string | number)[] = [];
-                  for (const p of slice) {
-                    params.push(ticker, p.date, p.close);
-                  }
-                  insertStatements.push(
-                    env.DB.prepare(
-                      `INSERT OR REPLACE INTO stock_prices (ticker, date, price) VALUES ${placeholders}`,
-                    ).bind(...params),
-                  );
-                }
-
+                // High-efficiency single-row storage in stock_series:
+                // Stores the full series JSON in 1 row (1 write) instead of 500 writes.
+                const seriesJson = JSON.stringify(series);
                 const statements = [
+                  env.DB.prepare(
+                    "INSERT OR REPLACE INTO stock_series (ticker, prices, updated_at) VALUES (?, ?, ?)",
+                  ).bind(ticker, seriesJson, now),
                   env.DB.prepare("DELETE FROM stock_prices WHERE ticker = ?").bind(ticker),
-                  ...insertStatements,
                   env.DB.prepare(
                     "INSERT OR REPLACE INTO sync_logs (ticker, last_synced_at) VALUES (?, ?)",
                   ).bind(ticker, now),
                 ];
-                await env.DB.batch(statements);
+                try {
+                  await env.DB.batch(statements);
+                } catch {
+                  // Fallback for unmigrated database: use legacy chunked stock_prices
+                  const CHUNK_SIZE = 25;
+                  const insertStatements: any[] = [];
+                  for (let c = 0; c < series.length; c += CHUNK_SIZE) {
+                    const slice = series.slice(c, c + CHUNK_SIZE);
+                    const placeholders = slice.map(() => "(?, ?, ?)").join(", ");
+                    const params: (string | number)[] = [];
+                    for (const p of slice) {
+                      params.push(ticker, p.date, p.close);
+                    }
+                    insertStatements.push(
+                      env.DB.prepare(
+                        `INSERT OR REPLACE INTO stock_prices (ticker, date, price) VALUES ${placeholders}`,
+                      ).bind(...params),
+                    );
+                  }
+                  await env.DB.batch([
+                    env.DB.prepare("DELETE FROM stock_prices WHERE ticker = ?").bind(ticker),
+                    ...insertStatements,
+                    env.DB.prepare(
+                      "INSERT OR REPLACE INTO sync_logs (ticker, last_synced_at) VALUES (?, ?)",
+                    ).bind(ticker, now),
+                  ]);
+                }
                 return { ticker, status: "synced", count: series.length };
               }
               // Record the attempt in sync_logs so the next request within
@@ -643,20 +850,51 @@ export default {
         const SQL_CHUNK_SIZE = 50;
         for (let i = 0; i < tickers.length; i += SQL_CHUNK_SIZE) {
           const chunk = tickers.slice(i, i + SQL_CHUNK_SIZE);
-          const { results: dbPrices } = await env.DB.prepare(
-            `
-            SELECT ticker, date, price FROM stock_prices
-            WHERE ticker IN (${chunk.map(() => "?").join(",")})
-            ORDER BY date ASC
-          `,
-          )
-            .bind(...chunk)
-            .all();
+          try {
+            const { results: seriesRows } = await env.DB.prepare(
+              `SELECT ticker, prices FROM stock_series WHERE ticker IN (${chunk.map(() => "?").join(",")})`,
+            )
+              .bind(...chunk)
+              .all();
 
-          (dbPrices as { ticker: string; date: string; price: number }[]).forEach((row) => {
-            if (!pricesByTicker.has(row.ticker)) pricesByTicker.set(row.ticker, []);
-            pricesByTicker.get(row.ticker)!.push({ date: row.date, close: row.price });
-          });
+            for (const row of seriesRows as { ticker: string; prices: string }[]) {
+              if (row.ticker && row.prices) {
+                try {
+                  const parsed = JSON.parse(row.prices);
+                  if (Array.isArray(parsed) && parsed.length > 0) {
+                    pricesByTicker.set(row.ticker, parsed);
+                  }
+                } catch {
+                  // malformed json
+                }
+              }
+            }
+          } catch {
+            // stock_series table might not exist yet
+          }
+
+          // Fallback to legacy stock_prices for any tickers not found in stock_series
+          const missingTickers = chunk.filter((t) => !pricesByTicker.has(t));
+          if (missingTickers.length > 0) {
+            try {
+              const { results: dbPrices } = await env.DB.prepare(
+                `
+                SELECT ticker, date, price FROM stock_prices
+                WHERE ticker IN (${missingTickers.map(() => "?").join(",")})
+                ORDER BY date ASC
+              `,
+              )
+                .bind(...missingTickers)
+                .all();
+
+              (dbPrices as { ticker: string; date: string; price: number }[]).forEach((row) => {
+                if (!pricesByTicker.has(row.ticker)) pricesByTicker.set(row.ticker, []);
+                pricesByTicker.get(row.ticker)!.push({ date: row.date, close: row.price });
+              });
+            } catch {
+              // legacy table query error
+            }
+          }
         }
 
         // 3. データを整形

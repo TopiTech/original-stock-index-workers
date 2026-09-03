@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import worker, { toYahooSymbol, SYSTEM_INDICES } from "../../worker/index";
+import worker, { toYahooSymbol, SYSTEM_INDICES, hashToken } from "../../worker/index";
 
 function createMockEnv(overrides?: Partial<any>) {
   const executeQuery = async (query: string) => {
@@ -7,6 +7,9 @@ function createMockEnv(overrides?: Partial<any>) {
       return { results: [] };
     }
     if (query.includes("snapshot_cache")) {
+      return { results: [] };
+    }
+    if (query.includes("owner_token_hash") || query.includes("WHERE id = ?")) {
       return { results: [] };
     }
     if (query.includes("indices")) {
@@ -448,6 +451,176 @@ describe("worker fetch handlers", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+
+  it("hashToken generates a 64-character hex SHA-256 string", async () => {
+    const hash1 = await hashToken("secret-token-123");
+    const hash2 = await hashToken("secret-token-123");
+    const hash3 = await hashToken("different-token");
+
+    expect(hash1).toBe(hash2);
+    expect(hash1).not.toBe(hash3);
+    expect(hash1).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("POST /api/indices generates and returns an ownerToken for new indices", async () => {
+    const env = createMockEnv();
+    const req = new Request("http://localhost/api/indices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Protected Tech Index",
+        basket: [{ ticker: "9984", name: "SBG", weight: 100, theme: "AI" }],
+      }),
+    });
+
+    const res = await worker.fetch(req, env as any);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.ok).toBe(true);
+    expect(typeof data.ownerToken).toBe("string");
+    expect(data.ownerToken.length).toBeGreaterThan(10);
+  });
+
+  it("DELETE /api/indices rejects deletion with 403 when owner token is missing or invalid", async () => {
+    const myToken = "creator-secret-token";
+    const myHash = await hashToken(myToken);
+
+    const env = createMockEnv({
+      DB: {
+        prepare: vi.fn().mockImplementation((query: string) => ({
+          bind: vi.fn().mockReturnThis(),
+          all: vi.fn().mockImplementation(() => {
+            if (query.includes("SELECT") && query.includes("indices")) {
+              return { results: [{ id: "custom-protected", owner_token_hash: myHash }] };
+            }
+            return { results: [] };
+          }),
+          run: vi.fn().mockResolvedValue({ success: true }),
+        })),
+        batch: vi.fn().mockResolvedValue([]),
+      },
+    });
+
+    // 1. Without token: 403 Forbidden
+    const resNoToken = await worker.fetch(
+      new Request("http://localhost/api/indices?id=custom-protected", { method: "DELETE" }),
+      env as any,
+    );
+    expect(resNoToken.status).toBe(403);
+    const noTokenData = await resNoToken.json();
+    expect(noTokenData.error).toContain("作成者トークン");
+
+    // 2. With wrong token: 403 Forbidden
+    const resWrongToken = await worker.fetch(
+      new Request("http://localhost/api/indices?id=custom-protected", {
+        method: "DELETE",
+        headers: { "x-owner-token": "wrong-token-abc" },
+      }),
+      env as any,
+    );
+    expect(resWrongToken.status).toBe(403);
+    const wrongTokenData = await resWrongToken.json();
+    expect(wrongTokenData.error).toContain("一致しません");
+
+    // 3. With correct token: 200 OK
+    const resValid = await worker.fetch(
+      new Request("http://localhost/api/indices?id=custom-protected", {
+        method: "DELETE",
+        headers: { "x-owner-token": myToken },
+      }),
+      env as any,
+    );
+    expect(resValid.status).toBe(200);
+    const validData = await resValid.json();
+    expect(validData.ok).toBe(true);
+  });
+
+  it("POST /api/indices rejects updating existing index when owner token is invalid or missing", async () => {
+    const originalToken = "owner-valid-token";
+    const originalHash = await hashToken(originalToken);
+
+    const env = createMockEnv({
+      DB: {
+        prepare: vi.fn().mockImplementation((query: string) => ({
+          bind: vi.fn().mockReturnThis(),
+          all: vi.fn().mockImplementation(() => {
+            if (query.includes("SELECT") && query.includes("indices")) {
+              return { results: [{ id: "custom-existing-1", owner_token_hash: originalHash }] };
+            }
+            return { results: [] };
+          }),
+          run: vi.fn().mockResolvedValue({ success: true }),
+        })),
+        batch: vi.fn().mockResolvedValue([]),
+      },
+    });
+
+    // Attempt overwrite with wrong token: 403
+    const reqWrong = new Request("http://localhost/api/indices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-owner-token": "bad-token" },
+      body: JSON.stringify({
+        id: "custom-existing-1",
+        name: "Hacked Index",
+        basket: [{ ticker: "7203", name: "Toyota", weight: 100 }],
+      }),
+    });
+    const resWrong = await worker.fetch(reqWrong, env as any);
+    expect(resWrong.status).toBe(403);
+
+    // Attempt update with correct token: 200
+    const reqValid = new Request("http://localhost/api/indices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-owner-token": originalToken },
+      body: JSON.stringify({
+        id: "custom-existing-1",
+        name: "Updated Valid Index",
+        basket: [{ ticker: "7203", name: "Toyota", weight: 100 }],
+      }),
+    });
+    const resValid = await worker.fetch(reqValid, env as any);
+    expect(resValid.status).toBe(200);
+  });
+
+  it("POST /api/calculate loads and calculates prices from stock_series table", async () => {
+    const seriesJson = JSON.stringify([
+      { date: "2026-04-01", close: 2000 },
+      { date: "2026-04-02", close: 2200 },
+    ]);
+
+    const env = createMockEnv({
+      DB: {
+        prepare: vi.fn().mockImplementation((query: string) => ({
+          bind: vi.fn().mockReturnThis(),
+          all: vi.fn().mockImplementation(() => {
+            if (query.includes("stock_series")) {
+              return { results: [{ ticker: "7203", prices: seriesJson }] };
+            }
+            return { results: [] };
+          }),
+          run: vi.fn().mockResolvedValue({ success: true }),
+        })),
+        batch: vi.fn().mockResolvedValue([]),
+      },
+    });
+
+    const req = new Request("http://localhost/api/calculate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        basket: [{ ticker: "7203", name: "Toyota", theme: "Auto", weight: 100 }],
+        baseValue: 1000,
+      }),
+    });
+
+    const res = await worker.fetch(req, env as any);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.ok).toBe(true);
+    expect(data.series.length).toBe(2);
+    expect(data.series[0].value).toBe(1000);
+    expect(data.series[1].value).toBe(1100);
   });
 });
 

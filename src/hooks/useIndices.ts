@@ -1,5 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
 import type { CustomIndex } from "../data/indices";
+import {
+  saveIndexOwnerToken,
+  getIndexOwnerToken,
+  removeIndexOwnerToken,
+  isIndexOwner,
+} from "../lib/ownership";
 
 const API_BASE = "/api";
 
@@ -42,42 +48,71 @@ export function useIndices() {
     setSelectedIndex(index);
   }, []);
 
-  const saveCustomIndex = useCallback(async (newIndex: CustomIndex): Promise<{ ok: boolean; error?: string }> => {
-    try {
-      const res = await fetch(`${API_BASE}/indices`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newIndex),
-      });
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || "指数の保存に失敗しました");
-      }
-      await fetchIndices();
-      setSelectedIndex(newIndex);
-      return { ok: true };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "指数の保存に失敗しました";
-      return { ok: false, error: msg };
-    }
-  }, [fetchIndices]);
+  const saveCustomIndex = useCallback(
+    async (
+      newIndex: CustomIndex,
+      ownerToken?: string,
+    ): Promise<{ ok: boolean; error?: string; ownerToken?: string }> => {
+      try {
+        const token = ownerToken || getIndexOwnerToken(newIndex.id) || crypto.randomUUID();
+        const res = await fetch(`${API_BASE}/indices`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-owner-token": token,
+          },
+          body: JSON.stringify({
+            ...newIndex,
+            ownerToken: token,
+          }),
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || "指数の保存に失敗しました");
+        }
+        const data = await res.json().catch(() => ({}));
+        const finalToken = data.ownerToken || token;
+        saveIndexOwnerToken(newIndex.id, finalToken);
 
-  const deleteCustomIndex = useCallback(async (id: string): Promise<{ ok: boolean; error?: string }> => {
-    try {
-      const res = await fetch(`${API_BASE}/indices?id=${encodeURIComponent(id)}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || "指数の削除に失敗しました");
+        await fetchIndices();
+        setSelectedIndex(newIndex);
+        return { ok: true, ownerToken: finalToken };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "指数の保存に失敗しました";
+        return { ok: false, error: msg };
       }
-      await fetchIndices();
-      return { ok: true };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "指数の削除に失敗しました";
-      return { ok: false, error: msg };
-    }
-  }, [fetchIndices]);
+    },
+    [fetchIndices],
+  );
+
+  const deleteCustomIndex = useCallback(
+    async (id: string): Promise<{ ok: boolean; error?: string }> => {
+      try {
+        const token = getIndexOwnerToken(id);
+        const headers: Record<string, string> = {};
+        if (token) {
+          headers["x-owner-token"] = token;
+        }
+
+        const res = await fetch(`${API_BASE}/indices?id=${encodeURIComponent(id)}`, {
+          method: "DELETE",
+          headers,
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || "指数の削除に失敗しました");
+        }
+
+        removeIndexOwnerToken(id);
+        await fetchIndices();
+        return { ok: true };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "指数の削除に失敗しました";
+        return { ok: false, error: msg };
+      }
+    },
+    [fetchIndices],
+  );
 
   return {
     indices,
@@ -88,6 +123,7 @@ export function useIndices() {
     saveCustomIndex,
     deleteCustomIndex,
     refreshIndices: fetchIndices,
+    isOwner: isIndexOwner,
   };
 }
 

@@ -14,8 +14,9 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
   const [syncProgress, setSyncProgress] = useState(0);
   const [syncWarnings, setSyncWarnings] = useState<string[]>([]);
   const abortRef = useRef<AbortController | null>(null);
+  const syncedTickersRef = useRef<Set<string>>(new Set());
 
-  const calculate = useCallback(async () => {
+  const calculate = useCallback(async (force = false) => {
     if (!selectedIndex || selectedIndex.basket.length === 0) {
       setCustomSeries([]);
       setStockUniverse([]);
@@ -39,51 +40,62 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
     setSyncWarnings([]);
 
     try {
-      // 全銘柄の同期を走らせる
+      // 全銘柄の同期を走らせる（セッション内で同期済みの銘柄は重複同期をスキップしてD1クォータを節約）
       if (selectedIndex.basket.length > 0) {
-        setSyncing(true);
-        const BATCH_SIZE = 100;
-        const tickers = selectedIndex.basket.map((b) => b.ticker);
-        const warnings: string[] = [];
+        const allTickers = selectedIndex.basket.map((b) => b.ticker);
+        const tickersToSync = force
+          ? allTickers
+          : allTickers.filter((t) => !syncedTickersRef.current.has(t));
 
-        for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
-          if (controller.signal.aborted) return;
+        if (tickersToSync.length > 0) {
+          setSyncing(true);
+          const BATCH_SIZE = 100;
+          const warnings: string[] = [];
 
-          const chunk = tickers.slice(i, i + BATCH_SIZE);
-          try {
-            const syncRes = await fetch(`${API_BASE}/sync-prices`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ tickers: chunk }),
-              signal: controller.signal,
-            });
+          for (let i = 0; i < tickersToSync.length; i += BATCH_SIZE) {
             if (controller.signal.aborted) return;
 
-            if (!syncRes.ok) {
-              warnings.push(`同期バッチ ${Math.floor(i / BATCH_SIZE) + 1} が失敗しました`);
-            } else {
-              const syncData = await syncRes.json();
-              if (syncData.results) {
-                const failed = syncData.results
-                  .filter((r: { status: string }) => r.status === "failed")
-                  .map((r: { ticker: string }) => r.ticker);
-                if (failed.length > 0) {
-                  warnings.push(`一部銘柄の取得に失敗: ${failed.join(", ")}`);
+            const chunk = tickersToSync.slice(i, i + BATCH_SIZE);
+            try {
+              const syncRes = await fetch(`${API_BASE}/sync-prices`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ tickers: chunk, force }),
+                signal: controller.signal,
+              });
+              if (controller.signal.aborted) return;
+
+              if (!syncRes.ok) {
+                warnings.push(`同期バッチ ${Math.floor(i / BATCH_SIZE) + 1} が失敗しました`);
+              } else {
+                const syncData = await syncRes.json();
+                if (syncData.results) {
+                  for (const r of syncData.results) {
+                    if (r.status === "synced" || r.status === "cached") {
+                      syncedTickersRef.current.add(r.ticker);
+                    }
+                  }
+                  const failed = syncData.results
+                    .filter((r: { status: string }) => r.status === "failed")
+                    .map((r: { ticker: string }) => r.ticker);
+                  if (failed.length > 0) {
+                    warnings.push(`一部銘柄の取得に失敗: ${failed.join(", ")}`);
+                  }
                 }
               }
+            } catch (err) {
+              if (controller.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) return;
+              warnings.push(`同期バッチ ${Math.floor(i / BATCH_SIZE) + 1} で通信エラー`);
             }
-          } catch (err) {
-            if (controller.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) return;
-            warnings.push(`同期バッチ ${Math.floor(i / BATCH_SIZE) + 1} で通信エラー`);
-          }
 
+            if (controller.signal.aborted) return;
+            setSyncProgress(Math.round(((i + chunk.length) / tickersToSync.length) * 100));
+          }
           if (controller.signal.aborted) return;
-          setSyncProgress(Math.round(((i + chunk.length) / tickers.length) * 100));
-        }
-        if (controller.signal.aborted) return;
-        setSyncing(false);
-        if (warnings.length > 0) {
-          setSyncWarnings(warnings);
+          setSyncing(false);
+          if (warnings.length > 0) {
+            setSyncWarnings(warnings);
+          }
         }
       }
 

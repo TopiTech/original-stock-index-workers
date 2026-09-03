@@ -3,7 +3,9 @@ CREATE TABLE IF NOT EXISTS indices (
     name TEXT NOT NULL,
     description TEXT,
     base_value REAL DEFAULT 1000,
-    sort_order INTEGER DEFAULT 99
+    sort_order INTEGER DEFAULT 99,
+    owner_token_hash TEXT,
+    created_at INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS basket_items (
@@ -15,6 +17,12 @@ CREATE TABLE IF NOT EXISTS basket_items (
     theme TEXT,
     FOREIGN KEY (index_id) REFERENCES indices (id) ON DELETE CASCADE,
     UNIQUE(index_id, ticker)
+);
+
+CREATE TABLE IF NOT EXISTS stock_series (
+    ticker TEXT PRIMARY KEY,
+    prices TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS stock_prices (

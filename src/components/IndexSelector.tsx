@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, Tag, Badge, SearchInput } from "./ui";
-import { Layers, CheckCircle2, Plus, Trash2 } from "lucide-react";
+import { Layers, CheckCircle2, Plus, Trash2, UserCheck } from "lucide-react";
 import type { CustomIndex } from "../data/indices";
 import { normalizeWeights } from "../lib/indexEngine";
+import { isIndexOwner } from "../lib/ownership";
 
 interface IndexSelectorProps {
   indices: CustomIndex[];
@@ -11,6 +12,7 @@ interface IndexSelectorProps {
   onSelect: (index: CustomIndex) => void;
   onCreateIndex?: () => void;
   onDeleteIndex?: (id: string) => void;
+  isOwner?: (id: string) => boolean;
 }
 
 export function IndexSelector({
@@ -19,6 +21,7 @@ export function IndexSelector({
   onSelect,
   onCreateIndex,
   onDeleteIndex,
+  isOwner,
 }: IndexSelectorProps) {
   const [search, setSearch] = useState("");
 
@@ -75,6 +78,8 @@ export function IndexSelector({
         {filteredIndices.map((idx) => {
           const isSelected = selectedIndex?.id === idx.id;
           const isCustom = idx.id.startsWith("idx-") || idx.id.startsWith("custom-");
+          const checkOwner = isOwner || isIndexOwner;
+          const isMyIndex = isCustom && checkOwner(idx.id);
 
           return (
             <motion.div
@@ -94,16 +99,37 @@ export function IndexSelector({
               }}
             >
               <div className="row space-between" style={{ marginBottom: 4 }}>
-                <div style={{ fontWeight: 700, fontSize: 14, color: isSelected ? "var(--neon-cyan)" : "#fff" }}>
-                  {idx.name}
+                <div className="row" style={{ gap: 6, alignItems: "center" }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: isSelected ? "var(--neon-cyan)" : "#fff" }}>
+                    {idx.name}
+                  </div>
+                  {isMyIndex && (
+                    <span
+                      className="tag"
+                      style={{
+                        fontSize: 9,
+                        padding: "1px 6px",
+                        background: "rgba(0, 229, 255, 0.12)",
+                        color: "var(--neon-cyan)",
+                        border: "1px solid rgba(0, 229, 255, 0.3)",
+                        borderRadius: 4,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 3,
+                      }}
+                      title="あなたが作成した独自指数です"
+                    >
+                      <UserCheck size={10} /> My 指数
+                    </span>
+                  )}
                 </div>
                 <div className="row" style={{ gap: 6 }}>
-                  {isCustom && onDeleteIndex && (
+                  {isMyIndex && onDeleteIndex && (
                     <button
                       type="button"
                       onClick={(e: React.MouseEvent) => {
                         e.stopPropagation();
-                        if (confirm(`指数「${idx.name}」を削除しますか？`)) {
+                        if (confirm(`指数「${idx.name}」を削除しますか？\n（作成者のみ削除可能です）`)) {
                           onDeleteIndex(idx.id);
                         }
                       }}
@@ -115,7 +141,7 @@ export function IndexSelector({
                         padding: 2,
                         opacity: 0.7,
                       }}
-                      title="指数を削除"
+                      title="指数を削除 (作成者のみ)"
                       aria-label={`指数「${idx.name}」を削除`}
                     >
                       <Trash2 size={13} />
