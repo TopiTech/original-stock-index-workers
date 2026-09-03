@@ -967,8 +967,10 @@ export function AdminDashboard({
 
               {/* Index selector dropdown */}
               <div className="row" style={{ gap: 8 }}>
-                <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>編集対象指数:</span>
+                <label htmlFor="admin-select-edit-index" style={{ fontSize: 12, color: "var(--text-secondary)" }}>編集対象指数:</label>
                 <select
+                  id="admin-select-edit-index"
+                  aria-label="編集対象指数を選択"
                   value={selectedEditIndexId}
                   onChange={(e) => setSelectedEditIndexId(e.target.value)}
                   style={{
@@ -1172,6 +1174,7 @@ export function AdminDashboard({
               <div className="row flex-wrap" style={{ gap: 10 }}>
                 <input
                   type="text"
+                  aria-label="銘柄コード"
                   placeholder="コード (例: 6758)"
                   value={addTicker}
                   onChange={(e) => setAddTicker(e.target.value.toUpperCase())}
@@ -1187,6 +1190,7 @@ export function AdminDashboard({
                 />
                 <input
                   type="text"
+                  aria-label="銘柄名"
                   placeholder="銘柄名 (例: ソニーグループ)"
                   value={addName}
                   onChange={(e) => setAddName(e.target.value)}
@@ -1203,6 +1207,7 @@ export function AdminDashboard({
                 />
                 <input
                   type="text"
+                  aria-label="テーマ"
                   placeholder="テーマ"
                   value={addTheme}
                   onChange={(e) => setAddTheme(e.target.value)}
@@ -1218,6 +1223,7 @@ export function AdminDashboard({
                 />
                 <input
                   type="number"
+                  aria-label="比率"
                   placeholder="比率"
                   value={addWeight}
                   onChange={(e) => setAddWeight(Number(e.target.value))}

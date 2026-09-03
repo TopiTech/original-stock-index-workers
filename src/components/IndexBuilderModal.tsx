@@ -4,6 +4,7 @@ import { X, Plus, Trash2, Sliders, Check, RefreshCw, KeyRound, Lock, ShieldCheck
 import type { BasketItem } from "../types";
 import type { CustomIndex } from "../data/indices";
 import { useAuth } from "../hooks/useAuth";
+import { AuthModal } from "./AuthModal";
 
 interface IndexBuilderModalProps {
   isOpen: boolean;
@@ -31,6 +32,7 @@ const SAMPLE_STOCKS: { ticker: string; name: string; theme: string }[] = [
 
 export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModalProps) {
   const { session, isAuthenticated, isAdmin, isUser, maxStocks } = useAuth();
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [baseValue, setBaseValue] = useState(1000);
@@ -155,7 +157,8 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
     }
 
     if (!isAuthenticated) {
-      setError("指数の作成・保存にはパスワード認証が必要です。ヘッダーまたは構成銘柄リストからパスワード認証を行ってください。");
+      setIsAuthModalOpen(true);
+      setError("指数の保存にはパスワード認証が必要です。パスワードを入力してください。");
       return;
     }
 
@@ -305,12 +308,20 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
                   </span>
                 </>
               ) : (
-                <>
+                <div className="row" style={{ gap: 8, alignItems: "center" }}>
                   <Lock size={14} style={{ color: "#ffaa00" }} />
                   <span style={{ color: "#ffaa00" }}>
                     未認証状態です。指数の保存にはパスワード認証が必要です。
                   </span>
-                </>
+                  <button
+                    type="button"
+                    onClick={() => setIsAuthModalOpen(true)}
+                    className="btn btn-sm btn-outline"
+                    style={{ padding: "2px 8px", fontSize: 11, borderColor: "var(--neon-cyan)", color: "var(--neon-cyan)" }}
+                  >
+                    <KeyRound size={11} /> パスワード認証
+                  </button>
+                </div>
               )}
             </div>
             <div className="mono tiny">
@@ -555,6 +566,16 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
           </div>
         </div>
       </motion.div>
+
+      {/* Inline Auth Modal for preserving builder state */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onSuccess={() => {
+          setIsAuthModalOpen(false);
+          setError(null);
+        }}
+      />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import worker, { hashToken, SYSTEM_INDICES, getDefaultAdminPassword } from "../../worker/index";
+import worker, { hashToken, timingSafeEqual, SYSTEM_INDICES, getDefaultAdminPassword } from "../../worker/index";
 
 interface PasswordRecord {
   id: string;
@@ -139,9 +139,20 @@ function createSecurityTestEnv() {
             return { success: true };
           }
           if (query.includes("DELETE FROM basket_items")) {
-            const [indexId, ticker] = params as [string, string];
-            const idx = basketItems.findIndex((b) => b.index_id === indexId && b.ticker === ticker);
-            if (idx >= 0) basketItems.splice(idx, 1);
+            const [indexId] = params as [string];
+            for (let i = basketItems.length - 1; i >= 0; i--) {
+              if (basketItems[i].index_id === indexId) basketItems.splice(i, 1);
+            }
+            return { success: true };
+          }
+          if (query.includes("INTO indices")) {
+            const [id, name, description, baseValue, hash] = params as [string, string, string, number, string | null];
+            indices.set(id, { id, name, description, base_value: baseValue, owner_token_hash: hash || null });
+            return { success: true };
+          }
+          if (query.includes("DELETE FROM indices WHERE id = ?")) {
+            const id = params[0] as string;
+            indices.delete(id);
             return { success: true };
           }
           return { success: true };
@@ -603,6 +614,102 @@ describe("Security and Admin Regression Tests", () => {
       });
       const deactivateRes = await worker.fetch(deactivateReq, env as any);
       expect(deactivateRes.status).toBe(403);
+    });
+  });
+
+  describe("R3 Security and Correctness Hardening: Legacy Protection, Casing & Timing Safety", () => {
+    it("timingSafeEqual correctly compares strings and protects against length mismatches", () => {
+      expect(timingSafeEqual("abcdef", "abcdef")).toBe(true);
+      expect(timingSafeEqual("abcdef", "abcdeg")).toBe(false);
+      expect(timingSafeEqual("abcdef", "abcde")).toBe(false);
+      expect(timingSafeEqual("", "")).toBe(true);
+      expect(timingSafeEqual("a", "")).toBe(false);
+    });
+
+    it("prevents non-admin with arbitrary token from deleting unprotected legacy index (403)", async () => {
+      const { env, indices } = createSecurityTestEnv();
+
+      // Seed a legacy index without owner_token_hash (null)
+      indices.set("legacy-unowned-index", {
+        id: "legacy-unowned-index",
+        name: "Legacy Protected Index",
+        description: "Built without owner token",
+        base_value: 1000,
+        owner_token_hash: null,
+      });
+
+      // Try to delete without admin auth, providing an arbitrary owner token
+      const attackerReq = new Request("http://localhost/api/indices?id=legacy-unowned-index", {
+        method: "DELETE",
+        headers: {
+          "x-owner-token": "attacker-random-token-12345",
+        },
+      });
+      const attackerRes = await worker.fetch(attackerReq, env as any);
+      // Must be rejected with 403!
+      expect(attackerRes.status).toBe(403);
+      const attackerData = await attackerRes.json();
+      expect(attackerData.error).toContain("管理者権限が必要です");
+    });
+
+    it("returns 404 when deleting a non-existent index", async () => {
+      const { env } = createSecurityTestEnv();
+
+      const req = new Request("http://localhost/api/indices?id=non-existent-index-xyz", {
+        method: "DELETE",
+        headers: {
+          "x-owner-token": "token",
+        },
+      });
+      const res = await worker.fetch(req, env as any);
+      expect(res.status).toBe(404);
+      const data = await res.json();
+      expect(data.error).toContain("Index not found");
+    });
+
+    it("normalizes tickers to uppercase and detects duplicate tickers case-insensitively in POST /api/indices", async () => {
+      const { env } = createSecurityTestEnv();
+
+      // Submitting duplicate tickers with different cases (aapl vs AAPL) must be rejected
+      const dupReq = new Request("http://localhost/api/indices", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": getDefaultAdminPassword(),
+        },
+        body: JSON.stringify({
+          id: "case-test-index",
+          name: "Case Test Index",
+          basket: [
+            { ticker: "aapl", name: "Apple Lower", weight: 50 },
+            { ticker: "AAPL", name: "Apple Upper", weight: 50 },
+          ],
+        }),
+      });
+      const dupRes = await worker.fetch(dupReq, env as any);
+      expect(dupRes.status).toBe(400);
+      const dupData = await dupRes.json();
+      expect(dupData.error).toContain("Duplicate ticker");
+    });
+
+    it("detects duplicate tickers case-insensitively in POST /api/calculate", async () => {
+      const { env } = createSecurityTestEnv();
+
+      const req = new Request("http://localhost/api/calculate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          basket: [
+            { ticker: "7203", name: "Toyota", theme: "Auto", weight: 50 },
+            { ticker: "7203", name: "Toyota Dup", theme: "Auto", weight: 50 },
+          ],
+          baseValue: 1000,
+        }),
+      });
+      const res = await worker.fetch(req, env as any);
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.error).toContain("Duplicate ticker");
     });
   });
 });

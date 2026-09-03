@@ -54,7 +54,8 @@ export function buildChartData(
       lastKnownClose = nikkeiClose;
     }
     const nikkeiPoint = nikkeiClose && nikkeiClose > 0 ? nikkeiClose : lastKnownClose;
-    const customVal = point.value ?? point.close ?? safeBase;
+    const rawVal = point.value ?? point.close;
+    const customVal = typeof rawVal === "number" && Number.isFinite(rawVal) && rawVal > 0 ? rawVal : safeBase;
 
     return {
       date: point.date,

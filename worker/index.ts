@@ -62,6 +62,18 @@ export async function hashToken(token: string): Promise<string> {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// Constant-time string comparison to prevent timing attacks
+export function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
+}
+
 let isPasswordTableEnsured = false;
 export function resetPasswordTableEnsured(): void {
   isPasswordTableEnsured = false;
@@ -94,6 +106,15 @@ interface AuthCacheEntry {
   expiresAt: number;
 }
 const authCache = new Map<string, AuthCacheEntry>();
+const MAX_AUTH_CACHE_SIZE = 200;
+
+function setAuthCache(key: string, entry: AuthCacheEntry): void {
+  if (authCache.size >= MAX_AUTH_CACHE_SIZE) {
+    const oldestKey = authCache.keys().next().value;
+    if (oldestKey) authCache.delete(oldestKey);
+  }
+  authCache.set(key, entry);
+}
 
 export function clearAuthCache(): void {
   authCache.clear();
@@ -145,7 +166,7 @@ export async function authenticatePassword(
     if (masterRow) {
       // Once master password has been customized in DB, it strictly requires the new hash.
       // Default password fallback is permanently disabled for security.
-      if (masterRow.is_active === 1 && masterRow.password_hash === pwdHash) {
+      if (masterRow.is_active === 1 && timingSafeEqual(masterRow.password_hash, pwdHash)) {
         const res: AuthResult = {
           authenticated: true,
           role: "admin",
@@ -153,7 +174,7 @@ export async function authenticatePassword(
           maxStocks: null,
           id: "admin-master",
         };
-        authCache.set(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
+        setAuthCache(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
         return res;
       }
     } else {
@@ -167,7 +188,7 @@ export async function authenticatePassword(
           maxStocks: null,
           id: "admin-master",
         };
-        authCache.set(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
+        setAuthCache(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
         return res;
       }
     }
@@ -192,7 +213,7 @@ export async function authenticatePassword(
         maxStocks: user.max_stocks !== null && user.max_stocks !== undefined ? Number(user.max_stocks) : null,
         id: user.id,
       };
-      authCache.set(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
+      setAuthCache(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
       return res;
     }
   } catch (err) {
@@ -206,7 +227,7 @@ export async function authenticatePassword(
         maxStocks: null,
         id: "admin-master",
       };
-      authCache.set(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
+      setAuthCache(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
       return res;
     }
   }
@@ -301,7 +322,7 @@ export function getMarketAwareCacheDuration(now: Date = new Date()): number {
   // Weekdays before market open (Mon-Fri, < 9:00) -> until today 9:00
   if (day >= 1 && day <= 5 && timeInMinutes < MARKET_OPEN_JST) {
     const minutesToOpen = MARKET_OPEN_JST - timeInMinutes;
-    return Math.max(12 * 3600, Math.floor(minutesToOpen * 60));
+    return Math.max(60, Math.floor(minutesToOpen * 60));
   }
 
   // Regular trading hours: standard 12 hours
@@ -354,19 +375,29 @@ async function fetchYahooFinance(symbol: string, range = "1y"): Promise<PricePoi
       ? (result.indicators.quote[0]?.close ?? [])
       : [];
 
-    return timestamps
-      .map((ts: number, i: number) => {
+    const pointsByDate = new Map<string, number>();
+    for (let i = 0; i < timestamps.length; i++) {
+      const ts = timestamps[i];
+      const close = closes[i];
+      if (
+        typeof ts === "number" &&
+        Number.isFinite(ts) &&
+        typeof close === "number" &&
+        Number.isFinite(close) &&
+        close > 0
+      ) {
         const date = new Date(ts * 1000);
         // YYYY-MM-DD format: year-aware, sortable across year boundaries (UTC-consistent)
         const yyyy = date.getUTCFullYear();
         const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
         const dd = String(date.getUTCDate()).padStart(2, "0");
-        return {
-          date: `${yyyy}-${mm}-${dd}`,
-          close: typeof closes[i] === "number" && Number.isFinite(closes[i]) ? Number(closes[i].toFixed(2)) : 0,
-        };
-      })
-      .filter((p: PricePoint) => p.close > 0);
+        pointsByDate.set(`${yyyy}-${mm}-${dd}`, Number(close.toFixed(2)));
+      }
+    }
+
+    return Array.from(pointsByDate.entries())
+      .map(([date, close]) => ({ date, close }))
+      .sort((a, b) => a.date.localeCompare(b.date));
   } catch (err) {
     console.error(`Error fetching ${symbol}:`, err);
     return [];
@@ -780,7 +811,7 @@ export default {
               return json({ error: "この指数を更新する権限がありません（作成者トークンが必要です）" }, 403, request);
             }
             const providedHash = await hashToken(providedToken);
-            if (providedHash !== existingHash) {
+            if (!timingSafeEqual(providedHash, existingHash)) {
               return json({ error: "この指数を更新する権限がありません（作成者トークンが一致しません）" }, 403, request);
             }
           }
@@ -861,7 +892,7 @@ export default {
               return json({ error: "この指数を削除する権限がありません（作成者トークンが必要です）" }, 403, request);
             }
             const providedHash = await hashToken(providedToken);
-            if (providedHash !== existingHash) {
+            if (!timingSafeEqual(providedHash, existingHash)) {
               return json({ error: "この指数を削除する権限がありません（作成者トークンが一致しません）" }, 403, request);
             }
           }
@@ -1181,7 +1212,7 @@ export default {
           if (typeof r.ticker !== "string" || r.ticker.trim().length === 0 || r.ticker.trim().length > 20 || !/^[A-Za-z0-9.\-]+$/.test(r.ticker.trim())) {
             return json({ error: "Invalid basket item: ticker" }, 400, request);
           }
-          const ticker = r.ticker.trim();
+          const ticker = r.ticker.trim().toUpperCase();
           if (seenTickers.has(ticker)) {
             return json({ error: `Duplicate ticker in basket: ${ticker}` }, 400, request);
           }
@@ -1243,7 +1274,7 @@ export default {
               return json({ error: "この指数を更新する権限がありません（作成者トークンが必要です）" }, 403, request);
             }
             const providedHash = await hashToken(providedToken);
-            if (providedHash !== existingHash) {
+            if (!timingSafeEqual(providedHash, existingHash)) {
               return json({ error: "この指数を更新する権限がありません（作成者トークンが一致しません）" }, 403, request);
             }
             targetHash = existingHash;
@@ -1283,7 +1314,7 @@ export default {
           ...basket.map((b: any) =>
             env.DB.prepare(
               "INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES (?, ?, ?, ?, ?)",
-            ).bind(id, String(b.ticker).trim(), String(b.name).trim(), Number(b.weight), String(b.theme || "カスタム").trim()),
+            ).bind(id, String(b.ticker).trim().toUpperCase(), String(b.name).trim(), Number(b.weight), String(b.theme || "カスタム").trim()),
           ),
         ];
 
@@ -1318,23 +1349,20 @@ export default {
           return json({ error: "Cannot delete built-in system index" }, 403, request);
         }
 
-        // Verify index existence and ownership if index exists
         let existingHash: string | null = null;
-        let hasCheckedIndex = false;
+        let isExisting = false;
         try {
           const { results } = await env.DB.prepare(
             "SELECT id, owner_token_hash FROM indices WHERE id = ?",
           ).bind(id).all();
           if (results && results.length > 0) {
-            hasCheckedIndex = true;
+            isExisting = true;
             existingHash = (results[0] as { owner_token_hash?: string }).owner_token_hash || null;
           }
-        } catch {
-          // Column might not exist in unmigrated db
-          try {
-            const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(id).all();
-            if (results && results.length > 0) hasCheckedIndex = true;
-          } catch {}
+        } catch {}
+
+        if (!isExisting) {
+          return json({ error: "Index not found" }, 404, request);
         }
 
         const explicitPwd = url.searchParams.get("password");
@@ -1346,21 +1374,18 @@ export default {
           url.searchParams.get("token")?.trim() ||
           "";
 
-        if (!isAdmin && hasCheckedIndex) {
+        if (!isAdmin) {
           if (existingHash) {
             if (!providedToken) {
               return json({ error: "この指数を削除する権限がありません（作成者トークンが必要です）" }, 403, request);
             }
             const providedHash = await hashToken(providedToken);
-            if (providedHash !== existingHash) {
+            if (!timingSafeEqual(providedHash, existingHash)) {
               return json({ error: "この指数を削除する権限がありません（作成者トークンが一致しません）" }, 403, request);
             }
           } else {
-            // Legacy index with no hash
-            const adminKey = request.headers.get("x-admin-key")?.trim() || url.searchParams.get("adminKey")?.trim();
-            if (!adminKey && !providedToken) {
-              return json({ error: "この指数は保護されているため削除できません" }, 403, request);
-            }
+            // Protected / legacy index without hash can only be deleted by admin
+            return json({ error: "この指数は保護されているため削除できません（管理者権限が必要です）" }, 403, request);
           }
         }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import worker from "../../worker/index";
+import worker, { hashToken } from "../../worker/index";
 import { buildChartData } from "./chartData";
 import { normalizeWeights, calculateCustomIndex } from "./indexEngine";
 import type { BasketItem, PricePoint, StockSeries } from "../types";
@@ -152,12 +152,34 @@ describe("integration: worker indices query edge cases", () => {
   });
 
   it("creates and deletes a custom user index via worker API", async () => {
+    const createdIndices = new Map<string, any>();
     const mockBatch = vi.fn().mockResolvedValue([]);
-    const mockPrepare = vi.fn().mockReturnValue({
-      bind: vi.fn().mockReturnThis(),
+    const mockPrepare = vi.fn().mockImplementation((query: string) => ({
+      bind: vi.fn().mockImplementation((...params: unknown[]) => ({
+        run: vi.fn().mockImplementation(async () => {
+          if (query.includes("INTO indices")) {
+            const id = params[0] as string;
+            const hash = params[4] as string | null;
+            createdIndices.set(id, { id, owner_token_hash: hash });
+          }
+          if (query.includes("DELETE FROM indices WHERE id = ?")) {
+            const id = params[0] as string;
+            createdIndices.delete(id);
+          }
+          return {};
+        }),
+        all: vi.fn().mockImplementation(async () => {
+          if (query.includes("FROM indices WHERE id = ?")) {
+            const id = params[0] as string;
+            const idx = createdIndices.get(id);
+            return { results: idx ? [idx] : [] };
+          }
+          return { results: [] };
+        }),
+      })),
       run: vi.fn().mockResolvedValue({}),
       all: vi.fn().mockResolvedValue({ results: [] }),
-    });
+    }));
 
     const mockEnv = {
       ASSETS: { fetch: vi.fn() },
@@ -186,9 +208,16 @@ describe("integration: worker indices query edge cases", () => {
     expect(postData.ok).toBe(true);
     expect(mockBatch).toHaveBeenCalled();
 
-    // DELETE /api/indices?id=custom-test-1
+    // Register created index with token hash for DELETE lookup
+    const tokenHash = await hashToken(postData.ownerToken);
+    createdIndices.set("custom-test-1", { id: "custom-test-1", owner_token_hash: tokenHash });
+
+    // DELETE /api/indices?id=custom-test-1 with owner token
     const delReq = new Request("http://localhost/api/indices?id=custom-test-1", {
       method: "DELETE",
+      headers: {
+        "x-owner-token": postData.ownerToken,
+      },
     });
     const delRes = await worker.fetch(delReq, mockEnv as any);
     expect(delRes.status).toBe(200);

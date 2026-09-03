@@ -182,6 +182,15 @@ describe("Cloudflare Quota Savings: Market-Aware Cache Duration", () => {
     const ttl = getMarketAwareCacheDuration(wednesdayTrading);
     expect(ttl).toBe(12 * 3600);
   });
+
+  it("sets TTL until 9:00 AM market open before weekday trading hours (Wednesday 08:30 JST)", () => {
+    // 2026-09-02 is Wednesday. 08:30 JST -> 23:30 UTC of previous day (2026-09-01)
+    const wednesdayPreOpen = new Date("2026-09-01T23:30:00Z");
+    const ttl = getMarketAwareCacheDuration(wednesdayPreOpen);
+    // 30 minutes to open = 1800s. Must NOT be locked for 12 hours (43200s)!
+    expect(ttl).toBe(30 * 60);
+    expect(ttl).toBeLessThan(3600);
+  });
 });
 
 describe("Cloudflare Quota Savings: No-Op Write Skip on Identical Price Data", () => {
