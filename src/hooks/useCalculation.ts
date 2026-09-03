@@ -4,6 +4,39 @@ import type { PricePoint, StockDetail, StockSeries } from "../types";
 import { calculateStockDetails } from "../lib/analytics";
 
 const API_BASE = "/api";
+const SYNC_STORAGE_KEY = "osi_stock_sync_cache";
+const SYNC_CACHE_TTL = 12 * 60 * 60 * 1000; // 12 hours
+
+function getLocalSyncCache(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(SYNC_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function updateLocalSyncCache(tickers: string[]): void {
+  try {
+    const cache = getLocalSyncCache();
+    const now = Date.now();
+    for (const t of tickers) {
+      cache[t] = now;
+    }
+    // Clean entries older than 7 days
+    for (const [k, v] of Object.entries(cache)) {
+      if (now - v > 7 * 24 * 60 * 60 * 1000) {
+        delete cache[k];
+      }
+    }
+    localStorage.setItem(SYNC_STORAGE_KEY, JSON.stringify(cache));
+  } catch {
+    // ignore
+  }
+}
+
+// In-memory cache for calculated index results across tab clicks
+const clientCalcCache = new Map<string, { series: PricePoint[]; stockUniverse: StockSeries[]; timestamp: number }>();
 
 export function useCalculation(selectedIndex: CustomIndex | null) {
   const [customSeries, setCustomSeries] = useState<PricePoint[]>([]);
@@ -26,6 +59,17 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
       return;
     }
 
+    const basketKey = `${selectedIndex.id}:${selectedIndex.baseValue}:${selectedIndex.basket
+      .map((b) => `${b.ticker}:${b.weight}`)
+      .join(",")}`;
+
+    // SWR pattern: immediately populate from client memory cache if available
+    const cachedResult = clientCalcCache.get(basketKey);
+    if (cachedResult && !force) {
+      setCustomSeries(cachedResult.series);
+      setStockUniverse(cachedResult.stockUniverse);
+    }
+
     // Abort previous request to prevent race conditions
     if (abortRef.current) {
       abortRef.current.abort();
@@ -33,24 +77,38 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
     const controller = new AbortController();
     abortRef.current = controller;
 
-    setLoading(true);
+    if (!cachedResult) {
+      setLoading(true);
+    }
     setError(null);
     setSyncing(false);
     setSyncProgress(0);
     setSyncWarnings([]);
 
     try {
-      // 全銘柄の同期を走らせる（セッション内で同期済みの銘柄は重複同期をスキップしてD1クォータを節約）
+      // 全銘柄の同期を走らせる（セッションおよびlocalStorage内で同期済みの銘柄は重複同期を完全スキップして無料枠クォータを節約）
       if (selectedIndex.basket.length > 0) {
         const allTickers = selectedIndex.basket.map((b) => b.ticker);
+        const localSyncCache = getLocalSyncCache();
+        const nowMs = Date.now();
+
         const tickersToSync = force
           ? allTickers
-          : allTickers.filter((t) => !syncedTickersRef.current.has(t));
+          : allTickers.filter((t) => {
+              if (syncedTickersRef.current.has(t)) return false;
+              const lastSynced = localSyncCache[t];
+              if (lastSynced && nowMs - lastSynced < SYNC_CACHE_TTL) {
+                syncedTickersRef.current.add(t);
+                return false;
+              }
+              return true;
+            });
 
         if (tickersToSync.length > 0) {
           setSyncing(true);
           const BATCH_SIZE = 30;
           const warnings: string[] = [];
+          const newlySynced: string[] = [];
 
           for (let i = 0; i < tickersToSync.length; i += BATCH_SIZE) {
             if (controller.signal.aborted) return;
@@ -73,6 +131,7 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
                   for (const r of syncData.results) {
                     if (r.status === "synced" || r.status === "cached") {
                       syncedTickersRef.current.add(r.ticker);
+                      newlySynced.push(r.ticker);
                     }
                   }
                   const failed = syncData.results
@@ -91,6 +150,11 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
             if (controller.signal.aborted) return;
             setSyncProgress(Math.round(((i + chunk.length) / tickersToSync.length) * 100));
           }
+
+          if (newlySynced.length > 0) {
+            updateLocalSyncCache(newlySynced);
+          }
+
           if (controller.signal.aborted) return;
           setSyncing(false);
           if (warnings.length > 0) {
@@ -120,9 +184,13 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
       const data = await res.json();
       if (controller.signal.aborted) return;
       setCustomSeries(data.series);
-      if (Array.isArray(data.stockUniverse)) {
-        setStockUniverse(data.stockUniverse);
-      }
+      const universe = Array.isArray(data.stockUniverse) ? data.stockUniverse : [];
+      setStockUniverse(universe);
+      clientCalcCache.set(basketKey, {
+        series: data.series,
+        stockUniverse: universe,
+        timestamp: Date.now(),
+      });
     } catch (err: unknown) {
       if (controller.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) return;
       const message = err instanceof Error ? err.message : "計算に失敗しました";

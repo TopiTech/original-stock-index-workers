@@ -11,21 +11,67 @@ import {
 import { getAuthHeaders } from "../lib/auth";
 
 const API_BASE = "/api";
+const INDICES_CACHE_KEY = "osi_indices_cache";
+const INDICES_ETAG_KEY = "osi_indices_etag";
+
+function getLocalIndicesCache(): CustomIndex[] | null {
+  try {
+    const raw = localStorage.getItem(INDICES_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 
 export function useIndices() {
-  const [indices, setIndices] = useState<CustomIndex[]>(DEFAULT_INDICES);
-  const [selectedIndex, setSelectedIndex] = useState<CustomIndex | null>(DEFAULT_INDICES[0] || null);
-  const [loading, setLoading] = useState(true);
+  const [indices, setIndices] = useState<CustomIndex[]>(() => {
+    const cached = getLocalIndicesCache();
+    return cached || DEFAULT_INDICES;
+  });
+  const [selectedIndex, setSelectedIndex] = useState<CustomIndex | null>(() => {
+    const cached = getLocalIndicesCache();
+    return (cached && cached[0]) || DEFAULT_INDICES[0] || null;
+  });
+  const [loading, setLoading] = useState(() => !getLocalIndicesCache());
   const [error, setError] = useState<string | null>(null);
 
   const fetchIndices = useCallback(async () => {
     try {
-      setLoading(true);
+      if (!getLocalIndicesCache()) {
+        setLoading(true);
+      }
       setError(null);
-      const res = await fetch(`${API_BASE}/indices`, { cache: "no-cache" });
+      const etag = localStorage.getItem(INDICES_ETAG_KEY);
+      const headers: Record<string, string> = {};
+      if (etag) {
+        headers["If-None-Match"] = etag;
+      }
+
+      const res = await fetch(`${API_BASE}/indices`, {
+        headers,
+      });
+
+      if (res.status === 304) {
+        // Not Modified: local cached indices are completely up-to-date!
+        return;
+      }
+
       if (!res.ok) throw new Error("指数一覧の取得に失敗しました");
+
+      const newEtag = res.headers.get("etag");
+      if (newEtag) {
+        try {
+          localStorage.setItem(INDICES_ETAG_KEY, newEtag);
+        } catch {}
+      }
+
       const data: CustomIndex[] = await res.json();
       if (Array.isArray(data) && data.length > 0) {
+        try {
+          localStorage.setItem(INDICES_CACHE_KEY, JSON.stringify(data));
+        } catch {}
         setIndices(data);
         setSelectedIndex((prev) => {
           if (!prev) return data[0];
@@ -37,10 +83,13 @@ export function useIndices() {
         setSelectedIndex((prev) => prev || DEFAULT_INDICES[0]);
       }
     } catch (err) {
-      console.warn("API server unavailable, using built-in default indices:", err);
-      // Fallback to built-in default indices so UI renders without complete failure
-      setIndices(DEFAULT_INDICES);
-      setSelectedIndex((prev) => prev || DEFAULT_INDICES[0]);
+      console.warn("API server unavailable, using cached/default indices:", err);
+      // Fallback to local cached or built-in default indices so UI renders without failure
+      const cached = getLocalIndicesCache();
+      if (!cached) {
+        setIndices(DEFAULT_INDICES);
+        setSelectedIndex((prev) => prev || DEFAULT_INDICES[0]);
+      }
     } finally {
       setLoading(false);
     }
@@ -81,6 +130,9 @@ export function useIndices() {
         const data = await res.json().catch(() => ({}));
         const finalToken = data.ownerToken || token;
         saveIndexOwnerToken(newIndex.id, finalToken);
+        try {
+          localStorage.removeItem(INDICES_ETAG_KEY);
+        } catch {}
 
         await fetchIndices();
         setSelectedIndex(newIndex);
@@ -115,6 +167,9 @@ export function useIndices() {
         }
 
         removeIndexOwnerToken(id);
+        try {
+          localStorage.removeItem(INDICES_ETAG_KEY);
+        } catch {}
         await fetchIndices();
         return { ok: true };
       } catch (err) {
@@ -145,6 +200,9 @@ export function useIndices() {
           const errData = await res.json().catch(() => ({}));
           throw new Error(errData.error || "銘柄の追加に失敗しました");
         }
+        try {
+          localStorage.removeItem(INDICES_ETAG_KEY);
+        } catch {}
         await fetchIndices();
         return { ok: true };
       } catch (err) {
@@ -175,6 +233,9 @@ export function useIndices() {
           const errData = await res.json().catch(() => ({}));
           throw new Error(errData.error || "銘柄の削除に失敗しました");
         }
+        try {
+          localStorage.removeItem(INDICES_ETAG_KEY);
+        } catch {}
         await fetchIndices();
         return { ok: true };
       } catch (err) {

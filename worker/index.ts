@@ -61,7 +61,13 @@ export async function hashToken(token: string): Promise<string> {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+let isPasswordTableEnsured = false;
+export function resetPasswordTableEnsured(): void {
+  isPasswordTableEnsured = false;
+}
+
 export async function ensurePasswordTable(env: Env): Promise<void> {
+  if (isPasswordTableEnsured) return;
   try {
     await env.DB.prepare(`
       CREATE TABLE IF NOT EXISTS access_passwords (
@@ -76,9 +82,20 @@ export async function ensurePasswordTable(env: Env): Promise<void> {
         updated_at INTEGER
       )
     `).run();
+    isPasswordTableEnsured = true;
   } catch {
     // ignore
   }
+}
+
+interface AuthCacheEntry {
+  result: AuthResult;
+  expiresAt: number;
+}
+const authCache = new Map<string, AuthCacheEntry>();
+
+export function clearAuthCache(): void {
+  authCache.clear();
 }
 
 export async function authenticatePassword(
@@ -99,9 +116,14 @@ export async function authenticatePassword(
     return { authenticated: false, error: "パスワードが指定されていません" };
   }
 
+  const pwdHash = await hashToken(pwd);
+  const cachedAuth = authCache.get(pwdHash);
+  if (cachedAuth && Date.now() < cachedAuth.expiresAt) {
+    return cachedAuth.result;
+  }
+
   try {
     await ensurePasswordTable(env);
-    const pwdHash = await hashToken(pwd);
 
     // 1. Check if customized master admin password exists in D1
     const { results: adminMasterRows } = await env.DB.prepare(
@@ -123,25 +145,29 @@ export async function authenticatePassword(
       // Once master password has been customized in DB, it strictly requires the new hash.
       // Default password fallback is permanently disabled for security.
       if (masterRow.is_active === 1 && masterRow.password_hash === pwdHash) {
-        return {
+        const res: AuthResult = {
           authenticated: true,
           role: "admin",
           name: masterRow.name || "管理者",
           maxStocks: null,
           id: "admin-master",
         };
+        authCache.set(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
+        return res;
       }
     } else {
       // No custom admin record in DB -> fallback to env.ADMIN_PASSWORD or DEFAULT_ADMIN_PASSWORD
       const masterAdminPassword = env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASSWORD;
       if (pwd === masterAdminPassword) {
-        return {
+        const res: AuthResult = {
           authenticated: true,
           role: "admin",
           name: "管理者",
           maxStocks: null,
           id: "admin-master",
         };
+        authCache.set(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
+        return res;
       }
     }
 
@@ -158,25 +184,29 @@ export async function authenticatePassword(
         max_stocks: number | null;
         is_active: number;
       };
-      return {
+      const res: AuthResult = {
         authenticated: true,
         role: user.role,
         name: user.name,
         maxStocks: user.max_stocks !== null && user.max_stocks !== undefined ? Number(user.max_stocks) : null,
         id: user.id,
       };
+      authCache.set(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
+      return res;
     }
   } catch (err) {
     console.error("Auth DB error:", err);
     const masterAdminPassword = env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASSWORD;
     if (pwd === masterAdminPassword) {
-      return {
+      const res: AuthResult = {
         authenticated: true,
         role: "admin",
         name: "管理者",
         maxStocks: null,
         id: "admin-master",
       };
+      authCache.set(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
+      return res;
     }
   }
 
@@ -190,8 +220,13 @@ interface MemoryCacheEntry<T> {
 }
 const memoryCache = new Map<string, MemoryCacheEntry<unknown>>();
 
+let allowMemoryCacheInTest = false;
+export function setAllowMemoryCacheInTest(allow: boolean): void {
+  allowMemoryCacheInTest = allow;
+}
+
 export function getMemoryCache<T>(key: string): T | null {
-  if (typeof process !== "undefined" && process.env?.NODE_ENV === "test") {
+  if (typeof process !== "undefined" && process.env?.NODE_ENV === "test" && !allowMemoryCacheInTest) {
     return null;
   }
   const entry = memoryCache.get(key);
@@ -224,6 +259,58 @@ export function clearMemoryCache(prefix?: string): void {
       memoryCache.delete(key);
     }
   }
+}
+
+// Market-aware cache duration (JST aware: 09:00-15:30)
+// Extends TTL during market close (nights & weekends) up to 72 hours to save D1 writes and fetches.
+export function getMarketAwareCacheDuration(now: Date = new Date()): number {
+  const jstTime = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  const day = jstTime.getUTCDay(); // 0: Sun, 1: Mon, ..., 5: Fri, 6: Sat
+  const hour = jstTime.getUTCHours();
+  const minute = jstTime.getUTCMinutes();
+  const timeInMinutes = hour * 60 + minute;
+
+  const MARKET_CLOSE_JST = 15 * 60 + 30; // 15:30 JST (930 min)
+  const MARKET_OPEN_JST = 9 * 60; // 09:00 JST (540 min)
+
+  // Saturday (Day 6) -> until Monday 9:00 (approx 40-64 hours)
+  if (day === 6) {
+    const hoursToMonday = 24 - hour + 24 + 9;
+    return Math.max(12 * 3600, hoursToMonday * 3600);
+  }
+
+  // Sunday (Day 0) -> until Monday 9:00 (approx 9-33 hours)
+  if (day === 0) {
+    const hoursToMonday = 24 - hour + 9;
+    return Math.max(12 * 3600, hoursToMonday * 3600);
+  }
+
+  // Friday after market close (Day 5, >= 15:30) -> until Monday 9:00 (approx 65 hours)
+  if (day === 5 && timeInMinutes >= MARKET_CLOSE_JST) {
+    const hoursToMonday = 24 - hour + 48 + 9;
+    return Math.max(12 * 3600, hoursToMonday * 3600);
+  }
+
+  // Weekdays after market close (Mon-Thu, >= 15:30) -> until next morning 9:00 (approx 17.5 hours)
+  if (day >= 1 && day <= 4 && timeInMinutes >= MARKET_CLOSE_JST) {
+    const hoursToMorning = 24 - hour + 9;
+    return Math.max(12 * 3600, hoursToMorning * 3600);
+  }
+
+  // Weekdays before market open (Mon-Fri, < 9:00) -> until today 9:00
+  if (day >= 1 && day <= 5 && timeInMinutes < MARKET_OPEN_JST) {
+    const minutesToOpen = MARKET_OPEN_JST - timeInMinutes;
+    return Math.max(12 * 3600, Math.floor(minutesToOpen * 60));
+  }
+
+  // Regular trading hours: standard 12 hours
+  return 12 * 3600;
+}
+
+// Generate an ETag from arbitrary string or JSON data
+export async function generateETag(content: string): Promise<string> {
+  const hash = await hashToken(content);
+  return `"${hash.slice(0, 16)}"`;
 }
 
 // Normalize ticker to Yahoo Finance query symbol
@@ -314,6 +401,25 @@ function json(data: unknown, status = 200, request?: Request, customHeaders?: Re
 
   return new Response(JSON.stringify(data), {
     status,
+    headers,
+  });
+}
+
+function notModified(request?: Request, customHeaders?: Record<string, string>) {
+  const headers: Record<string, string> = {
+    ...customHeaders,
+  };
+  if (request) {
+    const origin = request.headers.get("origin");
+    if (origin && isAllowedOrigin(origin)) {
+      headers["access-control-allow-origin"] = origin;
+      headers["access-control-allow-methods"] = "GET,POST,DELETE,OPTIONS";
+      headers["access-control-allow-headers"] = "content-type,x-owner-token,x-admin-key,x-auth-password,authorization";
+      headers["vary"] = "Origin";
+    }
+  }
+  return new Response(null, {
+    status: 304,
     headers,
   });
 }
@@ -459,6 +565,7 @@ export default {
           await env.DB.prepare(
             "INSERT INTO access_passwords (id, name, password_hash, plain_password, role, max_stocks, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)"
           ).bind(id, name.trim(), hash, password.trim(), assignedRole, maxStockLimit, now, now).run();
+          clearAuthCache();
 
           return json(
             {
@@ -536,6 +643,7 @@ export default {
           await env.DB.prepare(
             `UPDATE access_passwords SET ${updates.join(", ")} WHERE id = ?`
           ).bind(...params).run();
+          clearAuthCache();
 
           return json({ ok: true }, 200, request);
         } catch (err) {
@@ -557,6 +665,7 @@ export default {
           }
           await ensurePasswordTable(env);
           await env.DB.prepare("DELETE FROM access_passwords WHERE id = ?").bind(id).run();
+          clearAuthCache();
           return json({ ok: true }, 200, request);
         } catch (err) {
           const message = err instanceof Error ? err.message : "Failed to delete password";
@@ -583,6 +692,7 @@ export default {
           await env.DB.prepare(
             "INSERT INTO access_passwords (id, name, password_hash, plain_password, role, max_stocks, is_active, created_at, updated_at) VALUES ('admin-master', 'マスター管理者', ?, NULL, 'admin', NULL, 1, ?, ?) ON CONFLICT(id) DO UPDATE SET password_hash = excluded.password_hash, plain_password = NULL, updated_at = excluded.updated_at"
           ).bind(hash, now, now).run();
+          clearAuthCache();
 
           return json({ ok: true, message: "管理者パスワードを更新しました" }, 200, request);
         } catch (err) {
@@ -654,6 +764,7 @@ export default {
           ).bind(indexId, ticker, name, weight, theme).run();
 
           clearMemoryCache("api:indices");
+          clearMemoryCache("calc:");
           return json({ ok: true, message: "銘柄を追加・更新しました", ticker }, 200, request);
         } catch (err) {
           const message = err instanceof Error ? err.message : "Failed to add stock";
@@ -693,6 +804,7 @@ export default {
           ).bind(indexId, ticker.trim().toUpperCase()).run();
 
           clearMemoryCache("api:indices");
+          clearMemoryCache("calc:");
           return json({ ok: true, message: "銘柄を削除しました", ticker }, 200, request);
         } catch (err) {
           const message = err instanceof Error ? err.message : "Failed to delete stock";
@@ -721,7 +833,16 @@ export default {
         const memKey = `snapshot:${symbol}`;
         const memCached = getMemoryCache<unknown>(memKey);
         if (memCached) {
+          const etag = await generateETag(JSON.stringify(memCached));
+          const ifNoneMatch = request.headers.get("if-none-match");
+          if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
+            return notModified(request, {
+              "etag": etag,
+              "cache-control": "public, max-age=60, s-maxage=300",
+            });
+          }
           return json(memCached, 200, request, {
+            "etag": etag,
             "cache-control": "public, max-age=60, s-maxage=300",
           });
         }
@@ -755,7 +876,16 @@ export default {
           try {
             const parsedData = JSON.parse(cacheRow.data);
             setMemoryCache(memKey, parsedData, 60);
+            const etag = await generateETag(cacheRow.data);
+            const ifNoneMatch = request.headers.get("if-none-match");
+            if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
+              return notModified(request, {
+                "etag": etag,
+                "cache-control": "public, max-age=60, s-maxage=300",
+              });
+            }
             return json(parsedData, 200, request, {
+              "etag": etag,
               "cache-control": "public, max-age=60, s-maxage=300",
             });
           } catch {
@@ -813,7 +943,16 @@ export default {
         }
 
         setMemoryCache(memKey, responseData, 60);
+        const freshEtag = await generateETag(JSON.stringify(responseData));
+        const ifNoneMatch = request.headers.get("if-none-match");
+        if (ifNoneMatch && (ifNoneMatch === freshEtag || ifNoneMatch === `W/${freshEtag}`)) {
+          return notModified(request, {
+            "etag": freshEtag,
+            "cache-control": "public, max-age=60, s-maxage=300",
+          });
+        }
         return json(responseData, 200, request, {
+          "etag": freshEtag,
           "cache-control": "public, max-age=60, s-maxage=300",
         });
       } catch (err) {
@@ -828,7 +967,16 @@ export default {
       try {
         const cachedIndices = getMemoryCache<unknown>("api:indices");
         if (cachedIndices) {
+          const etag = await generateETag(JSON.stringify(cachedIndices));
+          const ifNoneMatch = request.headers.get("if-none-match");
+          if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
+            return notModified(request, {
+              "etag": etag,
+              "cache-control": "public, max-age=15, stale-while-revalidate=60",
+            });
+          }
           return json(cachedIndices, 200, request, {
+            "etag": etag,
             "cache-control": "public, max-age=15, stale-while-revalidate=60",
           });
         }
@@ -877,8 +1025,18 @@ export default {
         const indicesList = Array.from(indicesMap.values());
         setMemoryCache("api:indices", indicesList, 15);
 
+        const etag = await generateETag(JSON.stringify(indicesList));
+        const ifNoneMatch = request.headers.get("if-none-match");
+        if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
+          return notModified(request, {
+            "etag": etag,
+            "cache-control": "public, max-age=15, stale-while-revalidate=60",
+          });
+        }
+
         return json(indicesList, 200, request, {
-          "cache-control": "no-cache, must-revalidate",
+          "etag": etag,
+          "cache-control": "public, max-age=15, stale-while-revalidate=60",
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to fetch indices";
@@ -1055,6 +1213,7 @@ export default {
 
         await env.DB.batch(statements);
         clearMemoryCache("api:indices");
+        clearMemoryCache("calc:");
 
         return json({ ok: true, id, ownerToken: providedToken, message: "Index saved successfully" }, 200, request);
       } catch (err) {
@@ -1135,6 +1294,7 @@ export default {
         ];
         await env.DB.batch(statements);
         clearMemoryCache("api:indices");
+        clearMemoryCache("calc:");
 
         return json({ ok: true, id, message: "Index deleted successfully" }, 200, request);
       } catch (err) {
@@ -1174,7 +1334,7 @@ export default {
         const results: { ticker: string; status: string; count?: number; lastSynced?: number }[] =
           [];
         const now = Math.floor(Date.now() / 1000);
-        const CACHE_DURATION = 12 * 60 * 60; // 12 hours (daily candles)
+        const CACHE_DURATION = getMarketAwareCacheDuration(new Date(now * 1000));
 
         // すでに同期済みの銘柄を確認
         const { results: syncLogs } = await env.DB.prepare(
@@ -1210,6 +1370,41 @@ export default {
               const symbol = toYahooSymbol(ticker);
               const series = await fetchYahooFinance(symbol);
               if (series.length > 0) {
+                // Check if existing stock_series has identical latest data to skip expensive D1 writes
+                let shouldSkipWrite = false;
+                if (!force) {
+                  try {
+                    const { results: existingRows } = await env.DB.prepare(
+                      "SELECT prices FROM stock_series WHERE ticker = ?",
+                    ).bind(ticker).all();
+                    if (existingRows && existingRows.length > 0 && (existingRows[0] as any).prices) {
+                      const existingPrices = JSON.parse((existingRows[0] as any).prices);
+                      if (Array.isArray(existingPrices) && existingPrices.length > 0) {
+                        const lastExisting = existingPrices[existingPrices.length - 1];
+                        const lastFresh = series[series.length - 1];
+                        if (
+                          lastExisting &&
+                          lastFresh &&
+                          lastExisting.date === lastFresh.date &&
+                          lastExisting.close === lastFresh.close
+                        ) {
+                          shouldSkipWrite = true;
+                        }
+                      }
+                    }
+                  } catch {
+                    // ignore
+                  }
+                }
+
+                if (shouldSkipWrite) {
+                  // Identical data: save expensive D1 table writes by updating only sync_logs
+                  await env.DB.prepare(
+                    "INSERT OR REPLACE INTO sync_logs (ticker, last_synced_at) VALUES (?, ?)",
+                  ).bind(ticker, now).run();
+                  return { ticker, status: "cached", count: series.length };
+                }
+
                 // High-efficiency single-row storage in stock_series:
                 // Stores the full series JSON in 1 row (1 write) instead of 500 writes.
                 const seriesJson = JSON.stringify(series);
@@ -1249,6 +1444,7 @@ export default {
                     ).bind(ticker, now),
                   ]);
                 }
+                clearMemoryCache("calc:");
                 return { ticker, status: "synced", count: series.length };
               }
               // Record the attempt in sync_logs so the next request within
@@ -1334,6 +1530,21 @@ export default {
           weight: item.weight,
         }));
 
+        // In-memory cache check: identical basket and baseValue returns immediately,
+        // saving both expensive D1 reads and calculation CPU time.
+        const calcCacheKey = `calc:${baseValue}:${validatedBasket
+          .slice()
+          .sort((a, b) => a.ticker.localeCompare(b.ticker))
+          .map((b) => `${b.ticker}:${b.weight}`)
+          .join(",")}`;
+
+        const cachedCalc = getMemoryCache<unknown>(calcCacheKey);
+        if (cachedCalc) {
+          return json(cachedCalc, 200, request, {
+            "x-cache": "HIT",
+          });
+        }
+
         // 1. D1から全銘柄の履歴をチャンクに分けて取得 (SQL変数制限回避)
         // Note: 最新価格はD1キャッシュの最新エントリを使用。
         // Yahoo Finance v7 quote APIは認証必須のため利用不可。
@@ -1406,22 +1617,22 @@ export default {
 
         const series = calculateCustomIndex(validatedBasket, fullStockUniverse, baseValue);
 
-        return json(
-          {
-            ok: true,
-            baseValue,
-            basket: validatedBasket,
-            series,
-            stockUniverse: fullStockUniverse,
-            latest: series[series.length - 1] ?? null,
-            syncStatus: {
-              total: validatedBasket.length,
-              found: Array.from(pricesByTicker.keys()).length,
-            },
+        const responseData = {
+          ok: true,
+          baseValue,
+          basket: validatedBasket,
+          series,
+          stockUniverse: fullStockUniverse,
+          latest: series[series.length - 1] ?? null,
+          syncStatus: {
+            total: validatedBasket.length,
+            found: Array.from(pricesByTicker.keys()).length,
           },
-          200,
-          request,
-        );
+        };
+
+        setMemoryCache(calcCacheKey, responseData, 300); // 5 minutes cache
+
+        return json(responseData, 200, request);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Calculation failed";
         console.error("API Error [calculate]:", err);
