@@ -5,5 +5,6 @@ DROP TABLE IF EXISTS sync_logs;
 DROP TABLE IF EXISTS stock_series;
 DROP TABLE IF EXISTS stock_prices;
 DROP TABLE IF EXISTS basket_items;
+DROP TABLE IF EXISTS access_passwords;
 DROP TABLE IF EXISTS indices;
 

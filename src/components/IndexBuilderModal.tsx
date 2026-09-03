@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { X, Plus, Trash2, Sliders, Check, RefreshCw } from "lucide-react";
+import { X, Plus, Trash2, Sliders, Check, RefreshCw, KeyRound, Lock, ShieldCheck } from "lucide-react";
 import type { BasketItem } from "../types";
 import type { CustomIndex } from "../data/indices";
+import { useAuth } from "../hooks/useAuth";
 
 interface IndexBuilderModalProps {
   isOpen: boolean;
@@ -29,6 +30,7 @@ const SAMPLE_STOCKS: { ticker: string; name: string; theme: string }[] = [
 ];
 
 export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModalProps) {
+  const { session, isAuthenticated, isAdmin, isUser, maxStocks } = useAuth();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [baseValue, setBaseValue] = useState(1000);
@@ -57,7 +59,13 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
 
   if (!isOpen) return null;
 
+  const isLimitReached = isUser && maxStocks !== null && maxStocks > 0 && basket.length >= maxStocks;
+
   const handleAddStock = (stock: { ticker: string; name: string; theme: string }) => {
+    if (isLimitReached) {
+      setError(`このパスワードの上限（最大${maxStocks}銘柄）に達しているため、これ以上追加できません`);
+      return;
+    }
     if (basket.length >= 100) {
       setError("構成銘柄は最大100銘柄までです");
       return;
@@ -73,6 +81,10 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
 
   const handleAddCustom = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLimitReached) {
+      setError(`このパスワードの上限（最大${maxStocks}銘柄）に達しているため、これ以上追加できません`);
+      return;
+    }
     if (basket.length >= 100) {
       setError("構成銘柄は最大100銘柄までです");
       return;
@@ -141,6 +153,17 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
       setError("基準値は1〜1,000,000の正の数値を入力してください");
       return;
     }
+
+    if (!isAuthenticated) {
+      setError("指数の作成・保存にはパスワード認証が必要です。ヘッダーまたは構成銘柄リストからパスワード認証を行ってください。");
+      return;
+    }
+
+    if (isUser && maxStocks !== null && maxStocks > 0 && basket.length > maxStocks) {
+      setError(`このパスワードの上限（最大${maxStocks}銘柄）を超えています（現在${basket.length}銘柄）`);
+      return;
+    }
+
     const safeBase = baseValue;
 
     setSaving(true);
@@ -254,6 +277,43 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
               {error}
             </div>
           )}
+
+          {/* Auth status indicator bar */}
+          <div
+            style={{
+              padding: "8px 12px",
+              background: isAuthenticated ? "rgba(0, 229, 255, 0.08)" : "rgba(255, 170, 0, 0.1)",
+              border: `1px solid ${isAuthenticated ? "rgba(0, 229, 255, 0.3)" : "rgba(255, 170, 0, 0.3)"}`,
+              borderRadius: 8,
+              marginBottom: 16,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              fontSize: 12,
+            }}
+          >
+            <div className="row" style={{ gap: 6, alignItems: "center" }}>
+              {isAuthenticated ? (
+                <>
+                  <KeyRound size={14} style={{ color: "var(--neon-cyan)" }} />
+                  <span>編集権限: <strong>{session?.name}</strong></span>
+                  <span className="mono" style={{ color: "var(--neon-cyan)" }}>
+                    ({maxStocks ? `上限 ${maxStocks}銘柄` : "銘柄数無制限"})
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Lock size={14} style={{ color: "#ffaa00" }} />
+                  <span style={{ color: "#ffaa00" }}>
+                    未認証状態です。指数の保存にはパスワード認証が必要です。
+                  </span>
+                </>
+              )}
+            </div>
+            <div className="mono tiny">
+              構成銘柄: {basket.length} {maxStocks ? `/ ${maxStocks}` : ""} 銘柄
+            </div>
+          </div>
 
           {/* Basic Info */}
           <div className="grid grid-2" style={{ gap: 14, marginBottom: 16 }}>

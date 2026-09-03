@@ -10,15 +10,28 @@ import {
   Download,
   TrendingUp,
   TrendingDown,
+  Plus,
+  Trash2,
+  Lock,
+  Unlock,
+  KeyRound,
+  ShieldCheck,
+  AlertCircle,
 } from "lucide-react";
 import type { BasketItem, StockDetail } from "../types";
 import { normalizeWeights } from "../lib/indexEngine";
+import { useAuth } from "../hooks/useAuth";
+import { AuthModal } from "./AuthModal";
+import { AddStockModal } from "./AddStockModal";
 
 interface ConstituentsTableProps {
   basket: BasketItem[];
   stockDetails?: StockDetail[];
   selectedTheme: string | null;
   indexName?: string;
+  indexId?: string;
+  onAddStock?: (stock: BasketItem) => Promise<{ ok: boolean; error?: string }>;
+  onRemoveStock?: (ticker: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
 type SortField =
@@ -79,10 +92,61 @@ export function ConstituentsTable({
   stockDetails = [],
   selectedTheme,
   indexName = "カスタム指数",
+  indexId,
+  onAddStock,
+  onRemoveStock,
 }: ConstituentsTableProps) {
+  const { session, isAuthenticated, isAdmin, isUser, maxStocks, logout } = useAuth();
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<SortField>("weight");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isAddStockModalOpen, setIsAddStockModalOpen] = useState(false);
+  const [tableError, setTableError] = useState<string | null>(null);
+
+  const isLimitReached = isUser && maxStocks !== null && maxStocks > 0 && basket.length >= maxStocks;
+
+  const handleAddStockClick = () => {
+    if (!isAuthenticated) {
+      setIsAuthModalOpen(true);
+    } else {
+      setIsAddStockModalOpen(true);
+    }
+  };
+
+  const handleDeleteStockClick = async (ticker: string, stockName: string) => {
+    if (!isAuthenticated) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+    if (basket.length <= 1) {
+      setTableError("構成銘柄が1件のみのため削除できません。指数には最低1銘柄必要です。");
+      return;
+    }
+    if (!confirm(`銘柄「${stockName} (${ticker})」をこの指数から削除しますか？`)) {
+      return;
+    }
+    if (onRemoveStock) {
+      const res = await onRemoveStock(ticker);
+      if (!res.ok) {
+        setTableError(res.error || "銘柄の削除に失敗しました");
+      } else {
+        setTableError(null);
+      }
+    }
+  };
+
+  const handleAddStockSubmit = async (stock: BasketItem) => {
+    if (onAddStock) {
+      const res = await onAddStock(stock);
+      if (!res.ok) {
+        return res;
+      }
+      setTableError(null);
+      return { ok: true };
+    }
+    return { ok: false, error: "追加ハンドラが設定されていません" };
+  };
 
   // Merge basket and stockDetails
   const combinedList = useMemo(() => {
@@ -241,6 +305,108 @@ export function ConstituentsTable({
         </div>
       </div>
 
+      {tableError && (
+        <div
+          className="row"
+          style={{
+            gap: 8,
+            padding: "10px 14px",
+            background: "rgba(255, 51, 102, 0.15)",
+            border: "1px solid var(--neon-red)",
+            borderRadius: 8,
+            color: "var(--neon-red)",
+            fontSize: 12,
+            marginBottom: 16,
+          }}
+        >
+          <AlertCircle size={15} style={{ flexShrink: 0 }} />
+          <span>{tableError}</span>
+        </div>
+      )}
+
+      {/* Stock Edit Toolbar & Auth Indicator */}
+      <div
+        className="row space-between flex-wrap"
+        style={{
+          marginBottom: 16,
+          padding: "10px 14px",
+          background: "rgba(255, 255, 255, 0.02)",
+          border: "1px solid var(--border-subtle)",
+          borderRadius: 8,
+          gap: 10,
+        }}
+      >
+        <div className="row flex-wrap" style={{ gap: 8, alignItems: "center" }}>
+          {isAuthenticated ? (
+            <div className="row flex-wrap" style={{ gap: 8, alignItems: "center" }}>
+              <span
+                className="tag"
+                style={{
+                  fontSize: 11,
+                  padding: "3px 8px",
+                  background: isAdmin ? "rgba(255, 0, 234, 0.12)" : "rgba(0, 229, 255, 0.12)",
+                  color: isAdmin ? "var(--neon-magenta)" : "var(--neon-cyan)",
+                  border: `1px solid ${isAdmin ? "rgba(255, 0, 234, 0.3)" : "rgba(0, 229, 255, 0.3)"}`,
+                  borderRadius: 6,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                {isAdmin ? <ShieldCheck size={12} /> : <KeyRound size={12} />}
+                <span>{session?.name}</span>
+                <span className="mono" style={{ opacity: 0.85 }}>
+                  ({maxStocks ? `上限 ${maxStocks}銘柄` : "無制限"})
+                </span>
+              </span>
+
+              {isUser && maxStocks && (
+                <span
+                  className="mono tiny"
+                  style={{ color: isLimitReached ? "var(--neon-red)" : "var(--text-secondary)" }}
+                >
+                  登録: {basket.length} / {maxStocks} 銘柄
+                </span>
+              )}
+
+              <button
+                type="button"
+                onClick={logout}
+                className="btn btn-sm btn-outline"
+                style={{ padding: "2px 6px", fontSize: 10 }}
+                title="ログアウトしてロック"
+              >
+                <Lock size={10} /> ロック
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsAuthModalOpen(true)}
+              className="btn btn-sm btn-outline"
+              style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11 }}
+            >
+              <Lock size={12} /> 銘柄編集ロック中（クリックしてパスワード認証）
+            </button>
+          )}
+        </div>
+
+        <div className="row" style={{ gap: 8 }}>
+          {onAddStock && (
+            <button
+              type="button"
+              onClick={handleAddStockClick}
+              disabled={isLimitReached}
+              className="btn btn-sm btn-default"
+              style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
+              title={isLimitReached ? `上限 (${maxStocks}銘柄) に達しています` : "銘柄を追加"}
+            >
+              <Plus size={13} /> 銘柄を追加
+            </button>
+          )}
+        </div>
+      </div>
+
       <div className="table-wrapper">
         <table className="custom-table">
           <thead>
@@ -330,6 +496,9 @@ export function ConstituentsTable({
                   比率 {renderSortIcon("weight")}
                 </span>
               </th>
+              {onRemoveStock && (
+                <th style={{ width: "6%", textAlign: "center" }}>操作</th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -425,12 +594,32 @@ export function ConstituentsTable({
                           </div>
                         </div>
                       </td>
+                      {onRemoveStock && (
+                        <td style={{ textAlign: "center" }}>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteStockClick(item.ticker, item.name)}
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              color: "var(--neon-red)",
+                              cursor: "pointer",
+                              padding: 4,
+                              opacity: 0.8,
+                            }}
+                            title={isAuthenticated ? `銘柄「${item.name}」を削除` : "削除するにはパスワード認証が必要です"}
+                            aria-label={`銘柄「${item.name}」を削除`}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })
               ) : (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: "center", padding: "32px 16px" }}>
+                  <td colSpan={onRemoveStock ? 9 : 8} style={{ textAlign: "center", padding: "32px 16px" }}>
                     <span className="muted mono tiny">該当する銘柄が見つかりません</span>
                   </td>
                 </tr>
@@ -439,6 +628,27 @@ export function ConstituentsTable({
           </tbody>
         </table>
       </div>
+
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onSuccess={() => {
+          setIsAddStockModalOpen(true);
+        }}
+      />
+
+      {/* Add Stock Modal */}
+      {onAddStock && (
+        <AddStockModal
+          isOpen={isAddStockModalOpen}
+          onClose={() => setIsAddStockModalOpen(false)}
+          indexName={indexName}
+          currentCount={basket.length}
+          maxStocks={maxStocks}
+          onAddStock={handleAddStockSubmit}
+        />
+      )}
     </Card>
   );
 }

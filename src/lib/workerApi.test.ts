@@ -707,5 +707,120 @@ describe("worker fetch handlers", () => {
     expect(toYahooSymbol("nvda")).toBe("NVDA");
     expect(toYahooSymbol("^n225")).toBe("^N225");
   });
+
+  describe("Authentication & Admin Password Management", () => {
+    it("POST /api/auth/verify verifies default master admin password", async () => {
+      const env = createMockEnv();
+      const req = new Request("http://localhost/api/auth/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "admin1234" }),
+      });
+
+      const res = await worker.fetch(req, env as any);
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.ok).toBe(true);
+      expect(data.role).toBe("admin");
+    });
+
+    it("POST /api/auth/verify rejects incorrect password with 401", async () => {
+      const env = createMockEnv();
+      const req = new Request("http://localhost/api/auth/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "wrong-password" }),
+      });
+
+      const res = await worker.fetch(req, env as any);
+      expect(res.status).toBe(401);
+      const data = await res.json();
+      expect(data.ok).toBe(false);
+    });
+
+    it("GET /api/admin/passwords rejects non-admin with 403", async () => {
+      const env = createMockEnv();
+      const req = new Request("http://localhost/api/admin/passwords", {
+        method: "GET",
+      });
+
+      const res = await worker.fetch(req, env as any);
+      expect(res.status).toBe(403);
+      const data = await res.json();
+      expect(data.error).toContain("管理者権限が必要です");
+    });
+
+    it("POST /api/admin/passwords allows admin to create user password with maxStocks limit", async () => {
+      const env = createMockEnv();
+      const req = new Request("http://localhost/api/admin/passwords", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": "admin1234",
+        },
+        body: JSON.stringify({
+          name: "Test Analyst",
+          password: "userpass123",
+          maxStocks: 5,
+          role: "user",
+        }),
+      });
+
+      const res = await worker.fetch(req, env as any);
+      expect(res.status).toBe(201);
+      const data = await res.json();
+      expect(data.ok).toBe(true);
+      expect(data.password.name).toBe("Test Analyst");
+      expect(data.password.max_stocks).toBe(5);
+    });
+
+    it("POST /api/indices/stock requires authentication", async () => {
+      const env = createMockEnv();
+      const req = new Request("http://localhost/api/indices/stock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          indexId: "test-index",
+          stock: { ticker: "7203", name: "Toyota", weight: 20 },
+        }),
+      });
+
+      const res = await worker.fetch(req, env as any);
+      expect(res.status).toBe(401);
+      const data = await res.json();
+      expect(data.error).toContain("パスワード認証が必要です");
+    });
+
+    it("POST /api/indices/stock allows admin to add constituent stock", async () => {
+      const env = createMockEnv();
+      const req = new Request("http://localhost/api/indices/stock", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": "admin1234",
+        },
+        body: JSON.stringify({
+          indexId: "test-index",
+          stock: { ticker: "7203", name: "Toyota", weight: 20, theme: "Mobility" },
+        }),
+      });
+
+      const res = await worker.fetch(req, env as any);
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.ok).toBe(true);
+      expect(data.ticker).toBe("7203");
+    });
+
+    it("DELETE /api/indices/stock rejects unauthenticated request with 401", async () => {
+      const env = createMockEnv();
+      const req = new Request("http://localhost/api/indices/stock?indexId=test-index&ticker=7203", {
+        method: "DELETE",
+      });
+
+      const res = await worker.fetch(req, env as any);
+      expect(res.status).toBe(401);
+    });
+  });
 });
 

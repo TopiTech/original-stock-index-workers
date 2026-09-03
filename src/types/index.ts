@@ -66,3 +66,24 @@ export interface RiskMetrics {
   worstDay: number;
 }
 
+export type AuthRole = "admin" | "user";
+
+export interface AuthSession {
+  role: AuthRole;
+  name: string;
+  password?: string;
+  maxStocks: number | null;
+  id?: string;
+}
+
+export interface UserPasswordItem {
+  id: string;
+  name: string;
+  role: AuthRole;
+  max_stocks: number | null;
+  plain_password?: string;
+  is_active: number;
+  created_at: number;
+  updated_at?: number;
+}
+

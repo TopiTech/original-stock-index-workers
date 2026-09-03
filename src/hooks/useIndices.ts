@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
 import type { CustomIndex } from "../data/indices";
+import type { BasketItem } from "../types";
 import {
   saveIndexOwnerToken,
   getIndexOwnerToken,
   removeIndexOwnerToken,
   isIndexOwner,
 } from "../lib/ownership";
+import { getAuthHeaders } from "../lib/auth";
 
 const API_BASE = "/api";
 
@@ -55,11 +57,13 @@ export function useIndices() {
     ): Promise<{ ok: boolean; error?: string; ownerToken?: string }> => {
       try {
         const token = ownerToken || getIndexOwnerToken(newIndex.id) || crypto.randomUUID();
+        const authHeaders = getAuthHeaders();
         const res = await fetch(`${API_BASE}/indices`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "x-owner-token": token,
+            ...authHeaders,
           },
           body: JSON.stringify({
             ...newIndex,
@@ -89,7 +93,10 @@ export function useIndices() {
     async (id: string): Promise<{ ok: boolean; error?: string }> => {
       try {
         const token = getIndexOwnerToken(id);
-        const headers: Record<string, string> = {};
+        const authHeaders = getAuthHeaders();
+        const headers: Record<string, string> = {
+          ...authHeaders,
+        };
         if (token) {
           headers["x-owner-token"] = token;
         }
@@ -114,6 +121,66 @@ export function useIndices() {
     [fetchIndices],
   );
 
+  const addStockToIndex = useCallback(
+    async (
+      indexId: string,
+      stock: BasketItem,
+      password?: string,
+    ): Promise<{ ok: boolean; error?: string }> => {
+      try {
+        const authHeaders = getAuthHeaders();
+        const res = await fetch(`${API_BASE}/indices/stock`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...authHeaders,
+          },
+          body: JSON.stringify({ indexId, stock, password }),
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || "銘柄の追加に失敗しました");
+        }
+        await fetchIndices();
+        return { ok: true };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "銘柄の追加に失敗しました";
+        return { ok: false, error: msg };
+      }
+    },
+    [fetchIndices],
+  );
+
+  const removeStockFromIndex = useCallback(
+    async (
+      indexId: string,
+      ticker: string,
+      password?: string,
+    ): Promise<{ ok: boolean; error?: string }> => {
+      try {
+        const authHeaders = getAuthHeaders();
+        const params = new URLSearchParams({ indexId, ticker });
+        if (password) params.set("password", password);
+        const res = await fetch(`${API_BASE}/indices/stock?${params.toString()}`, {
+          method: "DELETE",
+          headers: {
+            ...authHeaders,
+          },
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || "銘柄の削除に失敗しました");
+        }
+        await fetchIndices();
+        return { ok: true };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "銘柄の削除に失敗しました";
+        return { ok: false, error: msg };
+      }
+    },
+    [fetchIndices],
+  );
+
   return {
     indices,
     selectedIndex,
@@ -122,6 +189,8 @@ export function useIndices() {
     error,
     saveCustomIndex,
     deleteCustomIndex,
+    addStockToIndex,
+    removeStockFromIndex,
     refreshIndices: fetchIndices,
     isOwner: isIndexOwner,
   };

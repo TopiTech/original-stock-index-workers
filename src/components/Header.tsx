@@ -1,8 +1,15 @@
 import { motion } from "framer-motion";
-import { Database, Wifi, Activity, Cpu } from "lucide-react";
+import { Database, Wifi, Activity, Cpu, Shield, KeyRound, Lock, ShieldCheck } from "lucide-react";
 import { Badge } from "./ui";
+import { useAuth } from "../hooks/useAuth";
 
-export function Header() {
+interface HeaderProps {
+  onNavigateToAdmin?: () => void;
+}
+
+export function Header({ onNavigateToAdmin }: HeaderProps) {
+  const { session, isAuthenticated, isAdmin, isUser, maxStocks, logout } = useAuth();
+
   return (
     <motion.header
       initial={{ opacity: 0, y: -15 }}
@@ -25,7 +32,50 @@ export function Header() {
           </p>
         </div>
 
-        <div className="header-meta">
+        <div className="header-meta row flex-wrap" style={{ gap: 10, alignItems: "center" }}>
+          {/* Auth status indicator */}
+          {isAuthenticated ? (
+            <div className="row" style={{ gap: 6, alignItems: "center" }}>
+              <Badge variant={isAdmin ? "magenta" : "cyan"}>
+                {isAdmin ? <ShieldCheck size={11} /> : <KeyRound size={11} />}
+                {session?.name} {isUser && maxStocks ? `(上限${maxStocks}銘柄)` : ""}
+              </Badge>
+              <button
+                type="button"
+                onClick={logout}
+                className="btn btn-sm btn-outline"
+                style={{ padding: "3px 8px", fontSize: 11 }}
+                title="ログアウト"
+              >
+                ログアウト
+              </button>
+            </div>
+          ) : (
+            <Badge variant="muted">
+              <Lock size={11} />
+              未認証 (閲覧モード)
+            </Badge>
+          )}
+
+          {/* Admin Page button */}
+          {onNavigateToAdmin && (
+            <button
+              type="button"
+              onClick={onNavigateToAdmin}
+              className="btn btn-sm btn-outline"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                borderColor: "rgba(0, 229, 255, 0.4)",
+                color: "var(--neon-cyan)",
+              }}
+            >
+              <Shield size={13} />
+              管理者ページ
+            </button>
+          )}
+
           <Badge variant="cyan">
             <Database size={11} />
             D1 ENGINE
@@ -33,10 +83,6 @@ export function Header() {
           <Badge variant="green">
             <Wifi size={11} />
             LIVE FEED
-          </Badge>
-          <Badge variant="magenta">
-            <Cpu size={11} />
-            WORKERS v2.0
           </Badge>
         </div>
       </div>

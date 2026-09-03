@@ -4,6 +4,16 @@ import type { BasketItem, PricePoint, StockSeries } from "../src/types";
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  ADMIN_PASSWORD?: string;
+}
+
+export interface AuthResult {
+  authenticated: boolean;
+  role?: "admin" | "user";
+  name?: string;
+  maxStocks?: number | null;
+  id?: string;
+  error?: string;
 }
 
 interface YahooChartResponse {
@@ -37,13 +47,99 @@ export const SYSTEM_INDICES = new Set([
   "jp-core",
 ]);
 
-// Hash an owner token for secure storage
+const DEFAULT_ADMIN_PASSWORD = "admin1234";
+export function getDefaultAdminPassword(): string {
+  return DEFAULT_ADMIN_PASSWORD;
+}
+
+// Hash an owner token or password for secure storage
 export async function hashToken(token: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(token.trim());
   const hashBuffer = await crypto.subtle.digest("SHA-256", data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export async function ensurePasswordTable(env: Env): Promise<void> {
+  try {
+    await env.DB.prepare(`
+      CREATE TABLE IF NOT EXISTS access_passwords (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        plain_password TEXT,
+        role TEXT NOT NULL DEFAULT 'user',
+        max_stocks INTEGER DEFAULT 10,
+        is_active INTEGER DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER
+      )
+    `).run();
+  } catch {
+    // ignore
+  }
+}
+
+export async function authenticatePassword(
+  request: Request,
+  env: Env,
+  explicitPassword?: string | null
+): Promise<AuthResult> {
+  const pwd =
+    (explicitPassword && typeof explicitPassword === "string" ? explicitPassword.trim() : null) ||
+    request.headers.get("x-auth-password")?.trim() ||
+    request.headers.get("x-admin-key")?.trim() ||
+    (request.headers.get("authorization")?.startsWith("Bearer ")
+      ? request.headers.get("authorization")!.slice(7).trim()
+      : null) ||
+    "";
+
+  if (!pwd) {
+    return { authenticated: false, error: "パスワードが指定されていません" };
+  }
+
+  // 1. Master admin password check
+  const masterAdminPassword = env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASSWORD;
+  if (pwd === masterAdminPassword) {
+    return {
+      authenticated: true,
+      role: "admin",
+      name: "管理者",
+      maxStocks: null,
+      id: "admin-master",
+    };
+  }
+
+  // 2. D1 access_passwords check
+  try {
+    await ensurePasswordTable(env);
+    const pwdHash = await hashToken(pwd);
+    const { results } = await env.DB.prepare(
+      "SELECT id, name, role, max_stocks, is_active FROM access_passwords WHERE password_hash = ? AND is_active = 1"
+    ).bind(pwdHash).all();
+
+    if (results && results.length > 0) {
+      const user = results[0] as {
+        id: string;
+        name: string;
+        role: "admin" | "user";
+        max_stocks: number | null;
+        is_active: number;
+      };
+      return {
+        authenticated: true,
+        role: user.role,
+        name: user.name,
+        maxStocks: user.max_stocks !== null && user.max_stocks !== undefined ? Number(user.max_stocks) : null,
+        id: user.id,
+      };
+    }
+  } catch (err) {
+    console.error("Auth DB error:", err);
+  }
+
+  return { authenticated: false, error: "パスワードが正しくありません" };
 }
 
 // In-memory cache for warm worker isolates to minimize D1 reads
@@ -170,7 +266,7 @@ function json(data: unknown, status = 200, request?: Request, customHeaders?: Re
     if (origin && isAllowedOrigin(origin)) {
       headers["access-control-allow-origin"] = origin;
       headers["access-control-allow-methods"] = "GET,POST,DELETE,OPTIONS";
-      headers["access-control-allow-headers"] = "content-type,x-owner-token,x-admin-key";
+      headers["access-control-allow-headers"] = "content-type,x-owner-token,x-admin-key,x-auth-password,authorization";
       headers["vary"] = "Origin";
     }
   }
@@ -242,6 +338,321 @@ export default {
 
       if (url.pathname === "/api/health") {
         return json({ ok: true, service: "original-stock-index-worker" }, 200, request);
+      }
+
+      // パスワード認証確認
+      if (url.pathname === "/api/auth/verify" && request.method === "POST") {
+        try {
+          const parsed = await parseJsonBody(request);
+          if (!parsed.ok) return parsed.response;
+          const password = typeof parsed.body.password === "string" ? parsed.body.password : "";
+          const auth = await authenticatePassword(request, env, password);
+          if (!auth.authenticated) {
+            return json({ ok: false, error: auth.error || "パスワードが正しくありません" }, 401, request);
+          }
+          return json(
+            {
+              ok: true,
+              role: auth.role,
+              name: auth.name,
+              maxStocks: auth.maxStocks,
+              id: auth.id,
+            },
+            200,
+            request
+          );
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Authentication error";
+          return json({ error: message }, 500, request);
+        }
+      }
+
+      // 管理者向け: ユーザーパスワード一覧取得
+      if (url.pathname === "/api/admin/passwords" && request.method === "GET") {
+        try {
+          const auth = await authenticatePassword(request, env);
+          if (!auth.authenticated || auth.role !== "admin") {
+            return json({ error: "管理者権限が必要です" }, 403, request);
+          }
+          await ensurePasswordTable(env);
+          const { results } = await env.DB.prepare(
+            "SELECT id, name, role, max_stocks, plain_password, is_active, created_at, updated_at FROM access_passwords ORDER BY created_at DESC"
+          ).all();
+          return json(results || [], 200, request);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Failed to fetch passwords";
+          return json({ error: message }, 500, request);
+        }
+      }
+
+      // 管理者向け: ユーザーパスワード新規作成（銘柄数制限設定）
+      if (url.pathname === "/api/admin/passwords" && request.method === "POST") {
+        try {
+          const auth = await authenticatePassword(request, env);
+          if (!auth.authenticated || auth.role !== "admin") {
+            return json({ error: "管理者権限が必要です" }, 403, request);
+          }
+          const parsed = await parseJsonBody(request);
+          if (!parsed.ok) return parsed.response;
+          const { name, password, maxStocks, role } = parsed.body;
+          if (!name || typeof name !== "string" || name.trim().length === 0 || name.trim().length > 100) {
+            return json({ error: "ユーザー名/ラベルは1〜100文字で入力してください" }, 400, request);
+          }
+          if (!password || typeof password !== "string" || password.trim().length < 4 || password.trim().length > 100) {
+            return json({ error: "パスワードは4〜100文字で入力してください" }, 400, request);
+          }
+          let maxStockLimit: number | null = null;
+          if (maxStocks !== undefined && maxStocks !== null && maxStocks !== "") {
+            const num = Number(maxStocks);
+            if (!Number.isFinite(num) || num < 1 || num > 500) {
+              return json({ error: "銘柄数上限は1〜500の数値を指定してください" }, 400, request);
+            }
+            maxStockLimit = Math.floor(num);
+          }
+          const assignedRole = role === "admin" ? "admin" : "user";
+          const id = `pwd-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+          const hash = await hashToken(password.trim());
+          const now = Math.floor(Date.now() / 1000);
+
+          await ensurePasswordTable(env);
+          await env.DB.prepare(
+            "INSERT INTO access_passwords (id, name, password_hash, plain_password, role, max_stocks, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)"
+          ).bind(id, name.trim(), hash, password.trim(), assignedRole, maxStockLimit, now, now).run();
+
+          return json(
+            {
+              ok: true,
+              password: {
+                id,
+                name: name.trim(),
+                plain_password: password.trim(),
+                role: assignedRole,
+                max_stocks: maxStockLimit,
+                is_active: 1,
+                created_at: now,
+              },
+            },
+            201,
+            request
+          );
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Failed to create password";
+          return json({ error: message }, 500, request);
+        }
+      }
+
+      // 管理者向け: ユーザーパスワード更新
+      if (url.pathname === "/api/admin/passwords" && request.method === "PUT") {
+        try {
+          const auth = await authenticatePassword(request, env);
+          if (!auth.authenticated || auth.role !== "admin") {
+            return json({ error: "管理者権限が必要です" }, 403, request);
+          }
+          const parsed = await parseJsonBody(request);
+          if (!parsed.ok) return parsed.response;
+          const { id, name, password, maxStocks, isActive } = parsed.body;
+          if (!id || typeof id !== "string") {
+            return json({ error: "Invalid password id" }, 400, request);
+          }
+
+          await ensurePasswordTable(env);
+          const updates: string[] = [];
+          const params: unknown[] = [];
+
+          if (typeof name === "string" && name.trim()) {
+            updates.push("name = ?");
+            params.push(name.trim().slice(0, 100));
+          }
+          if (typeof password === "string" && password.trim().length >= 4) {
+            const hash = await hashToken(password.trim());
+            updates.push("password_hash = ?", "plain_password = ?");
+            params.push(hash, password.trim());
+          }
+          if (maxStocks !== undefined) {
+            if (maxStocks === null || maxStocks === 0 || maxStocks === "") {
+              updates.push("max_stocks = NULL");
+            } else {
+              const num = Number(maxStocks);
+              if (Number.isFinite(num) && num >= 1) {
+                updates.push("max_stocks = ?");
+                params.push(Math.floor(num));
+              }
+            }
+          }
+          if (isActive !== undefined) {
+            updates.push("is_active = ?");
+            params.push(isActive ? 1 : 0);
+          }
+          const now = Math.floor(Date.now() / 1000);
+          updates.push("updated_at = ?");
+          params.push(now);
+
+          params.push(id);
+          await env.DB.prepare(
+            `UPDATE access_passwords SET ${updates.join(", ")} WHERE id = ?`
+          ).bind(...params).run();
+
+          return json({ ok: true }, 200, request);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Failed to update password";
+          return json({ error: message }, 500, request);
+        }
+      }
+
+      // 管理者向け: ユーザーパスワード削除
+      if (url.pathname === "/api/admin/passwords" && request.method === "DELETE") {
+        try {
+          const auth = await authenticatePassword(request, env);
+          if (!auth.authenticated || auth.role !== "admin") {
+            return json({ error: "管理者権限が必要です" }, 403, request);
+          }
+          const id = url.searchParams.get("id");
+          if (!id) {
+            return json({ error: "Missing password id" }, 400, request);
+          }
+          await ensurePasswordTable(env);
+          await env.DB.prepare("DELETE FROM access_passwords WHERE id = ?").bind(id).run();
+          return json({ ok: true }, 200, request);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Failed to delete password";
+          return json({ error: message }, 500, request);
+        }
+      }
+
+      // 管理者向け: 管理者マスターパスワード変更
+      if (url.pathname === "/api/admin/admin-password" && request.method === "PUT") {
+        try {
+          const auth = await authenticatePassword(request, env);
+          if (!auth.authenticated || auth.role !== "admin") {
+            return json({ error: "管理者権限が必要です" }, 403, request);
+          }
+          const parsed = await parseJsonBody(request);
+          if (!parsed.ok) return parsed.response;
+          const newPassword = typeof parsed.body.newPassword === "string" ? parsed.body.newPassword.trim() : "";
+          if (newPassword.length < 6) {
+            return json({ error: "管理者パスワードは6文字以上で入力してください" }, 400, request);
+          }
+          await ensurePasswordTable(env);
+          const hash = await hashToken(newPassword);
+          const now = Math.floor(Date.now() / 1000);
+          await env.DB.prepare(
+            "INSERT INTO access_passwords (id, name, password_hash, plain_password, role, max_stocks, is_active, created_at, updated_at) VALUES ('admin-master', 'マスター管理者', ?, ?, 'admin', NULL, 1, ?, ?) ON CONFLICT(id) DO UPDATE SET password_hash = excluded.password_hash, plain_password = excluded.plain_password, updated_at = excluded.updated_at"
+          ).bind(hash, newPassword, now, now).run();
+
+          return json({ ok: true, message: "管理者パスワードを更新しました" }, 200, request);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Failed to update admin password";
+          return json({ error: message }, 500, request);
+        }
+      }
+
+      // 構成銘柄の個別追加 (パスワード認証＋上限数チェック)
+      if (url.pathname === "/api/indices/stock" && request.method === "POST") {
+        try {
+          const parsed = await parseJsonBody(request);
+          if (!parsed.ok) return parsed.response;
+          const { indexId, stock, password } = parsed.body;
+          if (!indexId || typeof indexId !== "string") {
+            return json({ error: "indexId is required" }, 400, request);
+          }
+
+          // 認証チェック
+          const auth = await authenticatePassword(request, env, typeof password === "string" ? password : null);
+          if (!auth.authenticated) {
+            return json({ error: "この操作にはパスワード認証が必要です" }, 401, request);
+          }
+
+          if (SYSTEM_INDICES.has(indexId) && auth.role !== "admin") {
+            return json({ error: "システム指数の銘柄変更には管理者権限が必要です" }, 403, request);
+          }
+
+          if (!stock || typeof stock !== "object") {
+            return json({ error: "銘柄情報 (stock) は必須です" }, 400, request);
+          }
+          const rawStock = stock as Record<string, unknown>;
+          const ticker = typeof rawStock.ticker === "string" ? rawStock.ticker.trim().toUpperCase() : "";
+          const name = typeof rawStock.name === "string" ? rawStock.name.trim() : "";
+          const theme = typeof rawStock.theme === "string" ? rawStock.theme.trim() : "カスタム";
+          const rawWeight = Number(rawStock.weight);
+          const weight = Number.isFinite(rawWeight) && rawWeight > 0 ? rawWeight : 10;
+
+          if (!ticker || !/^[A-Za-z0-9.\-]+$/.test(ticker) || ticker.length > 20) {
+            return json({ error: "無効な銘柄コードです" }, 400, request);
+          }
+          if (!name || name.length > 100) {
+            return json({ error: "銘柄名は1〜100文字で入力してください" }, 400, request);
+          }
+
+          // 現在の銘柄数チェック
+          const { results: existingStocks } = await env.DB.prepare(
+            "SELECT ticker FROM basket_items WHERE index_id = ?"
+          ).bind(indexId).all();
+
+          const isAlreadyPresent = (existingStocks as { ticker: string }[] || []).some((s) => s.ticker === ticker);
+          const currentCount = existingStocks ? existingStocks.length : 0;
+
+          if (!isAlreadyPresent) {
+            // 新規追加の場合、ユーザー権限なら上限銘柄数をチェック
+            if (auth.role === "user" && auth.maxStocks && auth.maxStocks > 0) {
+              if (currentCount >= auth.maxStocks) {
+                return json(
+                  { error: `このユーザー用パスワードでは銘柄数を最大${auth.maxStocks}銘柄までに制限されています（現在${currentCount}銘柄）` },
+                  403,
+                  request
+                );
+              }
+            }
+          }
+
+          await env.DB.prepare(
+            "INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES (?, ?, ?, ?, ?)"
+          ).bind(indexId, ticker, name, weight, theme).run();
+
+          clearMemoryCache("api:indices");
+          return json({ ok: true, message: "銘柄を追加・更新しました", ticker }, 200, request);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Failed to add stock";
+          return json({ error: message }, 500, request);
+        }
+      }
+
+      // 構成銘柄の個別削除 (パスワード認証)
+      if (url.pathname === "/api/indices/stock" && request.method === "DELETE") {
+        try {
+          const indexId = url.searchParams.get("indexId");
+          const ticker = url.searchParams.get("ticker");
+          if (!indexId || !ticker) {
+            return json({ error: "indexId and ticker parameters are required" }, 400, request);
+          }
+
+          const auth = await authenticatePassword(request, env, url.searchParams.get("password"));
+          if (!auth.authenticated) {
+            return json({ error: "この操作にはパスワード認証が必要です" }, 401, request);
+          }
+
+          if (SYSTEM_INDICES.has(indexId) && auth.role !== "admin") {
+            return json({ error: "システム指数の銘柄削除には管理者権限が必要です" }, 403, request);
+          }
+
+          // 最低1銘柄は必要
+          const { results: countRes } = await env.DB.prepare(
+            "SELECT count(*) as cnt FROM basket_items WHERE index_id = ?"
+          ).bind(indexId).all();
+          const cnt = (countRes?.[0] as { cnt: number })?.cnt ?? 0;
+          if (cnt <= 1) {
+            return json({ error: "構成銘柄が1件のみのため削除できません（指数には最低1銘柄必要です）" }, 400, request);
+          }
+
+          await env.DB.prepare(
+            "DELETE FROM basket_items WHERE index_id = ? AND ticker = ?"
+          ).bind(indexId, ticker.trim().toUpperCase()).run();
+
+          clearMemoryCache("api:indices");
+          return json({ ok: true, message: "銘柄を削除しました", ticker }, 200, request);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Failed to delete stock";
+          return json({ error: message }, 500, request);
+        }
       }
 
     // ベンチマーク・スナップショットの取得（D1キャッシュ付き・複数ベンチマーク対応・インメモリ&エッジキャッシュ）
@@ -503,6 +914,21 @@ export default {
           }
         }
 
+        // Password authentication and stock limit check
+        const explicitPwd = typeof body.password === "string" ? body.password : null;
+        const auth = await authenticatePassword(request, env, explicitPwd);
+        const isAdmin = auth.authenticated && auth.role === "admin";
+
+        if (auth.authenticated && auth.role === "user" && auth.maxStocks && auth.maxStocks > 0) {
+          if (basket.length > auth.maxStocks) {
+            return json(
+              { error: `このユーザー用パスワードでは銘柄数を最大${auth.maxStocks}銘柄までに制限されています（指定: ${basket.length}銘柄）` },
+              403,
+              request
+            );
+          }
+        }
+
         // Owner token verification
         let providedToken =
           (typeof body.ownerToken === "string" && body.ownerToken.trim().length > 0 ? body.ownerToken.trim() : null) ||
@@ -531,8 +957,8 @@ export default {
         let targetHash: string | null = null;
 
         if (isExisting) {
-          // If index already exists and has an owner token hash, require authorization
-          if (existingHash) {
+          // If index already exists and has an owner token hash, require authorization (admin bypasses)
+          if (!isAdmin && existingHash) {
             if (!providedToken) {
               return json({ error: "この指数を更新する権限がありません（作成者トークンが必要です）" }, 403, request);
             }
@@ -542,9 +968,11 @@ export default {
             }
             targetHash = existingHash;
           } else {
-            // Legacy index without hash - if a token is provided, assign it now
+            // Legacy index without hash or admin edit - if a token is provided, assign it now
             if (providedToken) {
               targetHash = await hashToken(providedToken);
+            } else if (existingHash) {
+              targetHash = existingHash;
             }
           }
         } else {
@@ -628,12 +1056,16 @@ export default {
           } catch {}
         }
 
+        const explicitPwd = url.searchParams.get("password");
+        const auth = await authenticatePassword(request, env, explicitPwd);
+        const isAdmin = auth.authenticated && auth.role === "admin";
+
         const providedToken =
           request.headers.get("x-owner-token")?.trim() ||
           url.searchParams.get("token")?.trim() ||
           "";
 
-        if (hasCheckedIndex) {
+        if (!isAdmin && hasCheckedIndex) {
           if (existingHash) {
             if (!providedToken) {
               return json({ error: "この指数を削除する権限がありません（作成者トークンが必要です）" }, 403, request);

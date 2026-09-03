@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useIndices } from "./hooks/useIndices";
 import { useBenchmark } from "./hooks/useBenchmark";
@@ -13,12 +13,41 @@ import { ThemeBreakdown } from "./components/ThemeBreakdown";
 import { RiskMetricsCard } from "./components/RiskMetricsCard";
 import { ConstituentsTable } from "./components/ConstituentsTable";
 import { IndexBuilderModal } from "./components/IndexBuilderModal";
+import { AdminDashboard } from "./components/AdminDashboard";
 import { ErrorFallback } from "./components/ErrorFallback";
 import { LoadingScreen } from "./components/LoadingScreen";
 import { buildChartData } from "./lib/chartData";
 import type { CustomIndex } from "./data/indices";
 
 export default function App() {
+  const [currentView, setCurrentView] = useState<"dashboard" | "admin">(() => {
+    if (typeof window !== "undefined") {
+      const path = window.location.pathname;
+      const search = new URLSearchParams(window.location.search);
+      return path === "/admin" || search.get("page") === "admin" ? "admin" : "dashboard";
+    }
+    return "dashboard";
+  });
+
+  const navigateTo = useCallback((view: "dashboard" | "admin") => {
+    setCurrentView(view);
+    if (view === "admin") {
+      window.history.pushState({}, "", "/admin");
+    } else {
+      window.history.pushState({}, "", "/");
+    }
+  }, []);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const path = window.location.pathname;
+      const search = new URLSearchParams(window.location.search);
+      setCurrentView(path === "/admin" || search.get("page") === "admin" ? "admin" : "dashboard");
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
   const {
     indices,
     selectedIndex,
@@ -27,6 +56,9 @@ export default function App() {
     error: indicesError,
     saveCustomIndex,
     deleteCustomIndex,
+    addStockToIndex,
+    removeStockFromIndex,
+    refreshIndices,
     isOwner,
   } = useIndices();
 
@@ -100,9 +132,21 @@ export default function App() {
     return <LoadingScreen />;
   }
 
+  if (currentView === "admin") {
+    return (
+      <AdminDashboard
+        indices={indices}
+        onBackToApp={() => navigateTo("dashboard")}
+        onRefreshIndices={refreshIndices}
+        saveCustomIndex={saveCustomIndex}
+        deleteCustomIndex={deleteCustomIndex}
+      />
+    );
+  }
+
   return (
     <div className="app">
-      <Header />
+      <Header onNavigateToAdmin={() => navigateTo("admin")} />
 
       <motion.div
         initial={{ opacity: 0, y: 15 }}
@@ -221,6 +265,23 @@ export default function App() {
                   stockDetails={stockDetails}
                   selectedTheme={selectedTheme}
                   indexName={selectedIndex.name}
+                  indexId={selectedIndex.id}
+                  onAddStock={async (stock) => {
+                    if (!selectedIndex) return { ok: false, error: "指数が選択されていません" };
+                    const res = await addStockToIndex(selectedIndex.id, stock);
+                    if (res.ok) {
+                      recalculate(true);
+                    }
+                    return res;
+                  }}
+                  onRemoveStock={async (ticker) => {
+                    if (!selectedIndex) return { ok: false, error: "指数が選択されていません" };
+                    const res = await removeStockFromIndex(selectedIndex.id, ticker);
+                    if (res.ok) {
+                      recalculate(true);
+                    }
+                    return res;
+                  }}
                 />
               )}
             </motion.div>
