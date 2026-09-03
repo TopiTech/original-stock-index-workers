@@ -15,12 +15,24 @@ export function getStoredAuth(): AuthSession | null {
   }
 }
 
+function notifyAuthChanged(): void {
+  if (typeof globalThis !== "undefined") {
+    const target = (globalThis as unknown as { window?: { dispatchEvent: (e: Event) => boolean } }).window || globalThis;
+    if (typeof (target as any)?.dispatchEvent === "function" && typeof Event !== "undefined") {
+      try {
+        (target as any).dispatchEvent(new Event("auth-changed"));
+      } catch {}
+    }
+  }
+}
+
 /**
  * Persist auth session to localStorage
  */
 export function storeAuth(session: AuthSession): void {
   try {
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+    notifyAuthChanged();
   } catch (err) {
     console.error("Failed to store auth:", err);
   }
@@ -32,6 +44,7 @@ export function storeAuth(session: AuthSession): void {
 export function clearAuth(): void {
   try {
     localStorage.removeItem(AUTH_STORAGE_KEY);
+    notifyAuthChanged();
   } catch {}
 }
 

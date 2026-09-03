@@ -6,13 +6,38 @@ export function useAuth() {
   const [session, setSession] = useState<AuthSession | null>(() => getStoredAuth());
   const [loading, setLoading] = useState(false);
 
-  // Re-verify or sync with storage if needed
+  // Sync with localStorage and cross-component/cross-tab events
   useEffect(() => {
-    const current = getStoredAuth();
-    if (current && (!session || session.password !== current.password)) {
-      setSession(current);
+    const syncSession = () => {
+      const current = getStoredAuth();
+      setSession((prev) => {
+        if (!prev && !current) return prev;
+        if (
+          prev &&
+          current &&
+          prev.id === current.id &&
+          prev.password === current.password &&
+          prev.role === current.role &&
+          prev.maxStocks === current.maxStocks &&
+          prev.name === current.name
+        ) {
+          return prev;
+        }
+        return current;
+      });
+    };
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("auth-changed", syncSession);
+      window.addEventListener("storage", syncSession);
     }
-  }, [session]);
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("auth-changed", syncSession);
+        window.removeEventListener("storage", syncSession);
+      }
+    };
+  }, []);
 
   const login = useCallback(async (password: string): Promise<{ ok: boolean; error?: string }> => {
     setLoading(true);
@@ -35,6 +60,10 @@ export function useAuth() {
   const isUser = session?.role === "user";
   const maxStocks = session?.maxStocks ?? null;
 
+  const getHeaders = useCallback((): Record<string, string> => {
+    return getAuthHeaders(session);
+  }, [session?.password, session?.role]);
+
   return {
     session,
     isAuthenticated,
@@ -44,6 +73,6 @@ export function useAuth() {
     loading,
     login,
     logout,
-    getHeaders: () => getAuthHeaders(session),
+    getHeaders,
   };
 }

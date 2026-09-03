@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import {
   Shield,
@@ -20,6 +20,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
+import { storeAuth } from "../lib/auth";
 import type { CustomIndex } from "../data/indices";
 import type { BasketItem, UserPasswordItem } from "../types";
 import { Card, Tag, Badge, SearchInput } from "./ui";
@@ -96,29 +97,57 @@ export function AdminDashboard({
   const [adminPwdMessage, setAdminPwdMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // Fetch passwords
+  const [passwordFetchError, setPasswordFetchError] = useState<string | null>(null);
+  const isFetchingPasswordsRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const fetchPasswords = useCallback(async () => {
-    if (!isAdmin) return;
+    if (!isAdmin || isFetchingPasswordsRef.current) return;
+    isFetchingPasswordsRef.current = true;
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       setLoadingPasswords(true);
+      setPasswordFetchError(null);
       const res = await fetch("/api/admin/passwords", {
         headers: getHeaders(),
+        signal: controller.signal,
       });
       if (res.ok) {
         const data = await res.json();
-        setPasswords(data);
+        setPasswords(Array.isArray(data) ? data : []);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        const errText = data.error || `エラー (${res.status})`;
+        console.error("Failed to fetch passwords:", errText);
+        setPasswordFetchError(errText);
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.name === "AbortError") return;
+      const msg = err instanceof Error ? err.message : "パスワード一覧の取得に失敗しました";
       console.error("Failed to fetch passwords:", err);
+      setPasswordFetchError(msg);
     } finally {
       setLoadingPasswords(false);
+      isFetchingPasswordsRef.current = false;
     }
   }, [isAdmin, getHeaders]);
 
   useEffect(() => {
-    if (isAdmin) {
+    if (isAdmin && activeTab === "passwords") {
       fetchPasswords();
     }
-  }, [isAdmin, fetchPasswords]);
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [isAdmin, activeTab, fetchPasswords]);
 
   // Sync selected index data into edit fields
   useEffect(() => {
@@ -202,6 +231,9 @@ export function AdminDashboard({
       });
       if (res.ok) {
         await fetchPasswords();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert("削除に失敗しました: " + (data.error || `HTTP ${res.status}`));
       }
     } catch (err) {
       alert("削除に失敗しました: " + (err instanceof Error ? err.message : ""));
@@ -218,7 +250,7 @@ export function AdminDashboard({
   // Toggle active password
   const handleToggleActive = async (item: UserPasswordItem) => {
     try {
-      await fetch("/api/admin/passwords", {
+      const res = await fetch("/api/admin/passwords", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -229,9 +261,15 @@ export function AdminDashboard({
           isActive: item.is_active === 1 ? false : true,
         }),
       });
-      await fetchPasswords();
+      if (res.ok) {
+        await fetchPasswords();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert("状態更新に失敗しました: " + (data.error || `HTTP ${res.status}`));
+      }
     } catch (err) {
-      console.error(err);
+      console.error("状態更新エラー:", err);
+      alert("状態更新に失敗しました: " + (err instanceof Error ? err.message : ""));
     }
   };
 
@@ -325,8 +363,12 @@ export function AdminDashboard({
         throw new Error(data.error || "管理者パスワードの更新に失敗しました");
       }
       setAdminPwdMessage({ type: "success", text: "管理者パスワードを正常に変更しました" });
+      const updatedPassword = newAdminPassword;
       setNewAdminPassword("");
       setConfirmAdminPassword("");
+      if (session) {
+        storeAuth({ ...session, password: updatedPassword });
+      }
     } catch (err) {
       setAdminPwdMessage({ type: "error", text: err instanceof Error ? err.message : "更新に失敗しました" });
     } finally {
@@ -757,6 +799,34 @@ export function AdminDashboard({
                 <RefreshCw size={12} /> 更新
               </button>
             </div>
+
+            {passwordFetchError && (
+              <div
+                className="row space-between"
+                style={{
+                  padding: "10px 14px",
+                  background: "rgba(255, 51, 102, 0.15)",
+                  border: "1px solid var(--neon-red)",
+                  borderRadius: 8,
+                  color: "var(--neon-red)",
+                  fontSize: 12,
+                  marginBottom: 14,
+                }}
+              >
+                <div className="row" style={{ gap: 8 }}>
+                  <AlertCircle size={15} style={{ flexShrink: 0 }} />
+                  <span>{passwordFetchError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={fetchPasswords}
+                  className="btn btn-sm btn-outline"
+                  style={{ borderColor: "var(--neon-red)", color: "var(--neon-red)", padding: "2px 8px", fontSize: 11 }}
+                >
+                  再試行
+                </button>
+              </div>
+            )}
 
             {loadingPasswords ? (
               <div style={{ textAlign: "center", padding: "30px 0" }} className="muted">

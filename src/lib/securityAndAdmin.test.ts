@@ -368,4 +368,52 @@ describe("Security and Admin Regression Tests", () => {
     const data = await res.json();
     expect(data.error).toContain("システム指数の編集には管理者権限が必要です");
   });
+
+  describe("Client Auth Session and Headers", () => {
+    it("generates correct headers for admin and user sessions", async () => {
+      const { getAuthHeaders } = await import("./auth");
+      const adminSession = { role: "admin" as const, name: "管理者", password: "pwd1", maxStocks: null };
+      const userSession = { role: "user" as const, name: "ユーザー", password: "pwd2", maxStocks: 5 };
+
+      const adminHeaders = getAuthHeaders(adminSession);
+      expect(adminHeaders["x-auth-password"]).toBe("pwd1");
+      expect(adminHeaders["x-admin-key"]).toBe("pwd1");
+
+      const userHeaders = getAuthHeaders(userSession);
+      expect(userHeaders["x-auth-password"]).toBe("pwd2");
+      expect(userHeaders["x-admin-key"]).toBeUndefined();
+    });
+
+    it("dispatches auth-changed event on storeAuth and clearAuth", async () => {
+      const { storeAuth, clearAuth } = await import("./auth");
+      let eventFired = 0;
+      const originalDispatch = (globalThis as any).dispatchEvent;
+      const originalStorage = (globalThis as any).localStorage;
+      const mockStorage = new Map<string, string>();
+
+      (globalThis as any).localStorage = {
+        getItem: (k: string) => mockStorage.get(k) || null,
+        setItem: (k: string, v: string) => mockStorage.set(k, v),
+        removeItem: (k: string) => mockStorage.delete(k),
+      };
+
+      (globalThis as any).dispatchEvent = (evt: Event) => {
+        if (evt.type === "auth-changed") {
+          eventFired++;
+        }
+        return true;
+      };
+
+      try {
+        storeAuth({ role: "admin", name: "管理者", password: "test", maxStocks: null });
+        expect(eventFired).toBe(1);
+
+        clearAuth();
+        expect(eventFired).toBe(2);
+      } finally {
+        (globalThis as any).dispatchEvent = originalDispatch;
+        (globalThis as any).localStorage = originalStorage;
+      }
+    });
+  });
 });
