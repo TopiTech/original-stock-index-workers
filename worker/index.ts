@@ -393,7 +393,7 @@ function json(data: unknown, status = 200, request?: Request, customHeaders?: Re
     const origin = request.headers.get("origin");
     if (origin && isAllowedOrigin(origin)) {
       headers["access-control-allow-origin"] = origin;
-      headers["access-control-allow-methods"] = "GET,POST,DELETE,OPTIONS";
+      headers["access-control-allow-methods"] = "GET,POST,PUT,DELETE,OPTIONS";
       headers["access-control-allow-headers"] = "content-type,x-owner-token,x-admin-key,x-auth-password,authorization";
       headers["vary"] = "Origin";
     }
@@ -413,7 +413,7 @@ function notModified(request?: Request, customHeaders?: Record<string, string>) 
     const origin = request.headers.get("origin");
     if (origin && isAllowedOrigin(origin)) {
       headers["access-control-allow-origin"] = origin;
-      headers["access-control-allow-methods"] = "GET,POST,DELETE,OPTIONS";
+      headers["access-control-allow-methods"] = "GET,POST,PUT,DELETE,OPTIONS";
       headers["access-control-allow-headers"] = "content-type,x-owner-token,x-admin-key,x-auth-password,authorization";
       headers["vary"] = "Origin";
     }
@@ -602,6 +602,11 @@ export default {
           if (!id || typeof id !== "string") {
             return json({ error: "Invalid password id" }, 400, request);
           }
+          if (id === "admin-master") {
+            if (role === "user" || isActive === false) {
+              return json({ error: "マスター管理者アカウントのロール変更および無効化はできません" }, 403, request);
+            }
+          }
 
           await ensurePasswordTable(env);
           const updates: string[] = [];
@@ -662,6 +667,9 @@ export default {
           const id = url.searchParams.get("id");
           if (!id) {
             return json({ error: "Missing password id" }, 400, request);
+          }
+          if (id === "admin-master") {
+            return json({ error: "マスター管理者パスワードは削除できません" }, 403, request);
           }
           await ensurePasswordTable(env);
           await env.DB.prepare("DELETE FROM access_passwords WHERE id = ?").bind(id).run();
@@ -743,6 +751,39 @@ export default {
             "SELECT ticker FROM basket_items WHERE index_id = ?"
           ).bind(indexId).all();
 
+          // 所有権チェック（非管理者の場合）
+          let existingHash: string | null = null;
+          let hasCheckedIndex = false;
+          try {
+            const { results } = await env.DB.prepare(
+              "SELECT id, owner_token_hash FROM indices WHERE id = ?"
+            ).bind(indexId).all();
+            if (results && results.length > 0) {
+              hasCheckedIndex = true;
+              existingHash = (results[0] as { owner_token_hash?: string }).owner_token_hash || null;
+            }
+          } catch {
+            try {
+              const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(indexId).all();
+              if (results && results.length > 0) hasCheckedIndex = true;
+            } catch {}
+          }
+
+          if (auth.role !== "admin" && hasCheckedIndex && existingHash) {
+            const providedToken =
+              request.headers.get("x-owner-token")?.trim() ||
+              (typeof rawStock.ownerToken === "string" ? rawStock.ownerToken.trim() : "") ||
+              (typeof (parsed.body as any).ownerToken === "string" ? (parsed.body as any).ownerToken.trim() : "");
+
+            if (!providedToken) {
+              return json({ error: "この指数を更新する権限がありません（作成者トークンが必要です）" }, 403, request);
+            }
+            const providedHash = await hashToken(providedToken);
+            if (providedHash !== existingHash) {
+              return json({ error: "この指数を更新する権限がありません（作成者トークンが一致しません）" }, 403, request);
+            }
+          }
+
           const isAlreadyPresent = (existingStocks as { ticker: string }[] || []).some((s) => s.ticker === ticker);
           const currentCount = existingStocks ? existingStocks.length : 0;
 
@@ -788,6 +829,40 @@ export default {
 
           if (SYSTEM_INDICES.has(indexId) && auth.role !== "admin") {
             return json({ error: "システム指数の銘柄削除には管理者権限が必要です" }, 403, request);
+          }
+
+          // 所有権チェック（非管理者の場合）
+          let existingHash: string | null = null;
+          let hasCheckedIndex = false;
+          try {
+            const { results } = await env.DB.prepare(
+              "SELECT id, owner_token_hash FROM indices WHERE id = ?"
+            ).bind(indexId).all();
+            if (results && results.length > 0) {
+              hasCheckedIndex = true;
+              existingHash = (results[0] as { owner_token_hash?: string }).owner_token_hash || null;
+            }
+          } catch {
+            try {
+              const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(indexId).all();
+              if (results && results.length > 0) hasCheckedIndex = true;
+            } catch {}
+          }
+
+          if (auth.role !== "admin" && hasCheckedIndex && existingHash) {
+            const providedToken =
+              request.headers.get("x-owner-token")?.trim() ||
+              url.searchParams.get("token")?.trim() ||
+              url.searchParams.get("ownerToken")?.trim() ||
+              "";
+
+            if (!providedToken) {
+              return json({ error: "この指数を削除する権限がありません（作成者トークンが必要です）" }, 403, request);
+            }
+            const providedHash = await hashToken(providedToken);
+            if (providedHash !== existingHash) {
+              return json({ error: "この指数を削除する権限がありません（作成者トークンが一致しません）" }, 403, request);
+            }
           }
 
           // 最低1銘柄は必要
@@ -1493,8 +1568,8 @@ export default {
           return json({ error: "Invalid baseValue" }, 400, request);
         }
         const baseValue = typeof rawBaseValue === "number" ? rawBaseValue : 1000;
-        if (!Array.isArray(basket) || basket.length === 0) {
-          return json({ error: "Invalid basket" }, 400, request);
+        if (!Array.isArray(basket) || basket.length === 0 || basket.length > 100) {
+          return json({ error: "Invalid basket: must contain between 1 and 100 items" }, 400, request);
         }
 
         // Strict basket validation: fail on any invalid entry

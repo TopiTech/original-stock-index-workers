@@ -821,6 +821,39 @@ describe("worker fetch handlers", () => {
       const res = await worker.fetch(req, env as any);
       expect(res.status).toBe(401);
     });
+
+    it("includes PUT in access-control-allow-methods for CORS allowed origins", async () => {
+      const env = createMockEnv();
+      const req = new Request("http://localhost/api/health", {
+        headers: { origin: "http://localhost:5173" },
+      });
+      const res = await worker.fetch(req, env as any);
+      const allowMethods = res.headers.get("access-control-allow-methods");
+      expect(allowMethods).toBeDefined();
+      expect(allowMethods).toContain("PUT");
+    });
+
+    it("rejects POST /api/calculate with more than 100 basket items with 400 Bad Request", async () => {
+      const env = createMockEnv();
+      const items = Array.from({ length: 101 }, (_, i) => ({
+        ticker: `T${i}`,
+        name: `Stock ${i}`,
+        weight: 1,
+        theme: "Test",
+      }));
+      const req = new Request("http://localhost/api/calculate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          basket: items,
+          baseValue: 1000,
+        }),
+      });
+      const res = await worker.fetch(req, env as any);
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.error).toContain("between 1 and 100 items");
+    });
   });
 });
 

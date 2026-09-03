@@ -102,11 +102,13 @@ export function ConstituentsTable({
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isAddStockModalOpen, setIsAddStockModalOpen] = useState(false);
+  const [pendingDeleteStock, setPendingDeleteStock] = useState<{ ticker: string; name: string } | null>(null);
   const [tableError, setTableError] = useState<string | null>(null);
 
   const isLimitReached = isUser && maxStocks !== null && maxStocks > 0 && basket.length >= maxStocks;
 
   const handleAddStockClick = () => {
+    setPendingDeleteStock(null);
     if (!isAuthenticated) {
       setIsAuthModalOpen(true);
     } else {
@@ -116,6 +118,7 @@ export function ConstituentsTable({
 
   const handleDeleteStockClick = async (ticker: string, stockName: string) => {
     if (!isAuthenticated) {
+      setPendingDeleteStock({ ticker, name: stockName });
       setIsAuthModalOpen(true);
       return;
     }
@@ -632,9 +635,18 @@ export function ConstituentsTable({
       {/* Auth Modal */}
       <AuthModal
         isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
+        onClose={() => {
+          setIsAuthModalOpen(false);
+          setPendingDeleteStock(null);
+        }}
         onSuccess={() => {
-          setIsAddStockModalOpen(true);
+          if (pendingDeleteStock) {
+            const target = pendingDeleteStock;
+            setPendingDeleteStock(null);
+            handleDeleteStockClick(target.ticker, target.name);
+          } else {
+            setIsAddStockModalOpen(true);
+          }
         }}
       />
 

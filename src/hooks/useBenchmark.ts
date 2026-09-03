@@ -43,7 +43,7 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225") {
   useEffect(() => {
     const cached = benchmarkSessionCache.get(selectedBenchmark);
     const now = Date.now();
-    if (cached && now - cached.timestamp < BENCHMARK_CACHE_TTL && retryCount === 0) {
+    if (cached && now - cached.timestamp < BENCHMARK_CACHE_TTL) {
       setBenchmarkData(cached.data);
       setLoading(false);
       return;

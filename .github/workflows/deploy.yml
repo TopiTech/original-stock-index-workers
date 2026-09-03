@@ -31,6 +31,10 @@ jobs:
         env:
           D1_ID: ${{ secrets.D1_DATABASE_ID }}
         run: |
+          if [ -z "$D1_ID" ]; then
+            echo "Error: D1_DATABASE_ID secret is not set or empty!"
+            exit 1
+          fi
           sed -i "s/__D1_DATABASE_ID__/$D1_ID/g" wrangler.jsonc
           # 置換が成功したか（プレースホルダーが消えたか）確認
           if grep -q "__D1_DATABASE_ID__" wrangler.jsonc; then

@@ -60,6 +60,14 @@ function createSecurityTestEnv() {
             const idx = indices.get(id);
             return { results: idx ? [idx] : [] };
           }
+          if (query.includes("FROM basket_items")) {
+            const indexId = params[0] as string;
+            const items = basketItems.filter((b) => b.index_id === indexId);
+            if (query.includes("count(*)")) {
+              return { results: [{ cnt: items.length }] };
+            }
+            return { results: items };
+          }
           if (query.includes("FROM rate_limits")) {
             return { results: [] };
           }
@@ -118,6 +126,22 @@ function createSecurityTestEnv() {
           if (query.includes("DELETE FROM access_passwords WHERE id = ?")) {
             const id = params[0] as string;
             passwords.delete(id);
+            return { success: true };
+          }
+          if (query.includes("INSERT OR REPLACE INTO basket_items") || query.includes("INSERT INTO basket_items")) {
+            const [indexId, ticker, name, weight, theme] = params as [string, string, string, number, string];
+            const existingIdx = basketItems.findIndex((b) => b.index_id === indexId && b.ticker === ticker);
+            if (existingIdx >= 0) {
+              basketItems[existingIdx] = { index_id: indexId, ticker, name, weight, theme };
+            } else {
+              basketItems.push({ index_id: indexId, ticker, name, weight, theme });
+            }
+            return { success: true };
+          }
+          if (query.includes("DELETE FROM basket_items")) {
+            const [indexId, ticker] = params as [string, string];
+            const idx = basketItems.findIndex((b) => b.index_id === indexId && b.ticker === ticker);
+            if (idx >= 0) basketItems.splice(idx, 1);
             return { success: true };
           }
           return { success: true };
@@ -414,6 +438,171 @@ describe("Security and Admin Regression Tests", () => {
         (globalThis as any).dispatchEvent = originalDispatch;
         (globalThis as any).localStorage = originalStorage;
       }
+    });
+  });
+
+  describe("R1 Regression: IDOR protection on /api/indices/stock", () => {
+    it("rejects unauthorized user from adding or removing stocks on another user's custom index", async () => {
+      const { env, passwords, indices, basketItems } = createSecurityTestEnv();
+
+      // Setup Owner A with token
+      const ownerTokenA = "token-user-a-12345";
+      const ownerHashA = await hashToken(ownerTokenA);
+      indices.set("custom-a", {
+        id: "custom-a",
+        name: "User A Index",
+        description: "Index by A",
+        base_value: 1000,
+        owner_token_hash: ownerHashA,
+      });
+      basketItems.push(
+        { index_id: "custom-a", ticker: "7203", name: "Toyota", weight: 50, theme: "Auto" },
+        { index_id: "custom-a", ticker: "9984", name: "SBG", weight: 50, theme: "Tech" },
+      );
+
+      // Setup User B (an authenticated, valid standard user)
+      passwords.set("user-b", {
+        id: "user-b",
+        name: "User B",
+        password_hash: await hashToken("pass-b"),
+        plain_password: "pass-b",
+        role: "user",
+        max_stocks: 10,
+        is_active: 1,
+        created_at: 1000,
+        updated_at: 1000,
+      });
+
+      // 1. User B tries to ADD stock without ownerToken -> 403 Forbidden
+      const addNoTokenReq = new Request("http://localhost/api/indices/stock", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": "pass-b",
+        },
+        body: JSON.stringify({
+          indexId: "custom-a",
+          stock: { ticker: "6758", name: "Sony", weight: 10, theme: "Tech" },
+        }),
+      });
+      const addNoTokenRes = await worker.fetch(addNoTokenReq, env as any);
+      expect(addNoTokenRes.status).toBe(403);
+      const addNoTokenData = await addNoTokenRes.json();
+      expect(addNoTokenData.error).toContain("作成者トークンが必要です");
+
+      // 2. User B tries to ADD stock with WRONG ownerToken -> 403 Forbidden
+      const addWrongTokenReq = new Request("http://localhost/api/indices/stock", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": "pass-b",
+          "x-owner-token": "wrong-token-xyz",
+        },
+        body: JSON.stringify({
+          indexId: "custom-a",
+          stock: { ticker: "6758", name: "Sony", weight: 10, theme: "Tech" },
+        }),
+      });
+      const addWrongTokenRes = await worker.fetch(addWrongTokenReq, env as any);
+      expect(addWrongTokenRes.status).toBe(403);
+      const addWrongTokenData = await addWrongTokenRes.json();
+      expect(addWrongTokenData.error).toContain("作成者トークンが一致しません");
+
+      // 3. User B tries to DELETE stock without ownerToken -> 403 Forbidden
+      const delNoTokenReq = new Request("http://localhost/api/indices/stock?indexId=custom-a&ticker=7203", {
+        method: "DELETE",
+        headers: {
+          "x-auth-password": "pass-b",
+        },
+      });
+      const delNoTokenRes = await worker.fetch(delNoTokenReq, env as any);
+      expect(delNoTokenRes.status).toBe(403);
+      const delNoTokenData = await delNoTokenRes.json();
+      expect(delNoTokenData.error).toContain("作成者トークンが必要です");
+
+      // 4. User A (or any user providing valid ownerTokenA) -> SUCCESS (200)
+      const addValidTokenReq = new Request("http://localhost/api/indices/stock", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": "pass-b",
+          "x-owner-token": ownerTokenA,
+        },
+        body: JSON.stringify({
+          indexId: "custom-a",
+          stock: { ticker: "6758", name: "Sony", weight: 10, theme: "Tech" },
+        }),
+      });
+      const addValidTokenRes = await worker.fetch(addValidTokenReq, env as any);
+      expect(addValidTokenRes.status).toBe(200);
+
+      // 5. Admin can manage stock on custom-a without ownerToken -> SUCCESS (200)
+      const adminAddReq = new Request("http://localhost/api/indices/stock", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": getDefaultAdminPassword(),
+        },
+        body: JSON.stringify({
+          indexId: "custom-a",
+          stock: { ticker: "8035", name: "TEL", weight: 10, theme: "Semi" },
+        }),
+      });
+      const adminAddRes = await worker.fetch(adminAddReq, env as any);
+      expect(adminAddRes.status).toBe(200);
+    });
+  });
+
+  describe("R2 Regression: admin-master protection", () => {
+    it("rejects DELETE /api/admin/passwords targeting admin-master with 403", async () => {
+      const { env } = createSecurityTestEnv();
+
+      const req = new Request("http://localhost/api/admin/passwords?id=admin-master", {
+        method: "DELETE",
+        headers: {
+          "x-auth-password": getDefaultAdminPassword(),
+        },
+      });
+      const res = await worker.fetch(req, env as any);
+      expect(res.status).toBe(403);
+      const data = await res.json();
+      expect(data.error).toContain("マスター管理者パスワードは削除できません");
+    });
+
+    it("rejects PUT /api/admin/passwords demoting or deactivating admin-master with 403", async () => {
+      const { env } = createSecurityTestEnv();
+
+      // Try to demote admin-master to user
+      const demoteReq = new Request("http://localhost/api/admin/passwords", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": getDefaultAdminPassword(),
+        },
+        body: JSON.stringify({
+          id: "admin-master",
+          role: "user",
+        }),
+      });
+      const demoteRes = await worker.fetch(demoteReq, env as any);
+      expect(demoteRes.status).toBe(403);
+      const demoteData = await demoteRes.json();
+      expect(demoteData.error).toContain("マスター管理者アカウントのロール変更および無効化はできません");
+
+      // Try to deactivate admin-master
+      const deactivateReq = new Request("http://localhost/api/admin/passwords", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": getDefaultAdminPassword(),
+        },
+        body: JSON.stringify({
+          id: "admin-master",
+          isActive: false,
+        }),
+      });
+      const deactivateRes = await worker.fetch(deactivateReq, env as any);
+      expect(deactivateRes.status).toBe(403);
     });
   });
 });

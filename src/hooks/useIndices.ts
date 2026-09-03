@@ -187,13 +187,18 @@ export function useIndices() {
       password?: string,
     ): Promise<{ ok: boolean; error?: string }> => {
       try {
+        const token = getIndexOwnerToken(indexId);
         const authHeaders = getAuthHeaders();
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+          ...authHeaders,
+        };
+        if (token) {
+          headers["x-owner-token"] = token;
+        }
         const res = await fetch(`${API_BASE}/indices/stock`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...authHeaders,
-          },
+          headers,
           body: JSON.stringify({ indexId, stock, password }),
         });
         if (!res.ok) {
@@ -220,14 +225,19 @@ export function useIndices() {
       password?: string,
     ): Promise<{ ok: boolean; error?: string }> => {
       try {
+        const token = getIndexOwnerToken(indexId);
         const authHeaders = getAuthHeaders();
+        const headers: Record<string, string> = {
+          ...authHeaders,
+        };
+        if (token) {
+          headers["x-owner-token"] = token;
+        }
         const params = new URLSearchParams({ indexId, ticker });
         if (password) params.set("password", password);
         const res = await fetch(`${API_BASE}/indices/stock?${params.toString()}`, {
           method: "DELETE",
-          headers: {
-            ...authHeaders,
-          },
+          headers,
         });
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));

@@ -219,4 +219,45 @@ describe("calculateCustomIndex", () => {
     // Both stocks weighted equally (50% each): (1.1 * 0.5 + 1.0 * 0.5) * 1000 = 1050
     expect(result[1].value).toBe(1050);
   });
+
+  it("maintains continuity without artificial cliff drops when a stock has data starting later than others", () => {
+    const basket: BasketItem[] = [
+      { ticker: "A", name: "Stock A", theme: "t", weight: 50 },
+      { ticker: "B", name: "Stock B", theme: "t", weight: 50 },
+    ];
+    // Stock A has 3 days of data: 1000, 1500, 1500
+    // Stock B only starts on Day 3 with initial price 2000
+    const universe: StockSeries[] = [
+      {
+        ticker: "A",
+        name: "Stock A",
+        theme: "t",
+        sector: "Test",
+        latestPrice: 1500,
+        series: [
+          { date: "2026-04-01", close: 1000 },
+          { date: "2026-04-02", close: 1500 },
+          { date: "2026-04-03", close: 1500 },
+        ],
+      },
+      {
+        ticker: "B",
+        name: "Stock B",
+        theme: "t",
+        sector: "Test",
+        latestPrice: 2000,
+        series: [
+          { date: "2026-04-03", close: 2000 },
+        ],
+      },
+    ];
+    const result = calculateCustomIndex(basket, universe, 1000);
+    expect(result.length).toBe(3);
+    // Day 0: 1000
+    expect(result[0].value).toBe(1000);
+    // Day 1: A gained 50% (weighted 50% = +25%): 1250
+    expect(result[1].value).toBe(1250);
+    // Day 2: Neither A nor B moved from previous price: must stay 1250 (no cliff drop)
+    expect(result[2].value).toBe(1250);
+  });
 });

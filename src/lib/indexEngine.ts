@@ -39,10 +39,22 @@ export function calculateCustomIndex(
 
   if (allDates.length === 0) return [];
 
-  // 各銘柄の各日付における価格をマッピング（データがない場合は前の日の価格を使用：フォワードフィル）
-  const stockPriceMatrix = selected.map((stock) => {
+  // 基準日の価格（全銘柄の最初の有効な価格）を取得
+  const basePrices = selected.map((stock) => {
+    const sorted = [...stock.series].sort((a, b) => a.date.localeCompare(b.date));
+    const first = sorted.find((p) => typeof p.close === "number" && Number.isFinite(p.close) && p.close > 0);
+    return first ? first.close : 0;
+  });
+
+  // いずれかの銘柄で一度も価格が取れなかった場合は計算不可
+  if (basePrices.some((bp) => bp === 0)) return [];
+
+  // 各銘柄の各日付における価格をマッピング
+  // データ開始前は初値（基準価格）でバックフィルし、データ欠落時は前日価格でフォワードフィル
+  const stockPriceMatrix = selected.map((stock, stockIndex) => {
     const priceMap = new Map(stock.series.map((p) => [p.date, p.close]));
-    let lastPrice = 0;
+    const firstPrice = basePrices[stockIndex];
+    let lastPrice = firstPrice;
 
     return allDates.map((date) => {
       const price = priceMap.get(date);
@@ -50,17 +62,9 @@ export function calculateCustomIndex(
         lastPrice = price;
         return price;
       }
-      return lastPrice; // 前日の価格を流用
+      return lastPrice; // 前日または初値価格を流用
     });
   });
-
-  // 基準日の価格（全銘柄の最初の有効な価格）を取得
-  const basePrices = stockPriceMatrix.map((prices) => {
-    return prices.find((p) => p > 0) || 0;
-  });
-
-  // いずれかの銘柄で一度も価格が取れなかった場合は計算不可
-  if (basePrices.some((bp) => bp === 0)) return [];
 
   return allDates.map((date, dateIndex) => {
     // この日付で有効なデータ（価格 > 0 かつ 基準価格が存在する）を持つ銘柄を抽出

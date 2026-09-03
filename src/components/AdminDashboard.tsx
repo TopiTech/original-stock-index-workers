@@ -1249,8 +1249,13 @@ export function AdminDashboard({
                     type="button"
                     onClick={async () => {
                       if (confirm(`指数「${editName}」を完全に削除しますか？`)) {
-                        await deleteCustomIndex(selectedEditIndexId);
+                        const targetId = selectedEditIndexId;
+                        await deleteCustomIndex(targetId);
                         await onRefreshIndices();
+                        const remaining = indices.filter((idx) => idx.id !== targetId);
+                        if (remaining.length > 0) {
+                          setSelectedEditIndexId(remaining[0].id);
+                        }
                       }
                     }}
                     className="btn btn-sm btn-outline"
