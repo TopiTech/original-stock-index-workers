@@ -36,4 +36,37 @@ describe("regression: worker API contract", () => {
     expect(syncUsesHelper).toBe(true);
     expect(calcUsesHelper).toBe(true);
   });
+
+  it("R4: /api/sync-prices caps tickers batch to <= 30 to comply with Cloudflare 50 subrequest limit", () => {
+    expect(workerSrc).toMatch(/tickers\s*=\s*Array\.from[\s\S]+?\.slice\(0,\s*30\)/);
+  });
+
+  it("R5: POST and DELETE /api/indices enforce rate limiting via checkRateLimit", () => {
+    const postIndicesBlock = workerSrc.slice(
+      workerSrc.indexOf('url.pathname === "/api/indices" && request.method === "POST"'),
+      workerSrc.indexOf('url.pathname === "/api/indices" && request.method === "POST"') + 500,
+    );
+    expect(postIndicesBlock).toContain('checkRateLimit(env, ip, "indices")');
+
+    const deleteIndicesBlock = workerSrc.slice(
+      workerSrc.indexOf('url.pathname === "/api/indices" && request.method === "DELETE"'),
+      workerSrc.indexOf('url.pathname === "/api/indices" && request.method === "DELETE"') + 500,
+    );
+    expect(deleteIndicesBlock).toContain('checkRateLimit(env, ip, "indices")');
+  });
+
+  it("R6: POST /api/indices validates ownerToken length <= 256", () => {
+    expect(workerSrc).toContain("body.ownerToken.length > 256");
+  });
+
+  it("R7: useCalculation.ts uses BATCH_SIZE = 30 to match worker subrequest limit", () => {
+    const hookSrc = readFileSync(resolve("src/hooks/useCalculation.ts"), "utf-8");
+    expect(hookSrc).toContain("const BATCH_SIZE = 30;");
+  });
+
+  it("R8: wrangler.local.jsonc includes single-page-application and run_worker_first config", () => {
+    const wranglerLocalSrc = readFileSync(resolve("wrangler.local.jsonc"), "utf-8");
+    expect(wranglerLocalSrc).toContain('"not_found_handling": "single-page-application"');
+    expect(wranglerLocalSrc).toContain('"/api/*"');
+  });
 });

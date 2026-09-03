@@ -93,7 +93,7 @@ export function clearMemoryCache(prefix?: string): void {
 // Japanese stock tickers (start with a digit) map to Tokyo Exchange (.T)
 // US and global tickers (e.g. AAPL, NVDA) or index/forex symbols (^N225, USDJPY=X) remain as-is
 export function toYahooSymbol(ticker: string): string {
-  const trimmed = ticker.trim();
+  const trimmed = ticker.trim().toUpperCase();
   if (trimmed.includes(".") || trimmed.startsWith("^") || trimmed.endsWith("=X")) {
     return trimmed;
   }
@@ -434,9 +434,19 @@ export default {
     // 指数の新規登録・更新 (D1への永続化 + 作成者権限チェック)
     if (url.pathname === "/api/indices" && request.method === "POST") {
       try {
+        const ip = request.headers.get("cf-connecting-ip") || "unknown";
+        const allowed = await checkRateLimit(env, ip, "indices");
+        if (!allowed) {
+          return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
+        }
+
         const parsed = await parseJsonBody(request);
         if (!parsed.ok) return parsed.response;
         const body = parsed.body;
+
+        if (body.ownerToken !== undefined && (typeof body.ownerToken !== "string" || body.ownerToken.length > 256)) {
+          return json({ error: "Invalid ownerToken: must be a string up to 256 characters" }, 400, request);
+        }
 
         if (body.name !== undefined && (typeof body.name !== "string" || body.name.trim().length === 0 || body.name.trim().length > 100)) {
           return json({ error: "Invalid name: must be 1-100 characters" }, 400, request);
@@ -583,6 +593,12 @@ export default {
     // 指数の削除 (作成者認証付き)
     if (url.pathname === "/api/indices" && request.method === "DELETE") {
       try {
+        const ip = request.headers.get("cf-connecting-ip") || "unknown";
+        const allowed = await checkRateLimit(env, ip, "indices");
+        if (!allowed) {
+          return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
+        }
+
         const rawId = url.searchParams.get("id");
         if (!rawId || typeof rawId !== "string" || rawId.trim().length === 0 || rawId.trim().length > 100 || !/^[A-Za-z0-9.\-_]+$/.test(rawId.trim())) {
           return json({ error: "Invalid or missing index id parameter" }, 400, request);
@@ -674,8 +690,8 @@ export default {
             return json({ error: "Invalid ticker value" }, 400, request);
           }
         }
-        // Deduplicate tickers and limit to max 100 per request
-        const tickers = Array.from(new Set((rawTickers as string[]).map((t) => t.trim()))).slice(0, 100);
+        // Deduplicate tickers and limit to max 30 per request to respect Cloudflare subrequest limits
+        const tickers = Array.from(new Set((rawTickers as string[]).map((t) => t.trim()))).slice(0, 30);
         const force = body.force === true;
         const results: { ticker: string; status: string; count?: number; lastSynced?: number }[] =
           [];

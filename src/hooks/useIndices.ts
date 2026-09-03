@@ -19,7 +19,7 @@ export function useIndices() {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch(`${API_BASE}/indices`);
+      const res = await fetch(`${API_BASE}/indices`, { cache: "no-cache" });
       if (!res.ok) throw new Error("指数一覧の取得に失敗しました");
       const data: CustomIndex[] = await res.json();
       setIndices(data);

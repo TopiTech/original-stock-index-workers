@@ -72,26 +72,32 @@ export function PerformanceChart({
     return data; // 1Y
   }, [data, timeframe]);
 
-  // Compute SMA for custom index
-  const sma5 = useMemo(() => {
-    if (!showSMA5 || filteredData.length === 0) return [];
-    return calculateSMA(filteredData.map((d) => d.value), 5);
-  }, [filteredData, showSMA5]);
+  // Compute full-history SMA for custom index to maintain continuous moving averages across short timeframes
+  const fullSma5Map = useMemo(() => {
+    if (!showSMA5 || data.length === 0) return new Map<string, number | null>();
+    const smaValues = calculateSMA(data.map((d) => d.value), 5);
+    return new Map(data.map((d, idx) => [d.date, smaValues[idx]]));
+  }, [data, showSMA5]);
 
-  const sma25 = useMemo(() => {
-    if (!showSMA25 || filteredData.length === 0) return [];
-    return calculateSMA(filteredData.map((d) => d.value), 25);
-  }, [filteredData, showSMA25]);
+  const fullSma25Map = useMemo(() => {
+    if (!showSMA25 || data.length === 0) return new Map<string, number | null>();
+    const smaValues = calculateSMA(data.map((d) => d.value), 25);
+    return new Map(data.map((d, idx) => [d.date, smaValues[idx]]));
+  }, [data, showSMA25]);
 
   // Compute transformed series for % mode vs value mode
   const displayData = useMemo(() => {
     if (filteredData.length === 0) return [];
     if (viewMode === "value") {
-      return filteredData.map((d, i) => ({
-        ...d,
-        sma5: sma5[i] ?? undefined,
-        sma25: sma25[i] ?? undefined,
-      }));
+      return filteredData.map((d) => {
+        const s5 = fullSma5Map.get(d.date);
+        const s25 = fullSma25Map.get(d.date);
+        return {
+          ...d,
+          sma5: s5 !== null && s5 !== undefined ? s5 : undefined,
+          sma25: s25 !== null && s25 !== undefined ? s25 : undefined,
+        };
+      });
     }
 
     // Percent mode: relative to the first point of the filtered window
@@ -99,16 +105,20 @@ export function PerformanceChart({
     const firstVal = firstPoint.value || baseValue;
     const firstNikkei = firstPoint.nikkei || baseValue;
 
-    return filteredData.map((d, i) => ({
-      date: d.date,
-      value: firstVal > 0 ? ((d.value - firstVal) / firstVal) * 100 : 0,
-      nikkei: firstNikkei > 0 ? ((d.nikkei - firstNikkei) / firstNikkei) * 100 : 0,
-      sma5: sma5[i] !== null && firstVal > 0 ? ((sma5[i]! - firstVal) / firstVal) * 100 : undefined,
-      sma25: sma25[i] !== null && firstVal > 0 ? ((sma25[i]! - firstVal) / firstVal) * 100 : undefined,
-      rawCustom: d.value,
-      rawNikkei: d.nikkei,
-    }));
-  }, [filteredData, viewMode, baseValue, sma5, sma25]);
+    return filteredData.map((d) => {
+      const s5 = fullSma5Map.get(d.date);
+      const s25 = fullSma25Map.get(d.date);
+      return {
+        date: d.date,
+        value: firstVal > 0 ? ((d.value - firstVal) / firstVal) * 100 : 0,
+        nikkei: firstNikkei > 0 ? ((d.nikkei - firstNikkei) / firstNikkei) * 100 : 0,
+        sma5: s5 !== null && s5 !== undefined && firstVal > 0 ? ((s5 - firstVal) / firstVal) * 100 : undefined,
+        sma25: s25 !== null && s25 !== undefined && firstVal > 0 ? ((s25 - firstVal) / firstVal) * 100 : undefined,
+        rawCustom: d.value,
+        rawNikkei: d.nikkei,
+      };
+    });
+  }, [filteredData, viewMode, baseValue, fullSma5Map, fullSma25Map]);
 
   // Key chart statistics
   const stats = useMemo(() => {
@@ -256,7 +266,7 @@ export function PerformanceChart({
             </div>
             <div>
               <div style={{ color: "var(--neon-red)", fontWeight: 600, fontSize: 14 }}>
-                指数の計算に失敗しました
+                {error.includes("ベンチマーク") || error.includes("取得") ? "データの取得に失敗しました" : "指数の計算に失敗しました"}
               </div>
               <div className="muted tiny" style={{ marginTop: 2 }}>
                 {error}
@@ -311,8 +321,8 @@ export function PerformanceChart({
                   const sma5Item = payload.find((p) => p.dataKey === "sma5");
                   const sma25Item = payload.find((p) => p.dataKey === "sma25");
 
-                  const cVal = customItem?.value as number;
-                  const bVal = benchItem?.value as number;
+                  const cVal = typeof customItem?.value === "number" && Number.isFinite(customItem.value) ? customItem.value : undefined;
+                  const bVal = typeof benchItem?.value === "number" && Number.isFinite(benchItem.value) ? benchItem.value : undefined;
                   const spread = cVal !== undefined && bVal !== undefined ? cVal - bVal : null;
 
                   return (
@@ -321,17 +331,21 @@ export function PerformanceChart({
                       <div className="tooltip-row">
                         <span style={{ color: "var(--neon-cyan)" }}>独自指数:</span>
                         <span style={{ fontWeight: 700 }}>
-                          {viewMode === "percent"
-                            ? `${cVal >= 0 ? "+" : ""}${pct.format(cVal)}%`
-                            : fmt.format(cVal)}
+                          {cVal !== undefined
+                            ? viewMode === "percent"
+                              ? `${cVal >= 0 ? "+" : ""}${pct.format(cVal)}%`
+                              : fmt.format(cVal)
+                            : "---"}
                         </span>
                       </div>
                       <div className="tooltip-row">
                         <span style={{ color: "#94a3b8" }}>{benchmarkLabel}:</span>
                         <span>
-                          {viewMode === "percent"
-                            ? `${bVal >= 0 ? "+" : ""}${pct.format(bVal)}%`
-                            : fmt.format(bVal)}
+                          {bVal !== undefined
+                            ? viewMode === "percent"
+                              ? `${bVal >= 0 ? "+" : ""}${pct.format(bVal)}%`
+                              : fmt.format(bVal)
+                            : "---"}
                         </span>
                       </div>
                       {showSMA5 && sma5Item?.value !== undefined && (

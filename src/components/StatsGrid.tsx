@@ -27,11 +27,13 @@ export function StatsGrid({
   benchmarkLabel = "日経225",
 }: StatsGridProps) {
   const baseValue = selectedIndex?.baseValue ?? 1000;
-  const customReturnPct = baseValue > 0 ? ((latestCustomValue - baseValue) / baseValue) * 100 : 0;
+  const hasCustom = !loading && typeof latestCustomValue === "number" && latestCustomValue > 0 && selectedIndex !== null;
+  const customReturnPct = hasCustom && baseValue > 0 ? ((latestCustomValue - baseValue) / baseValue) * 100 : 0;
 
   const hasBenchmark = typeof benchmarkNormalizedValue === "number" && benchmarkNormalizedValue > 0 && !loading;
   const benchmarkReturnPct = hasBenchmark && baseValue > 0 ? ((benchmarkNormalizedValue - baseValue) / baseValue) * 100 : 0;
-  const benchmarkDiff = hasBenchmark ? customReturnPct - benchmarkReturnPct : 0;
+  const hasAlpha = hasBenchmark && hasCustom;
+  const benchmarkDiff = hasAlpha ? customReturnPct - benchmarkReturnPct : 0;
 
   // Distinct themes
   const uniqueThemes = new Set(selectedIndex?.basket.map((b) => b.theme) || []);
@@ -39,8 +41,8 @@ export function StatsGrid({
   const items = [
     {
       label: selectedIndex ? `${selectedIndex.name}` : "選択中指数",
-      value: loading ? "計算中..." : fmt.format(latestCustomValue),
-      trend: loading
+      value: loading ? "計算中..." : latestCustomValue > 0 ? fmt.format(latestCustomValue) : "---",
+      trend: !hasCustom
         ? undefined
         : {
             text: `${customReturnPct >= 0 ? "+" : ""}${pct.format(customReturnPct)}%`,
@@ -68,16 +70,16 @@ export function StatsGrid({
         ? "計算中..."
         : benchmarkLoading
           ? "読込中..."
-          : hasBenchmark
+          : hasAlpha
             ? `${benchmarkDiff > 0 ? "+" : ""}${pct.format(benchmarkDiff)}%`
             : "---",
-      trend: hasBenchmark
+      trend: hasAlpha
         ? {
             text: benchmarkDiff > 0 ? "OUTPERFORM" : benchmarkDiff < 0 ? "UNDERPERFORM" : "NEUTRAL",
             type: (benchmarkDiff > 0 ? "positive" : benchmarkDiff < 0 ? "negative" : "neutral") as "positive" | "negative" | "neutral",
           }
         : undefined,
-      sub: hasBenchmark
+      sub: hasAlpha
         ? benchmarkDiff > 0
           ? `${benchmarkLabel}を上回る推移`
           : benchmarkDiff < 0

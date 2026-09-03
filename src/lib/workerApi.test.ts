@@ -622,5 +622,90 @@ describe("worker fetch handlers", () => {
     expect(data.series[0].value).toBe(1000);
     expect(data.series[1].value).toBe(1100);
   });
+
+  it("POST /api/indices returns 429 when rate limit is exceeded", async () => {
+    const env = createMockEnv({
+      DB: {
+        prepare: vi.fn().mockImplementation((query: string) => ({
+          bind: vi.fn().mockReturnThis(),
+          all: vi.fn().mockImplementation(() => {
+            if (query.includes("rate_limits")) {
+              return { results: [{ request_count: 61, window_start: Math.floor(Date.now() / 1000) }] };
+            }
+            return { results: [] };
+          }),
+          run: vi.fn().mockResolvedValue({ success: true }),
+        })),
+        batch: vi.fn().mockResolvedValue([]),
+      },
+    });
+
+    const req = new Request("http://localhost/api/indices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Rate Limited Index",
+        basket: [{ ticker: "9984", name: "SBG", weight: 100, theme: "AI" }],
+      }),
+    });
+
+    const res = await worker.fetch(req, env as any);
+    expect(res.status).toBe(429);
+    const data = await res.json();
+    expect(data.error).toContain("Rate limit exceeded");
+  });
+
+  it("DELETE /api/indices returns 429 when rate limit is exceeded", async () => {
+    const env = createMockEnv({
+      DB: {
+        prepare: vi.fn().mockImplementation((query: string) => ({
+          bind: vi.fn().mockReturnThis(),
+          all: vi.fn().mockImplementation(() => {
+            if (query.includes("rate_limits")) {
+              return { results: [{ request_count: 61, window_start: Math.floor(Date.now() / 1000) }] };
+            }
+            return { results: [] };
+          }),
+          run: vi.fn().mockResolvedValue({ success: true }),
+        })),
+        batch: vi.fn().mockResolvedValue([]),
+      },
+    });
+
+    const req = new Request("http://localhost/api/indices?id=custom-rate-limited", {
+      method: "DELETE",
+    });
+
+    const res = await worker.fetch(req, env as any);
+    expect(res.status).toBe(429);
+    const data = await res.json();
+    expect(data.error).toContain("Rate limit exceeded");
+  });
+
+  it("POST /api/indices rejects ownerToken exceeding 256 characters with 400", async () => {
+    const env = createMockEnv();
+    const req = new Request("http://localhost/api/indices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Too Long Token Index",
+        ownerToken: "a".repeat(257),
+        basket: [{ ticker: "9984", name: "SBG", weight: 100, theme: "AI" }],
+      }),
+    });
+
+    const res = await worker.fetch(req, env as any);
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toContain("Invalid ownerToken");
+  });
+
+  it("toYahooSymbol normalizes lowercase Japanese tickers and US stock symbols", () => {
+    expect(toYahooSymbol("7203.t")).toBe("7203.T");
+    expect(toYahooSymbol("7203")).toBe("7203.T");
+    expect(toYahooSymbol("aapl")).toBe("AAPL");
+    expect(toYahooSymbol("nvda")).toBe("NVDA");
+    expect(toYahooSymbol("^n225")).toBe("^N225");
+  });
 });
 

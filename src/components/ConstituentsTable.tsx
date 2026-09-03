@@ -31,6 +31,17 @@ type SortField =
   | "contributionPt";
 type SortOrder = "asc" | "desc";
 
+function getYahooFinanceUrl(ticker: string): string {
+  const trimmed = ticker.trim().toUpperCase();
+  if (trimmed.includes(".") || trimmed.startsWith("^") || trimmed.endsWith("=X")) {
+    return `https://finance.yahoo.co.jp/quote/${encodeURIComponent(trimmed)}`;
+  }
+  if (/^\d/.test(trimmed)) {
+    return `https://finance.yahoo.co.jp/quote/${trimmed}.T`;
+  }
+  return `https://finance.yahoo.co.jp/quote/${encodeURIComponent(trimmed)}`;
+}
+
 function Sparkline({ data, isPositive }: { data: number[]; isPositive: boolean }) {
   if (!data || data.length < 2) return null;
   const min = Math.min(...data);
@@ -50,7 +61,7 @@ function Sparkline({ data, isPositive }: { data: number[]; isPositive: boolean }
   const color = isPositive ? "var(--neon-green)" : "var(--neon-red)";
 
   return (
-    <svg width={width} height={height} style={{ overflow: "visible" }}>
+    <svg width={width} height={height} aria-hidden="true" style={{ overflow: "visible" }}>
       <polyline
         fill="none"
         stroke={color}
@@ -185,7 +196,8 @@ export function ConstituentsTable({
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `${indexName}_constituents_${new Date().toISOString().slice(0, 10)}.csv`);
+    const safeFileName = indexName.replace(/[/\\?%*:|"<>]/g, "_").trim() || "custom_index";
+    link.setAttribute("download", `${safeFileName}_constituents_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -330,7 +342,7 @@ export function ConstituentsTable({
                     <tr key={item.ticker}>
                       <td>
                         <a
-                          href={`https://finance.yahoo.co.jp/quote/${item.ticker.includes(".") ? item.ticker : `${item.ticker}.T`}`}
+                          href={getYahooFinanceUrl(item.ticker)}
                           target="_blank"
                           rel="noreferrer"
                           className="tag mono row"

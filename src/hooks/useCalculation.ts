@@ -49,7 +49,7 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
 
         if (tickersToSync.length > 0) {
           setSyncing(true);
-          const BATCH_SIZE = 100;
+          const BATCH_SIZE = 30;
           const warnings: string[] = [];
 
           for (let i = 0; i < tickersToSync.length; i += BATCH_SIZE) {

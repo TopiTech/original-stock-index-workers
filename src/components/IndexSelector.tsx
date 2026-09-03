@@ -15,6 +15,14 @@ interface IndexSelectorProps {
   isOwner?: (id: string) => boolean;
 }
 
+const SYSTEM_INDEX_IDS = new Set([
+  "nikkei-175",
+  "eroge-index",
+  "ai-semi",
+  "infra-tech",
+  "jp-core",
+]);
+
 export function IndexSelector({
   indices,
   selectedIndex,
@@ -77,9 +85,9 @@ export function IndexSelector({
       <div className="index-list">
         {filteredIndices.map((idx) => {
           const isSelected = selectedIndex?.id === idx.id;
-          const isCustom = idx.id.startsWith("idx-") || idx.id.startsWith("custom-");
+          const isSystem = SYSTEM_INDEX_IDS.has(idx.id);
           const checkOwner = isOwner || isIndexOwner;
-          const isMyIndex = isCustom && checkOwner(idx.id);
+          const isMyIndex = !isSystem && checkOwner(idx.id);
 
           return (
             <motion.div
@@ -92,6 +100,7 @@ export function IndexSelector({
               aria-pressed={isSelected}
               onClick={() => onSelect(idx)}
               onKeyDown={(e) => {
+                if (e.target !== e.currentTarget) return;
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
                   onSelect(idx);
@@ -131,6 +140,15 @@ export function IndexSelector({
                         e.stopPropagation();
                         if (confirm(`指数「${idx.name}」を削除しますか？\n（作成者のみ削除可能です）`)) {
                           onDeleteIndex(idx.id);
+                        }
+                      }}
+                      onKeyDown={(e: React.KeyboardEvent) => {
+                        e.stopPropagation();
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          if (confirm(`指数「${idx.name}」を削除しますか？\n（作成者のみ削除可能です）`)) {
+                            onDeleteIndex(idx.id);
+                          }
                         }
                       }}
                       style={{

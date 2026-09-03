@@ -58,6 +58,10 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
   if (!isOpen) return null;
 
   const handleAddStock = (stock: { ticker: string; name: string; theme: string }) => {
+    if (basket.length >= 100) {
+      setError("構成銘柄は最大100銘柄までです");
+      return;
+    }
     if (basket.some((b) => b.ticker === stock.ticker)) {
       setError(`銘柄コード ${stock.ticker} は既に追加されています`);
       return;
@@ -69,6 +73,10 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
 
   const handleAddCustom = (e: React.FormEvent) => {
     e.preventDefault();
+    if (basket.length >= 100) {
+      setError("構成銘柄は最大100銘柄までです");
+      return;
+    }
     if (!customTicker.trim() || !customName.trim()) {
       setError("銘柄コードと銘柄名は必須です");
       return;
@@ -151,6 +159,15 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
     setSaving(false);
 
     if (res.ok) {
+      setName("");
+      setDescription("");
+      setBaseValue(1000);
+      setBasket([
+        { ticker: "9984", name: "ソフトバンクグループ", theme: "AI・投資", weight: 30 },
+        { ticker: "8035", name: "東京エレクトロン", theme: "半導体", weight: 30 },
+        { ticker: "7203", name: "トヨタ自動車", theme: "モビリティ", weight: 40 },
+      ]);
+      setError(null);
       onClose();
     } else {
       setError(res.error || "保存に失敗しました");
@@ -241,10 +258,11 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
           {/* Basic Info */}
           <div className="grid grid-2" style={{ gap: 14, marginBottom: 16 }}>
             <div>
-              <label className="mono tiny muted uppercase" style={{ display: "block", marginBottom: 6 }}>
+              <label htmlFor="builder-index-name" className="mono tiny muted uppercase" style={{ display: "block", marginBottom: 6 }}>
                 指数名 *
               </label>
               <input
+                id="builder-index-name"
                 type="text"
                 className="input-search"
                 style={{ paddingLeft: 12 }}
@@ -255,10 +273,11 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
             </div>
 
             <div>
-              <label className="mono tiny muted uppercase" style={{ display: "block", marginBottom: 6 }}>
+              <label htmlFor="builder-base-value" className="mono tiny muted uppercase" style={{ display: "block", marginBottom: 6 }}>
                 基準値 (Base Value)
               </label>
               <input
+                id="builder-base-value"
                 type="number"
                 className="input-search"
                 style={{ paddingLeft: 12 }}
@@ -270,10 +289,11 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
           </div>
 
           <div style={{ marginBottom: 20 }}>
-            <label className="mono tiny muted uppercase" style={{ display: "block", marginBottom: 6 }}>
+            <label htmlFor="builder-description" className="mono tiny muted uppercase" style={{ display: "block", marginBottom: 6 }}>
               指数のコンセプト・説明
             </label>
             <input
+              id="builder-description"
               type="text"
               className="input-search"
               style={{ paddingLeft: 12 }}
@@ -329,6 +349,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
             <input
               type="text"
               placeholder="コード (例: 6701)"
+              aria-label="新規追加 銘柄コード"
               className="input-search"
               style={{ flex: "1 1 90px", height: 32, paddingLeft: 8, fontSize: 12 }}
               value={customTicker}
@@ -337,6 +358,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
             <input
               type="text"
               placeholder="銘柄名 (例: NEC)"
+              aria-label="新規追加 銘柄名"
               className="input-search"
               style={{ flex: "2 1 120px", height: 32, paddingLeft: 8, fontSize: 12 }}
               value={customName}
@@ -345,6 +367,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
             <input
               type="text"
               placeholder="テーマ (例: 通信)"
+              aria-label="新規追加 テーマ"
               className="input-search"
               style={{ flex: "1 1 90px", height: 32, paddingLeft: 8, fontSize: 12 }}
               value={customTheme}
@@ -401,6 +424,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
                       min={1}
                       max={100}
                       step={1}
+                      aria-label={`${item.name} (${item.ticker}) の構成比率`}
                       value={item.weight}
                       onChange={(e) => handleWeightChange(item.ticker, Number(e.target.value))}
                       style={{ flex: 1, accentColor: "var(--neon-cyan)" }}
@@ -433,11 +457,12 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
 
         {/* Modal Footer */}
         <div
-          className="row space-between"
+          className="row space-between flex-wrap"
           style={{
             padding: "14px 24px",
             borderTop: "1px solid var(--border-subtle)",
             background: "rgba(0,0,0,0.2)",
+            gap: 12,
           }}
         >
           <div className="tiny muted mono">
