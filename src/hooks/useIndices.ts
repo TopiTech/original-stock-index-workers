@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import type { CustomIndex } from "../data/indices";
+import { DEFAULT_INDICES } from "../data/indices";
 import type { BasketItem } from "../types";
 import {
   saveIndexOwnerToken,
@@ -12,8 +13,8 @@ import { getAuthHeaders } from "../lib/auth";
 const API_BASE = "/api";
 
 export function useIndices() {
-  const [indices, setIndices] = useState<CustomIndex[]>([]);
-  const [selectedIndex, setSelectedIndex] = useState<CustomIndex | null>(null);
+  const [indices, setIndices] = useState<CustomIndex[]>(DEFAULT_INDICES);
+  const [selectedIndex, setSelectedIndex] = useState<CustomIndex | null>(DEFAULT_INDICES[0] || null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,19 +25,22 @@ export function useIndices() {
       const res = await fetch(`${API_BASE}/indices`, { cache: "no-cache" });
       if (!res.ok) throw new Error("指数一覧の取得に失敗しました");
       const data: CustomIndex[] = await res.json();
-      setIndices(data);
-      if (data.length > 0) {
+      if (Array.isArray(data) && data.length > 0) {
+        setIndices(data);
         setSelectedIndex((prev) => {
           if (!prev) return data[0];
           const found = data.find((d) => d.id === prev.id);
           return found || data[0];
         });
       } else {
-        setSelectedIndex(null);
+        setIndices(DEFAULT_INDICES);
+        setSelectedIndex((prev) => prev || DEFAULT_INDICES[0]);
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "指数一覧の取得に失敗しました";
-      setError(msg);
+      console.warn("API server unavailable, using built-in default indices:", err);
+      // Fallback to built-in default indices so UI renders without complete failure
+      setIndices(DEFAULT_INDICES);
+      setSelectedIndex((prev) => prev || DEFAULT_INDICES[0]);
     } finally {
       setLoading(false);
     }

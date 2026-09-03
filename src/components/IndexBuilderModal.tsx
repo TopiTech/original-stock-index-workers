@@ -202,6 +202,9 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
       role="dialog"
       aria-modal="true"
       aria-labelledby="modal-builder-title"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
       style={{
         position: "fixed",
         inset: 0,

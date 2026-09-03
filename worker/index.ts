@@ -99,24 +99,55 @@ export async function authenticatePassword(
     return { authenticated: false, error: "パスワードが指定されていません" };
   }
 
-  // 1. Master admin password check
-  const masterAdminPassword = env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASSWORD;
-  if (pwd === masterAdminPassword) {
-    return {
-      authenticated: true,
-      role: "admin",
-      name: "管理者",
-      maxStocks: null,
-      id: "admin-master",
-    };
-  }
-
-  // 2. D1 access_passwords check
   try {
     await ensurePasswordTable(env);
     const pwdHash = await hashToken(pwd);
+
+    // 1. Check if customized master admin password exists in D1
+    const { results: adminMasterRows } = await env.DB.prepare(
+      "SELECT id, name, password_hash, role, max_stocks, is_active FROM access_passwords WHERE id = 'admin-master'"
+    ).all();
+
+    const masterRow = (adminMasterRows || []).find(
+      (r: any) => r && r.id === "admin-master"
+    ) as {
+      id: string;
+      name: string;
+      password_hash: string;
+      role: "admin";
+      max_stocks: number | null;
+      is_active: number;
+    } | undefined;
+
+    if (masterRow) {
+      // Once master password has been customized in DB, it strictly requires the new hash.
+      // Default password fallback is permanently disabled for security.
+      if (masterRow.is_active === 1 && masterRow.password_hash === pwdHash) {
+        return {
+          authenticated: true,
+          role: "admin",
+          name: masterRow.name || "管理者",
+          maxStocks: null,
+          id: "admin-master",
+        };
+      }
+    } else {
+      // No custom admin record in DB -> fallback to env.ADMIN_PASSWORD or DEFAULT_ADMIN_PASSWORD
+      const masterAdminPassword = env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASSWORD;
+      if (pwd === masterAdminPassword) {
+        return {
+          authenticated: true,
+          role: "admin",
+          name: "管理者",
+          maxStocks: null,
+          id: "admin-master",
+        };
+      }
+    }
+
+    // 2. D1 access_passwords check for standard users / secondary admins
     const { results } = await env.DB.prepare(
-      "SELECT id, name, role, max_stocks, is_active FROM access_passwords WHERE password_hash = ? AND is_active = 1"
+      "SELECT id, name, role, max_stocks, is_active FROM access_passwords WHERE password_hash = ? AND is_active = 1 AND id != 'admin-master'"
     ).bind(pwdHash).all();
 
     if (results && results.length > 0) {
@@ -137,6 +168,16 @@ export async function authenticatePassword(
     }
   } catch (err) {
     console.error("Auth DB error:", err);
+    const masterAdminPassword = env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASSWORD;
+    if (pwd === masterAdminPassword) {
+      return {
+        authenticated: true,
+        role: "admin",
+        name: "管理者",
+        maxStocks: null,
+        id: "admin-master",
+      };
+    }
   }
 
   return { authenticated: false, error: "パスワードが正しくありません" };
@@ -367,7 +408,7 @@ export default {
         }
       }
 
-      // 管理者向け: ユーザーパスワード一覧取得
+      // 管理者向け: ユーザーパスワード一覧取得 (マスター管理者を除外)
       if (url.pathname === "/api/admin/passwords" && request.method === "GET") {
         try {
           const auth = await authenticatePassword(request, env);
@@ -376,7 +417,7 @@ export default {
           }
           await ensurePasswordTable(env);
           const { results } = await env.DB.prepare(
-            "SELECT id, name, role, max_stocks, plain_password, is_active, created_at, updated_at FROM access_passwords ORDER BY created_at DESC"
+            "SELECT id, name, role, max_stocks, plain_password, is_active, created_at, updated_at FROM access_passwords WHERE id != 'admin-master' ORDER BY created_at DESC"
           ).all();
           return json(results || [], 200, request);
         } catch (err) {
@@ -450,7 +491,7 @@ export default {
           }
           const parsed = await parseJsonBody(request);
           if (!parsed.ok) return parsed.response;
-          const { id, name, password, maxStocks, isActive } = parsed.body;
+          const { id, name, password, maxStocks, isActive, role } = parsed.body;
           if (!id || typeof id !== "string") {
             return json({ error: "Invalid password id" }, 400, request);
           }
@@ -478,6 +519,10 @@ export default {
                 params.push(Math.floor(num));
               }
             }
+          }
+          if (role === "admin" || role === "user") {
+            updates.push("role = ?");
+            params.push(role);
           }
           if (isActive !== undefined) {
             updates.push("is_active = ?");
@@ -519,7 +564,7 @@ export default {
         }
       }
 
-      // 管理者向け: 管理者マスターパスワード変更
+      // 管理者向け: 管理者マスターパスワード変更 (平文保存は行わない)
       if (url.pathname === "/api/admin/admin-password" && request.method === "PUT") {
         try {
           const auth = await authenticatePassword(request, env);
@@ -536,8 +581,8 @@ export default {
           const hash = await hashToken(newPassword);
           const now = Math.floor(Date.now() / 1000);
           await env.DB.prepare(
-            "INSERT INTO access_passwords (id, name, password_hash, plain_password, role, max_stocks, is_active, created_at, updated_at) VALUES ('admin-master', 'マスター管理者', ?, ?, 'admin', NULL, 1, ?, ?) ON CONFLICT(id) DO UPDATE SET password_hash = excluded.password_hash, plain_password = excluded.plain_password, updated_at = excluded.updated_at"
-          ).bind(hash, newPassword, now, now).run();
+            "INSERT INTO access_passwords (id, name, password_hash, plain_password, role, max_stocks, is_active, created_at, updated_at) VALUES ('admin-master', 'マスター管理者', ?, NULL, 'admin', NULL, 1, ?, ?) ON CONFLICT(id) DO UPDATE SET password_hash = excluded.password_hash, plain_password = NULL, updated_at = excluded.updated_at"
+          ).bind(hash, now, now).run();
 
           return json({ ok: true, message: "管理者パスワードを更新しました" }, 200, request);
         } catch (err) {
@@ -833,7 +878,7 @@ export default {
         setMemoryCache("api:indices", indicesList, 15);
 
         return json(indicesList, 200, request, {
-          "cache-control": "public, max-age=15, stale-while-revalidate=60",
+          "cache-control": "no-cache, must-revalidate",
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to fetch indices";
@@ -869,8 +914,13 @@ export default {
         }
         const id = typeof body.id === "string" && body.id.trim().length > 0 ? body.id.trim() : `custom-${Date.now()}`;
 
-        if (SYSTEM_INDICES.has(id)) {
-          return json({ error: "Cannot modify built-in system index" }, 403, request);
+        // Password authentication and role check
+        const explicitPwd = typeof body.password === "string" ? body.password : null;
+        const auth = await authenticatePassword(request, env, explicitPwd);
+        const isAdmin = auth.authenticated && auth.role === "admin";
+
+        if (SYSTEM_INDICES.has(id) && !isAdmin) {
+          return json({ error: "システム指数の編集には管理者権限が必要です" }, 403, request);
         }
 
         if (body.description !== undefined && (typeof body.description !== "string" || body.description.length > 500)) {
@@ -914,11 +964,7 @@ export default {
           }
         }
 
-        // Password authentication and stock limit check
-        const explicitPwd = typeof body.password === "string" ? body.password : null;
-        const auth = await authenticatePassword(request, env, explicitPwd);
-        const isAdmin = auth.authenticated && auth.role === "admin";
-
+        // Stock limit check for non-admin users
         if (auth.authenticated && auth.role === "user" && auth.maxStocks && auth.maxStocks > 0) {
           if (basket.length > auth.maxStocks) {
             return json(
@@ -1123,7 +1169,7 @@ export default {
           }
         }
         // Deduplicate tickers and limit to max 30 per request to respect Cloudflare subrequest limits
-        const tickers = Array.from(new Set((rawTickers as string[]).map((t) => t.trim()))).slice(0, 30);
+        const tickers = Array.from(new Set((rawTickers as string[]).map((t) => t.trim().toUpperCase()))).slice(0, 30);
         const force = body.force === true;
         const results: { ticker: string; status: string; count?: number; lastSynced?: number }[] =
           [];

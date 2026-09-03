@@ -537,7 +537,7 @@ export function AdminDashboard({
 
       {/* TAB 1: Passwords Management */}
       {activeTab === "passwords" && (
-        <div className="grid" style={{ gap: 20, gridTemplateColumns: "minmax(320px, 420px) 1fr" }}>
+        <div className="admin-passwords-layout">
           {/* Create Password Form */}
           <Card className="section">
             <div className="row" style={{ gap: 8, marginBottom: 14 }}>
@@ -939,7 +939,7 @@ export function AdminDashboard({
             )}
 
             {/* Index Metadata Settings */}
-            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 14, marginBottom: 16 }}>
+            <div className="admin-index-meta-grid">
               <div>
                 <label style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
                   指数名

@@ -268,19 +268,11 @@ export default function App() {
                   indexId={selectedIndex.id}
                   onAddStock={async (stock) => {
                     if (!selectedIndex) return { ok: false, error: "指数が選択されていません" };
-                    const res = await addStockToIndex(selectedIndex.id, stock);
-                    if (res.ok) {
-                      recalculate(true);
-                    }
-                    return res;
+                    return addStockToIndex(selectedIndex.id, stock);
                   }}
                   onRemoveStock={async (ticker) => {
                     if (!selectedIndex) return { ok: false, error: "指数が選択されていません" };
-                    const res = await removeStockFromIndex(selectedIndex.id, ticker);
-                    if (res.ok) {
-                      recalculate(true);
-                    }
-                    return res;
+                    return removeStockFromIndex(selectedIndex.id, ticker);
                   }}
                 />
               )}

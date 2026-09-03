@@ -44,6 +44,17 @@ export function AddStockModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const isLimitReached = maxStocks !== null && maxStocks > 0 && currentCount >= maxStocks;
@@ -99,6 +110,10 @@ export function AddStockModal({
     <div
       role="dialog"
       aria-modal="true"
+      aria-labelledby="add-stock-modal-title"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
       style={{
         position: "fixed",
         inset: 0,
@@ -140,7 +155,7 @@ export function AddStockModal({
           <div className="row" style={{ gap: 8 }}>
             <Plus size={18} style={{ color: "var(--neon-cyan)" }} />
             <div>
-              <h2 style={{ fontSize: 16, margin: 0, fontWeight: 700 }}>構成銘柄の追加</h2>
+              <h2 id="add-stock-modal-title" style={{ fontSize: 16, margin: 0, fontWeight: 700 }}>構成銘柄の追加</h2>
               <div className="muted tiny">対象指数: {indexName}</div>
             </div>
           </div>

@@ -23,6 +23,17 @@ export function AuthModal({
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
 
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -47,6 +58,10 @@ export function AuthModal({
     <div
       role="dialog"
       aria-modal="true"
+      aria-labelledby="auth-modal-title"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
       style={{
         position: "fixed",
         inset: 0,
@@ -84,7 +99,7 @@ export function AuthModal({
         >
           <div className="row" style={{ gap: 8 }}>
             <KeyRound size={18} style={{ color: "var(--neon-cyan)" }} />
-            <h2 style={{ fontSize: 16, margin: 0, fontWeight: 700 }}>{title}</h2>
+            <h2 id="auth-modal-title" style={{ fontSize: 16, margin: 0, fontWeight: 700 }}>{title}</h2>
           </div>
           <button
             type="button"
