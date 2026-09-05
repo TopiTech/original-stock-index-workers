@@ -19,6 +19,7 @@ export function useAuth() {
           prev.password === current.password &&
           prev.role === current.role &&
           prev.maxStocks === current.maxStocks &&
+          prev.maxIndices === current.maxIndices &&
           prev.name === current.name
         ) {
           return prev;
@@ -59,6 +60,7 @@ export function useAuth() {
   const isAdmin = session?.role === "admin";
   const isUser = session?.role === "user";
   const maxStocks = session?.maxStocks ?? null;
+  const maxIndices = session?.maxIndices ?? null;
 
   const getHeaders = useCallback((): Record<string, string> => {
     return getAuthHeaders(session);
@@ -70,6 +72,7 @@ export function useAuth() {
     isAdmin,
     isUser,
     maxStocks,
+    maxIndices,
     loading,
     login,
     logout,

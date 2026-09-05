@@ -76,6 +76,11 @@ function createSecurityTestEnv() {
             const matches = Array.from(passwords.values()).filter((p) => p.id !== "admin-master");
             return { results: matches.map(({ plain_password: _plainPassword, ...row }) => row) };
           }
+          if (query.includes("COUNT(*) as count FROM indices WHERE creator_id = ?")) {
+            const creatorId = params[0] as string;
+            const count = Array.from(indices.values()).filter((idx: any) => idx.creator_id === creatorId).length;
+            return { results: [{ count }] };
+          }
           if (query.includes("FROM indices WHERE id = ?")) {
             const id = params[0] as string;
             const idx = indices.get(id);
@@ -107,13 +112,29 @@ function createSecurityTestEnv() {
                 plain_password: null,
                 role: "admin",
                 max_stocks: null,
+                max_indices: null,
                 is_active: 1,
                 created_at: now,
                 updated_at: now,
               });
             } else {
               // User password create
-              const [id, name, hash, role, maxStocks, now1, now2] = params as [string, string, string, "admin" | "user", number | null, number, number];
+              const id = params[0] as string;
+              const name = params[1] as string;
+              const hash = params[2] as string;
+              const role = params[3] as "admin" | "user";
+              const maxStocks = params[4] as number | null;
+              let maxIndices: number | null = null;
+              let now1: number;
+              let now2: number;
+              if (params.length >= 8) {
+                maxIndices = params[5] as number | null;
+                now1 = params[6] as number;
+                now2 = params[7] as number;
+              } else {
+                now1 = params[5] as number;
+                now2 = params[6] as number;
+              }
               passwords.set(id, {
                 id,
                 name,
@@ -121,6 +142,7 @@ function createSecurityTestEnv() {
                 plain_password: null,
                 role,
                 max_stocks: maxStocks,
+                max_indices: maxIndices,
                 is_active: 1,
                 created_at: now1,
                 updated_at: now2,
@@ -138,12 +160,16 @@ function createSecurityTestEnv() {
                 existing.updated_at = params[1] as number;
               }
               if (query.includes("role = ?")) {
-                const roleParam = params.find((p) => p === "admin" || p === "user") as "admin" | "user";
-                if (roleParam) existing.role = roleParam;
+                existing.role = params[0] as "admin" | "user";
               }
               if (query.includes("is_active = ?")) {
-                const activeParam = params.find((p) => p === 0 || p === 1) as number;
-                if (activeParam !== undefined) existing.is_active = activeParam;
+                existing.is_active = params[0] as number;
+              }
+              if (query.includes("max_stocks = ?")) {
+                existing.max_stocks = params[0] as number | null;
+              }
+              if (query.includes("max_indices = ?")) {
+                existing.max_indices = params[0] as number | null;
               }
             }
             return { success: true };
@@ -172,7 +198,8 @@ function createSecurityTestEnv() {
           }
           if (query.includes("INTO indices")) {
             const [id, name, description, baseValue, hash] = params as [string, string, string, number, string | null];
-            indices.set(id, { id, name, description, base_value: baseValue, owner_token_hash: hash || null });
+            const creatorId = params.length >= 7 ? (params[6] as string | null) : null;
+            indices.set(id, { id, name, description, base_value: baseValue, owner_token_hash: hash || null, creator_id: creatorId });
             return { success: true };
           }
           if (query.includes("DELETE FROM indices WHERE id = ?")) {
@@ -976,6 +1003,104 @@ describe("Security and Admin Regression Tests", () => {
       expect(res.status).toBe(403);
       const data = await res.json();
       expect(data.error).toContain("マスター管理者アカウントの変更は専用エンドポイント");
+    });
+
+    it("enforces maxIndices limit when user password creates indices", async () => {
+      const { env } = createSecurityTestEnv();
+
+      // 1. Admin creates user password with maxIndices: 2
+      const createPwdReq = new Request("http://localhost/api/admin/passwords", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": TEST_ADMIN_PASSWORD,
+        },
+        body: JSON.stringify({
+          name: "Limited Index User",
+          password: "user-password-123",
+          maxStocks: 10,
+          maxIndices: 2,
+          role: "user",
+        }),
+      });
+      const createPwdRes = await worker.fetch(createPwdReq, env as any);
+      expect(createPwdRes.status).toBe(201);
+      const pwdData = await createPwdRes.json();
+      expect(pwdData.ok).toBe(true);
+      expect(pwdData.password.max_indices).toBe(2);
+
+      // 2. User verifies password
+      const verifyReq = new Request("http://localhost/api/auth/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "user-password-123" }),
+      });
+      const verifyRes = await worker.fetch(verifyReq, env as any);
+      expect(verifyRes.status).toBe(200);
+      const verifyData = await verifyRes.json();
+      expect(verifyData.maxIndices).toBe(2);
+
+      const userHeaders = {
+        "Content-Type": "application/json",
+        "x-auth-password": "user-password-123",
+      };
+
+      // 3. User creates 1st index -> Success
+      const idx1Req = new Request("http://localhost/api/indices", {
+        method: "POST",
+        headers: userHeaders,
+        body: JSON.stringify({
+          id: "custom-idx-1",
+          name: "Index 1",
+          basket: [{ ticker: "7203", name: "Toyota", weight: 100 }],
+        }),
+      });
+      const idx1Res = await worker.fetch(idx1Req, env as any);
+      expect(idx1Res.status).toBe(200);
+
+      // 4. User creates 2nd index -> Success
+      const idx2Req = new Request("http://localhost/api/indices", {
+        method: "POST",
+        headers: userHeaders,
+        body: JSON.stringify({
+          id: "custom-idx-2",
+          name: "Index 2",
+          basket: [{ ticker: "9984", name: "SoftBank", weight: 100 }],
+        }),
+      });
+      const idx2Res = await worker.fetch(idx2Req, env as any);
+      expect(idx2Res.status).toBe(200);
+
+      // 5. User creates 3rd index -> Rejection with 403
+      const idx3Req = new Request("http://localhost/api/indices", {
+        method: "POST",
+        headers: userHeaders,
+        body: JSON.stringify({
+          id: "custom-idx-3",
+          name: "Index 3",
+          basket: [{ ticker: "8035", name: "Tokyo Electron", weight: 100 }],
+        }),
+      });
+      const idx3Res = await worker.fetch(idx3Req, env as any);
+      expect(idx3Res.status).toBe(403);
+      const idx3Data = await idx3Res.json();
+      expect(idx3Data.error).toContain("指数作成数を最大2件までに制限されています");
+
+      // 6. User updating an existing index (Index 1) is permitted
+      const idx1UpdateReq = new Request("http://localhost/api/indices", {
+        method: "POST",
+        headers: {
+          ...userHeaders,
+          "x-owner-token": (await idx1Res.json()).ownerToken,
+        },
+        body: JSON.stringify({
+          id: "custom-idx-1",
+          name: "Index 1 Updated",
+          basket: [{ ticker: "7203", name: "Toyota", weight: 100 }],
+        }),
+      });
+      const idx1UpdateRes = await worker.fetch(idx1UpdateReq, env as any);
+      expect(idx1UpdateRes.status).toBe(200);
     });
   });
 });

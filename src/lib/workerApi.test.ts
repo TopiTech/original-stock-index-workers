@@ -889,9 +889,9 @@ describe("worker fetch handlers", () => {
       expect(allowMethods).toContain("PUT");
     });
 
-    it("rejects POST /api/calculate with more than 100 basket items with 400 Bad Request", async () => {
+    it("allows POST /api/calculate with more than 100 basket items (e.g. 175 stocks)", async () => {
       const env = createMockEnv();
-      const items = Array.from({ length: 101 }, (_, i) => ({
+      const items = Array.from({ length: 175 }, (_, i) => ({
         ticker: `T${i}`,
         name: `Stock ${i}`,
         weight: 1,
@@ -906,9 +906,26 @@ describe("worker fetch handlers", () => {
         }),
       });
       const res = await worker.fetch(req, env as any);
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.ok).toBe(true);
+      expect(data.basket).toHaveLength(175);
+    });
+
+    it("rejects POST /api/calculate with empty basket", async () => {
+      const env = createMockEnv();
+      const req = new Request("http://localhost/api/calculate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          basket: [],
+          baseValue: 1000,
+        }),
+      });
+      const res = await worker.fetch(req, env as any);
       expect(res.status).toBe(400);
       const data = await res.json();
-      expect(data.error).toContain("between 1 and 100 items");
+      expect(data.error).toContain("Invalid basket");
     });
 
     it("allows admins to save and calculate an index with more than 100 basket items", async () => {

@@ -125,6 +125,7 @@ export async function verifyPassword(
       name: data.name || (data.role === "admin" ? "管理者" : "ユーザー"),
       password: trimmed,
       maxStocks: data.maxStocks ?? null,
+      maxIndices: data.maxIndices ?? null,
       id: data.id,
     };
 

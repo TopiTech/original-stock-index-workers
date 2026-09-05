@@ -71,6 +71,7 @@ export function AdminDashboard({
   const [newUserName, setNewUserName] = useState("");
   const [newUserPassword, setNewUserPassword] = useState(() => generateSecurePassword());
   const [newUserMaxStocks, setNewUserMaxStocks] = useState<number | null>(10);
+  const [newUserMaxIndices, setNewUserMaxIndices] = useState<number | null>(5);
   const [newUserRole, setNewUserRole] = useState<"user" | "admin">("user");
   const [creatingPassword, setCreatingPassword] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -204,6 +205,7 @@ export function AdminDashboard({
           name: newUserName.trim(),
           password: newUserPassword.trim(),
           maxStocks: newUserRole === "admin" ? null : newUserMaxStocks,
+          maxIndices: newUserRole === "admin" ? null : newUserMaxIndices,
           role: newUserRole,
         }),
       });
@@ -215,7 +217,7 @@ export function AdminDashboard({
 
       const initialPassword =
         typeof data.password?.initialPassword === "string" ? data.password.initialPassword : null;
-      setCreateSuccess(`パスワードを作成しました: [${newUserName.trim()}] / 銘柄制限: ${newUserRole === "admin" ? "無制限" : `${newUserMaxStocks}銘柄`}`);
+      setCreateSuccess(`パスワードを作成しました: [${newUserName.trim()}] / 銘柄制限: ${newUserRole === "admin" ? "無制限" : `${newUserMaxStocks}銘柄`} / 指数上限: ${newUserRole === "admin" ? "無制限" : `${newUserMaxIndices}件`}`);
       if (initialPassword) {
         setIssuedPassword({ name: newUserName.trim(), password: initialPassword });
       }
@@ -777,14 +779,65 @@ export function AdminDashboard({
                       style={{
                         width: 80,
                         padding: "6px 8px",
-                        background: "rgba(0,0,0,0.4)",
+                        background: "var(--bg-input, rgba(0,0,0,0.4))",
                         border: "1px solid var(--border-subtle)",
                         borderRadius: 6,
-                        color: "#fff",
+                        color: "var(--text-primary, #fff)",
                         fontSize: 12,
                       }}
                     />
                     <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>銘柄まで追加可能</span>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ marginBottom: 16 }}>
+                <label htmlFor="new-user-max-indices" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}>
+                  追加可能指数数（制限）
+                </label>
+                <div className="row flex-wrap" style={{ gap: 6, marginBottom: 8 }}>
+                  {[1, 3, 5, 10].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setNewUserMaxIndices(preset)}
+                      className={`btn btn-sm ${newUserMaxIndices === preset ? "btn-default" : "btn-outline"}`}
+                      style={{ padding: "4px 10px", fontSize: 11 }}
+                    >
+                      {preset} 件
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setNewUserMaxIndices(null)}
+                    className={`btn btn-sm ${newUserMaxIndices === null ? "btn-default" : "btn-outline"}`}
+                    style={{ padding: "4px 10px", fontSize: 11 }}
+                  >
+                    無制限
+                  </button>
+                </div>
+
+                {newUserMaxIndices !== null && (
+                  <div className="row" style={{ gap: 8, alignItems: "center" }}>
+                    <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>カスタム上限:</span>
+                    <input
+                      id="new-user-max-indices"
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={newUserMaxIndices}
+                      onChange={(e) => setNewUserMaxIndices(Math.max(1, Number(e.target.value)))}
+                      style={{
+                        width: 80,
+                        padding: "6px 8px",
+                        background: "var(--bg-input, rgba(0,0,0,0.4))",
+                        border: "1px solid var(--border-subtle)",
+                        borderRadius: 6,
+                        color: "var(--text-primary, #fff)",
+                        fontSize: 12,
+                      }}
+                    />
+                    <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>件まで作成可能</span>
                   </div>
                 )}
               </div>
@@ -887,12 +940,12 @@ export function AdminDashboard({
                 <table className="custom-table">
                   <thead>
                     <tr>
-                      <th style={{ width: "22%" }}>名前 / ラベル</th>
-                      <th style={{ width: "15%" }}>ロール</th>
-                      <th style={{ width: "18%" }}>銘柄数上限</th>
-                      <th style={{ width: "25%" }}>パスワード</th>
-                      <th style={{ width: "10%" }}>状態</th>
-                      <th style={{ width: "10%", textAlign: "center" }}>操作</th>
+                      <th style={{ width: "20%" }}>名前 / ラベル</th>
+                      <th style={{ width: "12%" }}>ロール</th>
+                      <th style={{ width: "22%" }}>銘柄 / 指数 上限</th>
+                      <th style={{ width: "24%" }}>パスワード</th>
+                      <th style={{ width: "11%" }}>状態</th>
+                      <th style={{ width: "11%", textAlign: "center" }}>操作</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -912,13 +965,24 @@ export function AdminDashboard({
                           )}
                         </td>
                         <td>
-                          {item.max_stocks ? (
-                            <span className="mono" style={{ color: "var(--neon-cyan)", fontWeight: 600 }}>
-                              最大 {item.max_stocks} 銘柄
-                            </span>
-                          ) : (
-                            <span className="muted">無制限</span>
-                          )}
+                          <div>
+                            {item.max_stocks ? (
+                              <span className="mono" style={{ color: "var(--neon-cyan)", fontWeight: 600, fontSize: 12 }}>
+                                銘柄: 最大 {item.max_stocks} 銘柄
+                              </span>
+                            ) : (
+                              <span className="muted tiny">銘柄: 無制限</span>
+                            )}
+                          </div>
+                          <div style={{ marginTop: 3 }}>
+                            {item.max_indices ? (
+                              <span className="mono" style={{ color: "var(--neon-magenta)", fontWeight: 600, fontSize: 12 }}>
+                                指数: 最大 {item.max_indices} 件
+                              </span>
+                            ) : (
+                              <span className="muted tiny">指数: 無制限</span>
+                            )}
+                          </div>
                         </td>
                         <td>
                           <span className="muted tiny">（作成時のみ表示）</span>

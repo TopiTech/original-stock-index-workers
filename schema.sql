@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS indices (
     base_value REAL DEFAULT 1000,
     sort_order INTEGER DEFAULT 99,
     owner_token_hash TEXT,
+    creator_id TEXT,
     created_at INTEGER
 );
 
@@ -66,6 +67,7 @@ CREATE TABLE IF NOT EXISTS access_passwords (
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'user',
     max_stocks INTEGER DEFAULT 10,
+    max_indices INTEGER DEFAULT NULL,
     is_active INTEGER DEFAULT 1,
     created_at INTEGER NOT NULL,
     updated_at INTEGER

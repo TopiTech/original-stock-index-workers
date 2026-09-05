@@ -290,7 +290,7 @@ export function PerformanceChart({
               </defs>
 
               <CartesianGrid
-                stroke="rgba(255,255,255,0.06)"
+                stroke="var(--border-subtle)"
                 strokeDasharray="3 3"
                 vertical={false}
               />
@@ -298,17 +298,17 @@ export function PerformanceChart({
               <XAxis
                 dataKey="date"
                 tickLine={false}
-                axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
-                tick={{ fill: "#94a3b8", fontSize: 11, fontFamily: "var(--mono-font)" }}
+                axisLine={{ stroke: "var(--border-subtle)" }}
+                tick={{ fill: "var(--text-secondary)", fontSize: 11, fontFamily: "var(--mono-font)" }}
                 tickFormatter={(d: string) => (typeof d === "string" && d.length >= 10 ? d.slice(5) : d)}
                 minTickGap={24}
               />
 
               <YAxis
                 tickLine={false}
-                axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+                axisLine={{ stroke: "var(--border-subtle)" }}
                 width={65}
-                tick={{ fill: "#94a3b8", fontSize: 11, fontFamily: "var(--mono-font)" }}
+                tick={{ fill: "var(--text-secondary)", fontSize: 11, fontFamily: "var(--mono-font)" }}
                 tickFormatter={(v) => (viewMode === "percent" ? `${v >= 0 ? "+" : ""}${v.toFixed(1)}%` : fmt.format(v))}
                 domain={["auto", "auto"]}
               />

@@ -73,6 +73,7 @@ export interface AuthSession {
   name: string;
   password?: string;
   maxStocks: number | null;
+  maxIndices?: number | null;
   id?: string;
 }
 
@@ -81,7 +82,12 @@ export interface UserPasswordItem {
   name: string;
   role: AuthRole;
   max_stocks: number | null;
+  max_indices?: number | null;
   is_active: number;
   created_at: number;
   updated_at?: number;
 }
+
+export type ThemeMode = "dark" | "light";
+export type AccentColor = "cyan" | "emerald" | "violet" | "amber" | "rose";
+

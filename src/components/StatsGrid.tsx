@@ -103,7 +103,7 @@ export function StatsGrid({
   ];
 
   return (
-    <div className="grid grid-4">
+    <div className="grid grid-4 stats-grid">
       {items.map((item, i) => (
         <motion.div
           key={item.label}

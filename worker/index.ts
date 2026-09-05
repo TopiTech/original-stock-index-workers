@@ -12,6 +12,7 @@ export interface AuthResult {
   role?: "admin" | "user";
   name?: string;
   maxStocks?: number | null;
+  maxIndices?: number | null;
   id?: string;
   error?: string;
 }
@@ -190,14 +191,14 @@ export async function ensurePasswordTable(env: Env): Promise<void> {
         updated_at INTEGER
       )
     `).run();
-    // Scrub the legacy column when an existing database still has it. New
-    // schemas do not define the column, so this compatibility cleanup is
-    // intentionally best-effort and harmless when the column is absent.
+    // Add max_indices column to access_passwords if not exists
     try {
-      await env.DB.prepare("UPDATE access_passwords SET plain_password = NULL").run();
-    } catch {
-      // Current schemas have no legacy plain_password column.
-    }
+      await env.DB.prepare("ALTER TABLE access_passwords ADD COLUMN max_indices INTEGER DEFAULT NULL").run();
+    } catch {}
+    // Add creator_id column to indices if not exists
+    try {
+      await env.DB.prepare("ALTER TABLE indices ADD COLUMN creator_id TEXT").run();
+    } catch {}
     isPasswordTableEnsured = true;
   } catch {
     // ignore
@@ -310,6 +311,7 @@ export async function authenticatePassword(
           role: "admin",
           name: masterRow.name || "管理者",
           maxStocks: null,
+          maxIndices: null,
           id: "admin-master",
         };
         setAuthCache(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
@@ -325,6 +327,7 @@ export async function authenticatePassword(
           role: "admin",
           name: "管理者",
           maxStocks: null,
+          maxIndices: null,
           id: "admin-master",
         };
         setAuthCache(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
@@ -333,16 +336,26 @@ export async function authenticatePassword(
     }
 
     // 2. D1 access_passwords check for standard users / secondary admins
-    const { results } = await env.DB.prepare(
-      "SELECT id, name, role, max_stocks, is_active, password_hash FROM access_passwords WHERE is_active = 1 AND id != 'admin-master'"
-    ).all();
+    let passwordRows: D1Row[] | undefined;
+    try {
+      const dbRes = await env.DB.prepare(
+        "SELECT id, name, role, max_stocks, max_indices, is_active, password_hash FROM access_passwords WHERE is_active = 1 AND id != 'admin-master'"
+      ).all();
+      passwordRows = dbRes.results;
+    } catch {
+      const dbRes = await env.DB.prepare(
+        "SELECT id, name, role, max_stocks, is_active, password_hash FROM access_passwords WHERE is_active = 1 AND id != 'admin-master'"
+      ).all();
+      passwordRows = dbRes.results;
+    }
 
-    for (const row of results || []) {
+    for (const row of passwordRows || []) {
       const user = row as {
         id: string;
         name: string;
         role: "admin" | "user";
         max_stocks: number | null;
+        max_indices?: number | null;
         is_active: number;
         password_hash: string;
       };
@@ -355,6 +368,7 @@ export async function authenticatePassword(
         role: user.role,
         name: user.name,
         maxStocks: user.max_stocks !== null && user.max_stocks !== undefined ? Number(user.max_stocks) : null,
+        maxIndices: user.max_indices !== null && user.max_indices !== undefined ? Number(user.max_indices) : null,
         id: user.id,
       };
       setAuthCache(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
@@ -683,6 +697,7 @@ export default {
               role: auth.role,
               name: auth.name,
               maxStocks: auth.maxStocks,
+              maxIndices: auth.maxIndices ?? null,
               id: auth.id,
             },
             200,
@@ -702,9 +717,18 @@ export default {
             return json({ error: "管理者権限が必要です" }, 403, request);
           }
           await ensurePasswordTable(env);
-          const { results } = await env.DB.prepare(
-            "SELECT id, name, role, max_stocks, is_active, created_at, updated_at FROM access_passwords WHERE id != 'admin-master' ORDER BY created_at DESC"
-          ).all();
+          let results: D1Row[] | undefined;
+          try {
+            const dbRes = await env.DB.prepare(
+              "SELECT id, name, role, max_stocks, max_indices, is_active, created_at, updated_at FROM access_passwords WHERE id != 'admin-master' ORDER BY created_at DESC"
+            ).all();
+            results = dbRes.results;
+          } catch {
+            const dbRes = await env.DB.prepare(
+              "SELECT id, name, role, max_stocks, is_active, created_at, updated_at FROM access_passwords WHERE id != 'admin-master' ORDER BY created_at DESC"
+            ).all();
+            results = dbRes.results;
+          }
           return json(results || [], 200, request);
         } catch (err) {
           console.error("Failed to fetch passwords:", err);
@@ -712,7 +736,7 @@ export default {
         }
       }
 
-      // 管理者向け: ユーザーパスワード新規作成（銘柄数制限設定）
+      // 管理者向け: ユーザーパスワード新規作成（銘柄数制限設定 & 指数上限設定）
       if (url.pathname === "/api/admin/passwords" && request.method === "POST") {
         try {
           const auth = await authenticatePassword(request, env);
@@ -721,7 +745,7 @@ export default {
           }
           const parsed = await parseJsonBody(request);
           if (!parsed.ok) return parsed.response;
-          const { name, password, maxStocks, role } = parsed.body;
+          const { name, password, maxStocks, maxIndices, role } = parsed.body;
           if (!name || typeof name !== "string" || name.trim().length === 0 || name.trim().length > 100) {
             return json({ error: "ユーザー名/ラベルは1〜100文字で入力してください" }, 400, request);
           }
@@ -736,6 +760,14 @@ export default {
             }
             maxStockLimit = Math.floor(num);
           }
+          let maxIndexLimit: number | null = null;
+          if (maxIndices !== undefined && maxIndices !== null && maxIndices !== "") {
+            const num = Number(maxIndices);
+            if (!Number.isFinite(num) || num < 1 || num > 100) {
+              return json({ error: "指数上限は1〜100の数値を指定してください" }, 400, request);
+            }
+            maxIndexLimit = Math.floor(num);
+          }
           const assignedRole = role === "admin" ? "admin" : "user";
           const id = `pwd-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
           const initialPassword = password.trim();
@@ -743,9 +775,15 @@ export default {
           const now = Math.floor(Date.now() / 1000);
 
           await ensurePasswordTable(env);
-          await env.DB.prepare(
-            "INSERT INTO access_passwords (id, name, password_hash, role, max_stocks, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)"
-          ).bind(id, name.trim(), hash, assignedRole, maxStockLimit, now, now).run();
+          try {
+            await env.DB.prepare(
+              "INSERT INTO access_passwords (id, name, password_hash, role, max_stocks, max_indices, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)"
+            ).bind(id, name.trim(), hash, assignedRole, maxStockLimit, maxIndexLimit, now, now).run();
+          } catch {
+            await env.DB.prepare(
+              "INSERT INTO access_passwords (id, name, password_hash, role, max_stocks, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)"
+            ).bind(id, name.trim(), hash, assignedRole, maxStockLimit, now, now).run();
+          }
           clearAuthCache();
 
           return json(
@@ -757,6 +795,7 @@ export default {
                 initialPassword,
                 role: assignedRole,
                 max_stocks: maxStockLimit,
+                max_indices: maxIndexLimit,
                 is_active: 1,
                 created_at: now,
               },
@@ -779,7 +818,7 @@ export default {
           }
           const parsed = await parseJsonBody(request);
           if (!parsed.ok) return parsed.response;
-          const { id, name, password, maxStocks, isActive, role } = parsed.body;
+          const { id, name, password, maxStocks, maxIndices, isActive, role } = parsed.body;
           if (!id || typeof id !== "string") {
             return json({ error: "Invalid password id" }, 400, request);
           }
@@ -815,6 +854,18 @@ export default {
                 return json({ error: "銘柄数上限は1〜500の数値を指定してください" }, 400, request);
               }
               updates.push("max_stocks = ?");
+              params.push(Math.floor(num));
+            }
+          }
+          if (maxIndices !== undefined) {
+            if (maxIndices === null || maxIndices === 0 || maxIndices === "") {
+              updates.push("max_indices = NULL");
+            } else {
+              const num = Number(maxIndices);
+              if (!Number.isFinite(num) || num < 1 || num > 100) {
+                return json({ error: "指数上限は1〜100の数値を指定してください" }, 400, request);
+              }
+              updates.push("max_indices = ?");
               params.push(Math.floor(num));
             }
           }
@@ -1364,8 +1415,8 @@ export default {
         const baseValue = typeof body.baseValue === "number" ? body.baseValue : 1000;
 
         const basket = Array.isArray(body.basket) ? body.basket : [];
-        if (basket.length === 0 || (!isAdmin && basket.length > MAX_BASKET_ITEMS)) {
-          return json({ error: "Basket must contain between 1 and 100 items" }, 400, request);
+        if (basket.length === 0) {
+          return json({ error: "Basket must contain at least 1 item" }, 400, request);
         }
 
         const seenTickers = new Set<string>();
@@ -1432,6 +1483,26 @@ export default {
           } catch {}
         }
 
+        // Index limit check for user role when creating a new index
+        if (!isExisting && auth.authenticated && auth.role === "user" && auth.maxIndices && auth.maxIndices > 0 && auth.id) {
+          try {
+            const countRes = await env.DB.prepare(
+              "SELECT COUNT(*) as count FROM indices WHERE creator_id = ?"
+            ).bind(auth.id).all();
+            const countRow = countRes.results?.[0] as { count?: number } | undefined;
+            const currentIndicesCount = countRow?.count ?? 0;
+            if (currentIndicesCount >= auth.maxIndices) {
+              return json(
+                { error: `このユーザー用パスワードでは指数作成数を最大${auth.maxIndices}件までに制限されています（現在${currentIndicesCount}件登録済み）` },
+                403,
+                request
+              );
+            }
+          } catch {
+            // Ignore if creator_id column is not yet present
+          }
+        }
+
         let targetHash: string | null = null;
 
         if (isExisting) {
@@ -1466,12 +1537,19 @@ export default {
         }
 
         const nowMs = Math.floor(Date.now() / 1000);
+        const creatorId = auth.authenticated && auth.id ? auth.id : null;
 
         let insertIndexStmt;
         if (hasOwnerTokenHashColumn) {
-          insertIndexStmt = env.DB.prepare(
-            "INSERT OR REPLACE INTO indices (id, name, description, base_value, sort_order, owner_token_hash, created_at) VALUES (?, ?, ?, ?, 50, ?, COALESCE((SELECT created_at FROM indices WHERE id = ?), ?))",
-          ).bind(id, name, description, baseValue, targetHash, id, nowMs);
+          try {
+            insertIndexStmt = env.DB.prepare(
+              "INSERT OR REPLACE INTO indices (id, name, description, base_value, sort_order, owner_token_hash, creator_id, created_at) VALUES (?, ?, ?, ?, 50, ?, COALESCE((SELECT creator_id FROM indices WHERE id = ?), ?), COALESCE((SELECT created_at FROM indices WHERE id = ?), ?))",
+            ).bind(id, name, description, baseValue, targetHash, id, creatorId, id, nowMs);
+          } catch {
+            insertIndexStmt = env.DB.prepare(
+              "INSERT OR REPLACE INTO indices (id, name, description, base_value, sort_order, owner_token_hash, created_at) VALUES (?, ?, ?, ?, 50, ?, COALESCE((SELECT created_at FROM indices WHERE id = ?), ?))",
+            ).bind(id, name, description, baseValue, targetHash, id, nowMs);
+          }
         } else {
           // Fallback if columns not migrated yet
           insertIndexStmt = env.DB.prepare(
@@ -1496,7 +1574,7 @@ export default {
             hasOwnerTokenHashColumn &&
             batchErr &&
             typeof batchErr.message === "string" &&
-            (batchErr.message.includes("owner_token_hash") || batchErr.message.includes("created_at"))
+            (batchErr.message.includes("owner_token_hash") || batchErr.message.includes("created_at") || batchErr.message.includes("creator_id"))
           ) {
             const fallbackStmt = env.DB.prepare(
               "INSERT OR REPLACE INTO indices (id, name, description, base_value, sort_order) VALUES (?, ?, ?, ?, 50)",
@@ -1781,10 +1859,8 @@ export default {
           return json({ error: "Invalid baseValue" }, 400, request);
         }
         const baseValue = typeof rawBaseValue === "number" ? rawBaseValue : 1000;
-        const calcAuth = basket.length > MAX_BASKET_ITEMS ? await authenticatePassword(request, env) : null;
-        const isCalcAdmin = calcAuth?.authenticated === true && calcAuth.role === "admin";
-        if (!Array.isArray(basket) || basket.length === 0 || (!isCalcAdmin && basket.length > MAX_BASKET_ITEMS)) {
-          return json({ error: "Invalid basket: must contain between 1 and 100 items" }, 400, request);
+        if (!Array.isArray(basket) || basket.length === 0) {
+          return json({ error: "Invalid basket: must contain at least 1 item" }, 400, request);
         }
 
         // Strict basket validation: fail on any invalid entry

@@ -32,7 +32,7 @@ const SAMPLE_STOCKS: { ticker: string; name: string; theme: string }[] = [
 ];
 
 export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModalProps) {
-  const { session, isAuthenticated, isAdmin, isUser, maxStocks } = useAuth();
+  const { session, isAuthenticated, isAdmin, isUser, maxStocks, maxIndices } = useAuth();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -61,10 +61,6 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
       setError(`このパスワードの上限（最大${maxStocks}銘柄）に達しているため、これ以上追加できません`);
       return;
     }
-    if (!isAdmin && basket.length >= 100) {
-      setError("構成銘柄は最大100銘柄までです");
-      return;
-    }
     if (basket.some((b) => b.ticker === stock.ticker)) {
       setError(`銘柄コード ${stock.ticker} は既に追加されています`);
       return;
@@ -78,10 +74,6 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
     e.preventDefault();
     if (isLimitReached) {
       setError(`このパスワードの上限（最大${maxStocks}銘柄）に達しているため、これ以上追加できません`);
-      return;
-    }
-    if (!isAdmin && basket.length >= 100) {
-      setError("構成銘柄は最大100銘柄までです");
       return;
     }
     if (!customTicker.trim() || !customName.trim()) {
@@ -299,7 +291,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
                   <KeyRound size={14} style={{ color: "var(--neon-cyan)" }} />
                   <span>編集権限: <strong>{session?.name}</strong></span>
                   <span className="mono" style={{ color: "var(--neon-cyan)" }}>
-                    ({maxStocks ? `上限 ${maxStocks}銘柄` : "銘柄数無制限"})
+                    ({[maxStocks ? `上限 ${maxStocks}銘柄` : "銘柄数無制限", maxIndices ? `指数上限 ${maxIndices}件` : ""].filter(Boolean).join(" / ")})
                   </span>
                 </>
               ) : (

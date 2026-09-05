@@ -10,3 +10,8 @@ ALTER TABLE indices ADD COLUMN created_at INTEGER;
 -- Keep the legacy column for compatibility with old schemas; application code
 -- must never read from or write to it.
 UPDATE access_passwords SET plain_password = NULL;
+
+-- Migration: Add max_indices to access_passwords and creator_id to indices table
+ALTER TABLE access_passwords ADD COLUMN max_indices INTEGER DEFAULT NULL;
+ALTER TABLE indices ADD COLUMN creator_id TEXT;
+
