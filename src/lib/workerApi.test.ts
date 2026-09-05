@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import worker, { toYahooSymbol, SYSTEM_INDICES, hashToken } from "../../worker/index";
 
 function createMockEnv(overrides?: Partial<any>) {
-  const executeQuery = async (query: string) => {
+  const executeQuery = async (query: string, params: unknown[] = []) => {
     if (query.includes("rate_limits")) {
       return { results: [] };
     }
@@ -10,6 +10,21 @@ function createMockEnv(overrides?: Partial<any>) {
       return { results: [] };
     }
     if (query.includes("owner_token_hash") || query.includes("WHERE id = ?")) {
+      const targetId = params[0];
+      if (targetId === "test-index") {
+        return {
+          results: [
+            {
+              id: "test-index",
+              name: "Test Index",
+              description: "Desc",
+              base_value: 1000,
+              sort_order: 1,
+              owner_token_hash: null,
+            },
+          ],
+        };
+      }
       return { results: [] };
     }
     if (query.includes("indices")) {
@@ -45,13 +60,13 @@ function createMockEnv(overrides?: Partial<any>) {
 
   const prepareMock = vi.fn().mockImplementation((query: string) => {
     return {
-      bind: vi.fn().mockImplementation((..._params: any[]) => {
+      bind: vi.fn().mockImplementation((...params: any[]) => {
         return {
-          all: () => executeQuery(query),
+          all: () => executeQuery(query, params),
           run: vi.fn().mockResolvedValue({ success: true }),
         };
       }),
-      all: () => executeQuery(query),
+      all: () => executeQuery(query, []),
       run: vi.fn().mockResolvedValue({ success: true }),
     };
   });
@@ -890,6 +905,27 @@ describe("worker fetch handlers", () => {
       const data = await calculateRes.json();
       expect(data.ok).toBe(true);
       expect(data.basket).toHaveLength(101);
+    });
+
+    it("R3: normalizes lowercase tickers to uppercase in POST /api/calculate", async () => {
+      const env = createMockEnv();
+      const req = new Request("http://localhost/api/calculate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          basket: [
+            { ticker: "aapl", name: "Apple", weight: 50, theme: "Tech" },
+            { ticker: "msft", name: "Microsoft", weight: 50, theme: "Tech" },
+          ],
+          baseValue: 1000,
+        }),
+      });
+      const res = await worker.fetch(req, env as any);
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.ok).toBe(true);
+      expect(data.basket[0].ticker).toBe("AAPL");
+      expect(data.basket[1].ticker).toBe("MSFT");
     });
   });
 });

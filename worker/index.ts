@@ -638,6 +638,7 @@ export default {
             if (role === "user" || isActive === false) {
               return json({ error: "マスター管理者アカウントのロール変更および無効化はできません" }, 403, request);
             }
+            return json({ error: "マスター管理者アカウントの変更は専用エンドポイント (/api/admin/admin-password) を使用してください" }, 403, request);
           }
 
           await ensurePasswordTable(env);
@@ -801,18 +802,26 @@ export default {
             } catch {}
           }
 
-          if (auth.role !== "admin" && hasCheckedIndex && existingHash) {
-            const providedToken =
-              request.headers.get("x-owner-token")?.trim() ||
-              (typeof rawStock.ownerToken === "string" ? rawStock.ownerToken.trim() : "") ||
-              (typeof (parsed.body as any).ownerToken === "string" ? (parsed.body as any).ownerToken.trim() : "");
+          if (!hasCheckedIndex) {
+            return json({ error: "Index not found" }, 404, request);
+          }
 
-            if (!providedToken) {
-              return json({ error: "この指数を更新する権限がありません（作成者トークンが必要です）" }, 403, request);
-            }
-            const providedHash = await hashToken(providedToken);
-            if (!timingSafeEqual(providedHash, existingHash)) {
-              return json({ error: "この指数を更新する権限がありません（作成者トークンが一致しません）" }, 403, request);
+          if (auth.role !== "admin") {
+            if (existingHash) {
+              const providedToken =
+                request.headers.get("x-owner-token")?.trim() ||
+                (typeof rawStock.ownerToken === "string" ? rawStock.ownerToken.trim() : "") ||
+                (typeof (parsed.body as any).ownerToken === "string" ? (parsed.body as any).ownerToken.trim() : "");
+
+              if (!providedToken) {
+                return json({ error: "この指数を更新する権限がありません（作成者トークンが必要です）" }, 403, request);
+              }
+              const providedHash = await hashToken(providedToken);
+              if (!timingSafeEqual(providedHash, existingHash)) {
+                return json({ error: "この指数を更新する権限がありません（作成者トークンが一致しません）" }, 403, request);
+              }
+            } else {
+              return json({ error: "この指数は保護されているため更新できません（管理者権限が必要です）" }, 403, request);
             }
           }
 
@@ -881,19 +890,27 @@ export default {
             } catch {}
           }
 
-          if (auth.role !== "admin" && hasCheckedIndex && existingHash) {
-            const providedToken =
-              request.headers.get("x-owner-token")?.trim() ||
-              url.searchParams.get("token")?.trim() ||
-              url.searchParams.get("ownerToken")?.trim() ||
-              "";
+          if (!hasCheckedIndex) {
+            return json({ error: "Index not found" }, 404, request);
+          }
 
-            if (!providedToken) {
-              return json({ error: "この指数を削除する権限がありません（作成者トークンが必要です）" }, 403, request);
-            }
-            const providedHash = await hashToken(providedToken);
-            if (!timingSafeEqual(providedHash, existingHash)) {
-              return json({ error: "この指数を削除する権限がありません（作成者トークンが一致しません）" }, 403, request);
+          if (auth.role !== "admin") {
+            if (existingHash) {
+              const providedToken =
+                request.headers.get("x-owner-token")?.trim() ||
+                url.searchParams.get("token")?.trim() ||
+                url.searchParams.get("ownerToken")?.trim() ||
+                "";
+
+              if (!providedToken) {
+                return json({ error: "この指数から銘柄を削除する権限がありません（作成者トークンが必要です）" }, 403, request);
+              }
+              const providedHash = await hashToken(providedToken);
+              if (!timingSafeEqual(providedHash, existingHash)) {
+                return json({ error: "この指数から銘柄を削除する権限がありません（作成者トークンが一致しません）" }, 403, request);
+              }
+            } else {
+              return json({ error: "この指数は保護されているため銘柄を削除できません（管理者権限が必要です）" }, 403, request);
             }
           }
 
@@ -1269,17 +1286,21 @@ export default {
 
         if (isExisting) {
           // If index already exists and has an owner token hash, require authorization (admin bypasses)
-          if (!isAdmin && existingHash) {
-            if (!providedToken) {
-              return json({ error: "この指数を更新する権限がありません（作成者トークンが必要です）" }, 403, request);
+          if (!isAdmin) {
+            if (existingHash) {
+              if (!providedToken) {
+                return json({ error: "この指数を更新する権限がありません（作成者トークンが必要です）" }, 403, request);
+              }
+              const providedHash = await hashToken(providedToken);
+              if (!timingSafeEqual(providedHash, existingHash)) {
+                return json({ error: "この指数を更新する権限がありません（作成者トークンが一致しません）" }, 403, request);
+              }
+              targetHash = existingHash;
+            } else {
+              return json({ error: "この指数は保護されているため更新できません（管理者権限が必要です）" }, 403, request);
             }
-            const providedHash = await hashToken(providedToken);
-            if (!timingSafeEqual(providedHash, existingHash)) {
-              return json({ error: "この指数を更新する権限がありません（作成者トークンが一致しません）" }, 403, request);
-            }
-            targetHash = existingHash;
           } else {
-            // Legacy index without hash or admin edit - if a token is provided, assign it now
+            // Admin edit - if a token is provided, assign it now
             if (providedToken) {
               targetHash = await hashToken(providedToken);
             } else if (existingHash) {
@@ -1610,7 +1631,7 @@ export default {
           if (typeof r.ticker !== "string" || r.ticker.trim().length === 0 || r.ticker.trim().length > 20 || !/^[A-Za-z0-9.\-]+$/.test(r.ticker.trim())) {
             return json({ error: "Invalid basket item: ticker" }, 400, request);
           }
-          const ticker = r.ticker.trim();
+          const ticker = r.ticker.trim().toUpperCase();
           if (seenCalcTickers.has(ticker)) {
             return json({ error: `Duplicate ticker in basket: ${ticker}` }, 400, request);
           }
@@ -1627,7 +1648,7 @@ export default {
           }
         }
         const validatedBasket: BasketItemInput[] = (basket as BasketItemInput[]).map((item) => ({
-          ticker: (item.ticker as string).trim(),
+          ticker: (item.ticker as string).trim().toUpperCase(),
           name: (item.name as string).trim(),
           theme: (item.theme as string).trim(),
           weight: item.weight,

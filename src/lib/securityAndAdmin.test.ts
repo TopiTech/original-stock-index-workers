@@ -711,5 +711,174 @@ describe("Security and Admin Regression Tests", () => {
       const data = await res.json();
       expect(data.error).toContain("Duplicate ticker");
     });
+
+    it("R1: prevents non-admin from updating protected index with null owner_token_hash via POST /api/indices", async () => {
+      const { env, indices } = createSecurityTestEnv();
+      indices.set("protected-legacy-index", {
+        id: "protected-legacy-index",
+        name: "Protected Legacy",
+        description: "No owner token hash",
+        base_value: 1000,
+        owner_token_hash: null,
+      });
+
+      const req = new Request("http://localhost/api/indices", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-owner-token": "attacker-token",
+        },
+        body: JSON.stringify({
+          id: "protected-legacy-index",
+          name: "Hijacked Index",
+          ownerToken: "attacker-token",
+          basket: [{ ticker: "7203", name: "Toyota", weight: 100 }],
+        }),
+      });
+      const res = await worker.fetch(req, env as any);
+      expect(res.status).toBe(403);
+      const data = await res.json();
+      expect(data.error).toContain("保護されているため更新できません");
+    });
+
+    it("R1: allows admin to update protected index with null owner_token_hash via POST /api/indices", async () => {
+      const { env, indices } = createSecurityTestEnv();
+      indices.set("protected-legacy-index", {
+        id: "protected-legacy-index",
+        name: "Protected Legacy",
+        description: "No owner token hash",
+        base_value: 1000,
+        owner_token_hash: null,
+      });
+
+      const req = new Request("http://localhost/api/indices", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": "admin1234",
+        },
+        body: JSON.stringify({
+          id: "protected-legacy-index",
+          name: "Admin Updated Index",
+          basket: [{ ticker: "7203", name: "Toyota", weight: 100 }],
+        }),
+      });
+      const res = await worker.fetch(req, env as any);
+      expect(res.status).toBe(200);
+    });
+
+    it("R1: prevents non-admin from modifying stock in protected index via POST/DELETE /api/indices/stock", async () => {
+      const { env, indices, passwords } = createSecurityTestEnv();
+      const userHash = await hashToken("user1234");
+      passwords.set("user-1", {
+        id: "user-1",
+        name: "Regular User",
+        password_hash: userHash,
+        plain_password: "user1234",
+        role: "user",
+        max_stocks: 10,
+        is_active: 1,
+        created_at: 1000,
+        updated_at: 1000,
+      });
+
+      indices.set("protected-idx", {
+        id: "protected-idx",
+        name: "Protected",
+        description: "Protected index",
+        base_value: 1000,
+        owner_token_hash: null,
+      });
+
+      // POST /api/indices/stock
+      const postReq = new Request("http://localhost/api/indices/stock", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": "user1234",
+          "x-owner-token": "attacker-token",
+        },
+        body: JSON.stringify({
+          indexId: "protected-idx",
+          stock: { ticker: "9984", name: "SoftBank", weight: 50 },
+        }),
+      });
+      const postRes = await worker.fetch(postReq, env as any);
+      expect(postRes.status).toBe(403);
+      const postData = await postRes.json();
+      expect(postData.error).toContain("保護されているため更新できません");
+
+      // DELETE /api/indices/stock
+      const delReq = new Request("http://localhost/api/indices/stock?indexId=protected-idx&ticker=9984", {
+        method: "DELETE",
+        headers: {
+          "x-auth-password": "user1234",
+          "x-owner-token": "attacker-token",
+        },
+      });
+      const delRes = await worker.fetch(delReq, env as any);
+      expect(delRes.status).toBe(403);
+      const delData = await delRes.json();
+      expect(delData.error).toContain("保護されているため銘柄を削除できません");
+    });
+
+    it("R1: returns 404 for nonexistent indexId in POST/DELETE /api/indices/stock", async () => {
+      const { env, passwords } = createSecurityTestEnv();
+      const userHash = await hashToken("user1234");
+      passwords.set("user-1", {
+        id: "user-1",
+        name: "Regular User",
+        password_hash: userHash,
+        plain_password: "user1234",
+        role: "user",
+        max_stocks: 10,
+        is_active: 1,
+        created_at: 1000,
+        updated_at: 1000,
+      });
+
+      const postReq = new Request("http://localhost/api/indices/stock", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": "user1234",
+        },
+        body: JSON.stringify({
+          indexId: "non-existent-index",
+          stock: { ticker: "9984", name: "SoftBank", weight: 50 },
+        }),
+      });
+      const postRes = await worker.fetch(postReq, env as any);
+      expect(postRes.status).toBe(404);
+
+      const delReq = new Request("http://localhost/api/indices/stock?indexId=non-existent-index&ticker=9984", {
+        method: "DELETE",
+        headers: {
+          "x-auth-password": "user1234",
+        },
+      });
+      const delRes = await worker.fetch(delReq, env as any);
+      expect(delRes.status).toBe(404);
+    });
+
+    it("R2: rejects admin-master update via PUT /api/admin/passwords with 403 Forbidden", async () => {
+      const { env } = createSecurityTestEnv();
+
+      const req = new Request("http://localhost/api/admin/passwords", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": "admin1234",
+        },
+        body: JSON.stringify({
+          id: "admin-master",
+          password: "weakpassword",
+        }),
+      });
+      const res = await worker.fetch(req, env as any);
+      expect(res.status).toBe(403);
+      const data = await res.json();
+      expect(data.error).toContain("マスター管理者アカウントの変更は専用エンドポイント");
+    });
   });
 });

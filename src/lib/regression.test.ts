@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 const workerSrc = readFileSync(resolve("worker/index.ts"), "utf-8");
@@ -64,9 +64,15 @@ describe("regression: worker API contract", () => {
     expect(hookSrc).toContain("const BATCH_SIZE = 30;");
   });
 
-  it("R8: wrangler.local.jsonc includes single-page-application and run_worker_first config", () => {
-    const wranglerLocalSrc = readFileSync(resolve("wrangler.local.jsonc"), "utf-8");
-    expect(wranglerLocalSrc).toContain('"not_found_handling": "single-page-application"');
-    expect(wranglerLocalSrc).toContain('"/api/*"');
+  it("R8: wrangler configuration includes single-page-application and run_worker_first config", () => {
+    const wranglerSrc = readFileSync(resolve("wrangler.jsonc"), "utf-8");
+    expect(wranglerSrc).toContain('"not_found_handling": "single-page-application"');
+    expect(wranglerSrc).toContain('"/api/*"');
+
+    if (existsSync(resolve("wrangler.local.jsonc"))) {
+      const wranglerLocalSrc = readFileSync(resolve("wrangler.local.jsonc"), "utf-8");
+      expect(wranglerLocalSrc).toContain('"not_found_handling": "single-page-application"');
+      expect(wranglerLocalSrc).toContain('"/api/*"');
+    }
   });
 });
