@@ -45,7 +45,7 @@ export function Header({ onNavigateToAdmin }: HeaderProps) {
                 onClick={logout}
                 className="btn btn-sm btn-outline"
                 style={{ padding: "3px 8px", fontSize: 11 }}
-                title="ログアウト"
+                aria-label="ログアウト"
               >
                 ログアウト
               </button>

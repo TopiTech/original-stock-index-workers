@@ -35,9 +35,12 @@ interface AdminDashboardProps {
 
 function generateSecurePassword(length = 10): string {
   const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const charsLength = chars.length;
+  const randomValues = new Uint32Array(length);
+  crypto.getRandomValues(randomValues);
   let result = "";
   for (let i = 0; i < length; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
+    result += chars.charAt(randomValues[i] % charsLength);
   }
   return result;
 }
@@ -893,7 +896,7 @@ export function AdminDashboard({
                                 onClick={() => handleCopy(item.plain_password!, item.id)}
                                 className="btn btn-sm btn-outline"
                                 style={{ padding: "2px 6px", fontSize: 10 }}
-                                title="パスワードをコピー"
+                                aria-label={copiedId === item.id ? "コピー済み" : "パスワードをコピー"}
                               >
                                 {copiedId === item.id ? (
                                   <span style={{ color: "var(--neon-green)" }}>コピー済</span>
@@ -922,10 +925,11 @@ export function AdminDashboard({
                             {item.is_active === 1 ? "有効" : "停止"}
                           </button>
                         </td>
-                        <td style={{ textAlign: "center" }}>
+                         <td style={{ textAlign: "center" }}>
                           <button
                             type="button"
                             onClick={() => handleDeletePassword(item.id, item.name)}
+                            aria-label={`${item.name}のパスワードを削除`}
                             style={{
                               background: "transparent",
                               border: "none",
@@ -933,7 +937,6 @@ export function AdminDashboard({
                               cursor: "pointer",
                               padding: 4,
                             }}
-                            title="削除"
                           >
                             <Trash2 size={13} />
                           </button>
@@ -1134,10 +1137,11 @@ export function AdminDashboard({
                             }}
                           />
                         </td>
-                        <td style={{ textAlign: "center" }}>
+                         <td style={{ textAlign: "center" }}>
                           <button
                             type="button"
                             onClick={() => setEditBasket(editBasket.filter((item) => item.ticker !== b.ticker))}
+                            aria-label={`${b.name} (${b.ticker}) を削除`}
                             style={{
                               background: "transparent",
                               border: "none",
@@ -1145,7 +1149,6 @@ export function AdminDashboard({
                               cursor: "pointer",
                               padding: 4,
                             }}
-                            title="銘柄を削除"
                           >
                             <Trash2 size={13} />
                           </button>

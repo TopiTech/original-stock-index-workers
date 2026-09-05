@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import worker, { hashToken } from "../../worker/index";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import worker, { hashToken, clearMemoryCache } from "../../worker/index";
 import { buildChartData } from "./chartData";
 import { normalizeWeights, calculateCustomIndex } from "./indexEngine";
 import type { BasketItem, PricePoint, StockSeries } from "../types";
@@ -91,6 +91,10 @@ describe("integration: end-to-end index engine & chart pipeline", () => {
 });
 
 describe("integration: worker indices query edge cases", () => {
+  beforeEach(() => {
+    clearMemoryCache();
+  });
+
   it("safely handles indices with null or zero base_value in database", async () => {
     const mockEnv = {
       ASSETS: { fetch: vi.fn() },

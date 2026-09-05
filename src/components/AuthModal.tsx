@@ -178,6 +178,8 @@ export function AuthModal({
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
+                aria-label={showPassword ? "パスワードを隠す" : "パスワードを表示"}
+                aria-pressed={showPassword}
                 style={{
                   position: "absolute",
                   right: 10,
