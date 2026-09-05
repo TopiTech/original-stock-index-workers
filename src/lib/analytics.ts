@@ -64,9 +64,9 @@ export function calculateRiskMetrics(
   const endVal = customSeries[customSeries.length - 1].value ?? customSeries[customSeries.length - 1].close;
   const totalReturn = startVal > 0 ? (endVal - startVal) / startVal : 0;
   
-  // 年率換算 (250営業日基準)
+  // 年率換算 (CAGR: Compound Annual Growth Rate, 250営業日基準)
   const annualFactor = 250 / customReturns.length;
-  const annualReturn = totalReturn * annualFactor * 100;
+  const annualReturn = (Math.pow(1 + totalReturn, annualFactor) - 1) * 100;
 
   // 3. 年率ボラティリティ (標準偏差 * sqrt(250))
   const meanReturn = customReturns.reduce((sum, r) => sum + r, 0) / customReturns.length;

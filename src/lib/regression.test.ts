@@ -76,3 +76,74 @@ describe("regression: worker API contract", () => {
     }
   });
 });
+
+// ── Fix-specific regression tests ──
+
+import { timingSafeEqual } from "../../worker/index";
+import { calculateRiskMetrics } from "./analytics";
+
+describe("regression: timingSafeEqual timing-safe behavior", () => {
+  it("returns true for identical strings", () => {
+    expect(timingSafeEqual("abc", "abc")).toBe(true);
+    expect(timingSafeEqual("", "")).toBe(true);
+  });
+
+  it("returns false for different strings of equal length", () => {
+    expect(timingSafeEqual("abc", "abd")).toBe(false);
+  });
+
+  it("returns false for different-length strings without early-returning", () => {
+    // This test ensures the function does NOT short-circuit on length mismatch.
+    // The old implementation returned false immediately when lengths differed,
+    // leaking length information via timing.
+    expect(timingSafeEqual("abc", "ab")).toBe(false);
+    expect(timingSafeEqual("a", "ab")).toBe(false);
+    expect(timingSafeEqual("", "a")).toBe(false);
+    expect(timingSafeEqual("a", "")).toBe(false);
+  });
+
+  it("implementation does not early-return on length mismatch (source code check)", () => {
+    // Ensure the source code does NOT contain the pattern:
+    //   if (a.length !== b.length) { return false; }
+    // which would be a timing leak.
+    expect(workerSrc).not.toMatch(
+      /function timingSafeEqual[\s\S]*?a\.length\s*!==\s*b\.length[\s\S]*?return false/
+    );
+  });
+});
+
+describe("regression: annualReturn uses CAGR (compound annualization)", () => {
+  it("computes annualized return via CAGR, not linear scaling", () => {
+    // Build a synthetic 500-day series (2 years of trading days) with 100% total return.
+    // Linear scaling: 100% * (250/499) ≈ 50.1%  (WRONG)
+    // CAGR: ((1 + 1.0) ^ (250/499) - 1) * 100 ≈ 41.42%  (CORRECT)
+    const points = Array.from({ length: 500 }, (_, i) => ({
+      date: `2024-${String(Math.floor(i / 30) + 1).padStart(2, "0")}-${String((i % 30) + 1).padStart(2, "0")}`,
+      value: 1000 + (1000 * i) / 499, // linearly from 1000 to 2000
+      close: 1000 + (1000 * i) / 499,
+    }));
+
+    const metrics = calculateRiskMetrics(points, []);
+
+    // CAGR for 100% over 500 trading days (250/499 ≈ 0.5010) should be ~41.42%
+    // Linear would give ~50.1%. We assert that the value is closer to the CAGR result.
+    expect(metrics.annualReturn).toBeGreaterThan(38);
+    expect(metrics.annualReturn).toBeLessThan(45);
+    // Definitively NOT the linear-scaled value:
+    expect(metrics.annualReturn).not.toBeGreaterThan(49);
+  });
+
+  it("handles negative total returns correctly with CAGR", () => {
+    // 250-day series with -20% total return
+    const points = Array.from({ length: 251 }, (_, i) => ({
+      date: `2024-01-${String(i + 1).padStart(2, "0")}`,
+      value: 1000 * (1 - 0.2 * (i / 250)),
+      close: 1000 * (1 - 0.2 * (i / 250)),
+    }));
+
+    const metrics = calculateRiskMetrics(points, []);
+
+    // CAGR for -20% over 250 days (exactly 1 year) = -20%
+    expect(metrics.annualReturn).toBeCloseTo(-20, 0);
+  });
+});

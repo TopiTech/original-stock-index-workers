@@ -65,14 +65,17 @@ export async function hashToken(token: string): Promise<string> {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-// Constant-time string comparison to prevent timing attacks
+// Constant-time string comparison to prevent timing attacks.
+// Unlike a naive implementation that early-returns on length mismatch, this
+// always iterates over the longer input so that differing lengths do not leak
+// information through timing differences.
 export function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) {
-    return false;
-  }
-  let result = 0;
-  for (let i = 0; i < a.length; i++) {
-    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  const len = Math.max(a.length, b.length);
+  let result = a.length ^ b.length;
+  for (let i = 0; i < len; i++) {
+    const ca = i < a.length ? a.charCodeAt(i) : 0xff;
+    const cb = i < b.length ? b.charCodeAt(i) : 0xff;
+    result |= ca ^ cb;
   }
   return result === 0;
 }
