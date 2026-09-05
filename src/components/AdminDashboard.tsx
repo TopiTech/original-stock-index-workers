@@ -75,6 +75,7 @@ export function AdminDashboard({
   const [creatingPassword, setCreatingPassword] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createSuccess, setCreateSuccess] = useState<string | null>(null);
+  const [issuedPassword, setIssuedPassword] = useState<{ name: string; password: string } | null>(null);
 
   // Full Index Edit state
   const [selectedEditIndexId, setSelectedEditIndexId] = useState<string>(
@@ -190,6 +191,7 @@ export function AdminDashboard({
     setCreatingPassword(true);
     setCreateError(null);
     setCreateSuccess(null);
+    setIssuedPassword(null);
 
     try {
       const res = await fetch("/api/admin/passwords", {
@@ -211,7 +213,12 @@ export function AdminDashboard({
         throw new Error(data.error || "パスワード作成に失敗しました");
       }
 
+      const initialPassword =
+        typeof data.password?.initialPassword === "string" ? data.password.initialPassword : null;
       setCreateSuccess(`パスワードを作成しました: [${newUserName.trim()}] / 銘柄制限: ${newUserRole === "admin" ? "無制限" : `${newUserMaxStocks}銘柄`}`);
+      if (initialPassword) {
+        setIssuedPassword({ name: newUserName.trim(), password: initialPassword });
+      }
       setNewUserName("");
       setNewUserPassword(generateSecurePassword());
       await fetchPasswords();
@@ -341,8 +348,8 @@ export function AdminDashboard({
   // Change Master Admin Password
   const handleUpdateAdminPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newAdminPassword.length < 6) {
-      setAdminPwdMessage({ type: "error", text: "パスワードは6文字以上で入力してください" });
+    if (newAdminPassword.length < 8 || newAdminPassword.length > 100) {
+      setAdminPwdMessage({ type: "error", text: "パスワードは8〜100文字で入力してください" });
       return;
     }
     if (newAdminPassword !== confirmAdminPassword) {
@@ -471,7 +478,8 @@ export function AdminDashboard({
                   type="password"
                   value={adminPasswordInput}
                   onChange={(e) => setAdminPasswordInput(e.target.value)}
-                  placeholder="管理者パスワード (初期: admin1234)"
+                  placeholder="設定済みの管理者パスワード"
+                  autoComplete="current-password"
                   autoFocus
                   style={{
                     width: "100%",
@@ -485,7 +493,7 @@ export function AdminDashboard({
                   }}
                 />
                 <div className="muted tiny" style={{ marginTop: 6 }}>
-                  ※ 初期パスワードは <code>admin1234</code> です（ログイン後に変更可能）。
+                  ※ 初回ログインにはデプロイ時に設定した <code>ADMIN_PASSWORD</code> を使用してください。
                 </div>
               </div>
 
@@ -633,12 +641,44 @@ export function AdminDashboard({
               </div>
             )}
 
+            {issuedPassword && (
+              <div
+                role="status"
+                aria-live="polite"
+                style={{
+                  padding: "10px 12px",
+                  background: "rgba(0, 229, 255, 0.1)",
+                  border: "1px solid var(--border-cyan)",
+                  borderRadius: 6,
+                  marginBottom: 14,
+                }}
+              >
+                <div className="muted tiny" style={{ marginBottom: 6 }}>
+                  {issuedPassword.name} の初期パスワード（この画面でのみ表示）
+                </div>
+                <div className="row space-between" style={{ gap: 8 }}>
+                  <code style={{ color: "var(--neon-cyan)", wordBreak: "break-all" }}>
+                    {issuedPassword.password}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(issuedPassword.password, "issued-password")}
+                    className="btn btn-sm btn-outline"
+                    aria-label={copiedId === "issued-password" ? "初期パスワードをコピー済み" : "初期パスワードをコピー"}
+                  >
+                    {copiedId === "issued-password" ? <Check size={12} /> : <Copy size={12} />}
+                  </button>
+                </div>
+              </div>
+            )}
+
             <form onSubmit={handleCreatePassword}>
               <div style={{ marginBottom: 14 }}>
-                <label style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
+                <label htmlFor="new-user-name" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
                   ユーザー名 / 組織名 <span style={{ color: "var(--neon-red)" }}>*</span>
                 </label>
                 <input
+                  id="new-user-name"
                   type="text"
                   value={newUserName}
                   onChange={(e) => setNewUserName(e.target.value)}
@@ -658,7 +698,7 @@ export function AdminDashboard({
 
               <div style={{ marginBottom: 14 }}>
                 <div className="row space-between" style={{ marginBottom: 4 }}>
-                  <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                  <label htmlFor="new-user-password" style={{ fontSize: 12, color: "var(--text-secondary)" }}>
                     パスワード <span style={{ color: "var(--neon-red)" }}>*</span>
                   </label>
                   <button
@@ -679,9 +719,11 @@ export function AdminDashboard({
                   </button>
                 </div>
                 <input
+                  id="new-user-password"
                   type="text"
                   value={newUserPassword}
                   onChange={(e) => setNewUserPassword(e.target.value)}
+                  autoComplete="new-password"
                   style={{
                     width: "100%",
                     padding: "8px 10px",
@@ -697,7 +739,7 @@ export function AdminDashboard({
               </div>
 
               <div style={{ marginBottom: 16 }}>
-                <label style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}>
+                <label htmlFor="new-user-max-stocks" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}>
                   追加可能銘柄数（制限）
                 </label>
                 <div className="row flex-wrap" style={{ gap: 6, marginBottom: 8 }}>
@@ -726,6 +768,7 @@ export function AdminDashboard({
                   <div className="row" style={{ gap: 8, alignItems: "center" }}>
                     <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>カスタム上限:</span>
                     <input
+                      id="new-user-max-stocks"
                       type="number"
                       min="1"
                       max="500"
@@ -878,36 +921,7 @@ export function AdminDashboard({
                           )}
                         </td>
                         <td>
-                          {item.plain_password ? (
-                            <div className="row" style={{ gap: 6 }}>
-                              <code
-                                style={{
-                                  background: "rgba(0, 229, 255, 0.08)",
-                                  padding: "2px 6px",
-                                  borderRadius: 4,
-                                  color: "var(--neon-cyan)",
-                                  fontSize: 12,
-                                }}
-                              >
-                                {item.plain_password}
-                              </code>
-                              <button
-                                type="button"
-                                onClick={() => handleCopy(item.plain_password!, item.id)}
-                                className="btn btn-sm btn-outline"
-                                style={{ padding: "2px 6px", fontSize: 10 }}
-                                aria-label={copiedId === item.id ? "コピー済み" : "パスワードをコピー"}
-                              >
-                                {copiedId === item.id ? (
-                                  <span style={{ color: "var(--neon-green)" }}>コピー済</span>
-                                ) : (
-                                  <Copy size={11} />
-                                )}
-                              </button>
-                            </div>
-                          ) : (
-                            <span className="muted tiny">（暗号化済）</span>
-                          )}
+                          <span className="muted tiny">（作成時のみ表示）</span>
                         </td>
                         <td>
                           <button
@@ -1300,10 +1314,16 @@ export function AdminDashboard({
               <h2 style={{ fontSize: 16, margin: 0, fontWeight: 700 }}>管理者マスターパスワード変更</h2>
             </div>
             <p className="muted tiny" style={{ marginTop: 0, marginBottom: 16, lineHeight: 1.5 }}>
-              管理コンソールへのアクセスに必要なマスターパスワードを更新します。6文字以上で入力してください。
+              管理コンソールへのアクセスに必要なマスターパスワードを更新します。8〜100文字で入力してください。
             </p>
 
-            {adminPwdMessage && (
+            {session?.id !== "admin-master" ? (
+              <div className="muted tiny" role="status">
+                マスターパスワードを変更できるのはマスター管理者だけです。
+              </div>
+            ) : (
+              <>
+              {adminPwdMessage && (
               <div
                 className="row"
                 style={{
@@ -1324,14 +1344,16 @@ export function AdminDashboard({
 
             <form onSubmit={handleUpdateAdminPassword}>
               <div style={{ marginBottom: 14 }}>
-                <label style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
+                <label htmlFor="new-admin-password" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
                   新しい管理者パスワード
                 </label>
                 <input
+                  id="new-admin-password"
                   type="password"
                   value={newAdminPassword}
                   onChange={(e) => setNewAdminPassword(e.target.value)}
-                  placeholder="新しいパスワード (6文字以上)"
+                  autoComplete="new-password"
+                  placeholder="新しいパスワード (8〜100文字)"
                   style={{
                     width: "100%",
                     padding: "8px 10px",
@@ -1346,13 +1368,15 @@ export function AdminDashboard({
               </div>
 
               <div style={{ marginBottom: 18 }}>
-                <label style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
+                <label htmlFor="confirm-admin-password" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
                   新しい管理者パスワード（確認）
                 </label>
                 <input
+                  id="confirm-admin-password"
                   type="password"
                   value={confirmAdminPassword}
                   onChange={(e) => setConfirmAdminPassword(e.target.value)}
+                  autoComplete="new-password"
                   placeholder="もう一度入力してください"
                   style={{
                     width: "100%",
@@ -1369,13 +1393,15 @@ export function AdminDashboard({
 
               <button
                 type="submit"
-                disabled={updatingAdminPwd || newAdminPassword.length < 6}
+                disabled={updatingAdminPwd || newAdminPassword.length < 8 || newAdminPassword.length > 100}
                 className="btn btn-default"
                 style={{ width: "100%" }}
               >
                 {updatingAdminPwd ? "更新中..." : "管理者パスワードを更新"}
               </button>
             </form>
+              </>
+            )}
           </Card>
         </div>
       )}

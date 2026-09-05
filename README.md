@@ -49,6 +49,15 @@ GitHub Actions でCloudflare Workersに自動デプロイを行うため、以�
 - `CLOUDFLARE_API_TOKEN`: Cloudflare の API トークン（Cloudflare Workers 編集権限）
 - `D1_DATABASE_ID`: 作成した D1 データベースの ID (UUID)
 
+### 3. 管理者パスワードの設定
+管理者パスワードに組み込みの初期値はありません。初回デプロイ前に Worker Secret を設定してください。
+
+```bash
+npx wrangler secret put ADMIN_PASSWORD
+```
+
+初回ログイン後に管理画面からマスター管理者パスワードを変更すると、以後は D1 に保存された PBKDF2 ハッシュだけが有効になります。旧バージョンで `plain_password` 列を持つ D1 を利用している場合は、バックアップを取得したうえで `schema.migration.sql` を一度だけ実行し、既存の平文値を消去してください。
+
 ## 主要ファイル
 
 - `wrangler.jsonc`: Workers 設定（データベース ID は CI/CD で自動注入されます）
@@ -58,7 +67,7 @@ GitHub Actions でCloudflare Workersに自動デプロイを行うため、以�
 ## 開発上の注意
 
 - **データ同期**: Yahoo Finance からの取得は 4 時間のキャッシュが効くように実装されています。強制的に更新したい場合は `/api/sync-prices` に `{ "force": true }` を送ってください。
-- **セキュリティ**: ローカル環境でのDB更新を楽にするため、実際のデータベース IDを記述した`wrangler.local.jsonc` を任意で作成してください。これは git 管理外（`.gitignore`）に設定されています。
+- **セキュリティ**: ローカル環境でのDB更新を楽にするため、実際のデータベース IDを記述した`wrangler.local.jsonc` を任意で作成してください。これは git 管理外（`.gitignore`）に設定されています。管理画面で発行したユーザーパスワードは作成直後のレスポンスでのみ表示され、一覧や D1 には平文で保存されません。
 
 ## ライセンス
 

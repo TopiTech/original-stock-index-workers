@@ -1,7 +1,8 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Lock, KeyRound, X, AlertCircle, CheckCircle2, ShieldAlert } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
+import { useModalFocus } from "../hooks/useModalFocus";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -22,17 +23,9 @@ export function AuthModal({
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
-
-  React.useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
+  useModalFocus(isOpen, dialogRef, onClose, passwordInputRef);
 
   if (!isOpen) return null;
 
@@ -59,6 +52,8 @@ export function AuthModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="auth-modal-title"
+      data-modal-dialog
+      ref={dialogRef}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -162,7 +157,8 @@ export function AuthModal({
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="ユーザーパスワードまたは管理者パスワード"
-                autoFocus
+                ref={passwordInputRef}
+                autoComplete="current-password"
                 style={{
                   width: "100%",
                   padding: "10px 40px 10px 12px",

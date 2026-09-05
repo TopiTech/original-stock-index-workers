@@ -47,11 +47,10 @@ export const SYSTEM_INDICES = new Set([
   "jp-core",
 ]);
 
-const DEFAULT_ADMIN_PASSWORD = "admin1234";
 const MAX_BASKET_ITEMS = 100;
-export function getDefaultAdminPassword(): string {
-  return DEFAULT_ADMIN_PASSWORD;
-}
+const PASSWORD_HASH_PREFIX = "pbkdf2-sha256";
+const PASSWORD_HASH_ITERATIONS = 100_000;
+const AUTH_RATE_LIMIT_MAX = 10;
 
 // Hash an owner token or password for secure storage
 export async function hashToken(token: string): Promise<string> {
@@ -74,6 +73,103 @@ export function timingSafeEqual(a: string, b: string): boolean {
   return result === 0;
 }
 
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function hexToBytes(hex: string): Uint8Array | null {
+  if (!/^[0-9a-f]+$/i.test(hex) || hex.length % 2 !== 0) return null;
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+/**
+ * Password hashes use a per-password salt and PBKDF2. The legacy SHA-256
+ * format remains verifiable so existing accounts can be upgraded on login.
+ */
+export async function hashPassword(password: string): Promise<string> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(password),
+    { name: "PBKDF2" },
+    false,
+    ["deriveBits"],
+  );
+  const derivedBits = await crypto.subtle.deriveBits(
+    {
+      name: "PBKDF2",
+      salt,
+      iterations: PASSWORD_HASH_ITERATIONS,
+      hash: "SHA-256",
+    },
+    key,
+    256,
+  );
+  return `${PASSWORD_HASH_PREFIX}$${PASSWORD_HASH_ITERATIONS}$${bytesToHex(salt)}$${bytesToHex(new Uint8Array(derivedBits))}`;
+}
+
+function parsePasswordHash(storedHash: string): {
+  iterations: number;
+  salt: Uint8Array;
+  digest: string;
+} | null {
+  const [prefix, iterationsText, saltHex, digest] = storedHash.split("$");
+  const iterations = Number(iterationsText);
+  const salt = saltHex ? hexToBytes(saltHex) : null;
+  if (
+    prefix !== PASSWORD_HASH_PREFIX ||
+    !Number.isSafeInteger(iterations) ||
+    iterations < 10_000 ||
+    iterations > 2_000_000 ||
+    !salt ||
+    salt.length < 16 ||
+    !/^[0-9a-f]{64}$/i.test(digest || "")
+  ) {
+    return null;
+  }
+  return { iterations, salt, digest: digest.toLowerCase() };
+}
+
+export async function verifyPasswordHash(password: string, storedHash: string): Promise<boolean> {
+  const parsed = parsePasswordHash(storedHash);
+  if (!parsed) {
+    // Legacy hashes were unsalted SHA-256 digests. Keep this path only for
+    // migration compatibility; new writes always use PBKDF2.
+    return timingSafeEqual(await hashToken(password), storedHash);
+  }
+
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(password),
+    { name: "PBKDF2" },
+    false,
+    ["deriveBits"],
+  );
+  const derivedBits = await crypto.subtle.deriveBits(
+    {
+      name: "PBKDF2",
+      // Cloudflare's runtime accepts Uint8Array salts; the cast bridges the
+      // DOM lib's stricter ArrayBuffer generic in the application compiler.
+      salt: parsed.salt as unknown as BufferSource,
+      iterations: parsed.iterations,
+      hash: "SHA-256",
+    },
+    key,
+    256,
+  );
+  return timingSafeEqual(bytesToHex(new Uint8Array(derivedBits)), parsed.digest);
+}
+
+function isModernPasswordHash(storedHash: string): boolean {
+  return storedHash.startsWith(`${PASSWORD_HASH_PREFIX}$`);
+}
+
 let isPasswordTableEnsured = false;
 export function resetPasswordTableEnsured(): void {
   isPasswordTableEnsured = false;
@@ -83,11 +179,10 @@ export async function ensurePasswordTable(env: Env): Promise<void> {
   if (isPasswordTableEnsured) return;
   try {
     await env.DB.prepare(`
-      CREATE TABLE IF NOT EXISTS access_passwords (
+    CREATE TABLE IF NOT EXISTS access_passwords (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         password_hash TEXT NOT NULL,
-        plain_password TEXT,
         role TEXT NOT NULL DEFAULT 'user',
         max_stocks INTEGER DEFAULT 10,
         is_active INTEGER DEFAULT 1,
@@ -95,6 +190,14 @@ export async function ensurePasswordTable(env: Env): Promise<void> {
         updated_at INTEGER
       )
     `).run();
+    // Scrub the legacy column when an existing database still has it. New
+    // schemas do not define the column, so this compatibility cleanup is
+    // intentionally best-effort and harmless when the column is absent.
+    try {
+      await env.DB.prepare("UPDATE access_passwords SET plain_password = NULL").run();
+    } catch {
+      // Current schemas have no legacy plain_password column.
+    }
     isPasswordTableEnsured = true;
   } catch {
     // ignore
@@ -118,6 +221,27 @@ function setAuthCache(key: string, entry: AuthCacheEntry): void {
 
 export function clearAuthCache(): void {
   authCache.clear();
+}
+
+async function upgradeLegacyPasswordHash(
+  env: Env,
+  id: string,
+  password: string,
+  storedHash: string,
+): Promise<void> {
+  if (isModernPasswordHash(storedHash)) return;
+  try {
+    const upgradedHash = await hashPassword(password);
+    await env.DB.prepare(
+      "UPDATE access_passwords SET password_hash = ?, updated_at = ? WHERE id = ?",
+    )
+      .bind(upgradedHash, Math.floor(Date.now() / 1000), id)
+      .run();
+  } catch (err) {
+    // A successful login must not fail just because a best-effort migration
+    // could not be persisted. The next login can retry the upgrade.
+    console.error("Failed to upgrade legacy password hash:", err);
+  }
 }
 
 export async function authenticatePassword(
@@ -144,6 +268,14 @@ export async function authenticatePassword(
     return cachedAuth.result;
   }
 
+  const ip = request.headers.get("cf-connecting-ip") || "unknown";
+  if (!(await checkRateLimit(env, ip, "auth", AUTH_RATE_LIMIT_MAX, true))) {
+    return {
+      authenticated: false,
+      error: "認証試行回数が上限に達しました。しばらくしてから再試行してください",
+    };
+  }
+
   try {
     await ensurePasswordTable(env);
 
@@ -164,9 +296,15 @@ export async function authenticatePassword(
     } | undefined;
 
     if (masterRow) {
-      // Once master password has been customized in DB, it strictly requires the new hash.
-      // Default password fallback is permanently disabled for security.
-      if (masterRow.is_active === 1 && timingSafeEqual(masterRow.password_hash, pwdHash)) {
+      // Once a master row exists, only that row may authenticate the master
+      // account. In particular, an unavailable D1 must never re-enable a
+      // fallback password.
+      if (
+        masterRow.is_active === 1 &&
+        typeof masterRow.password_hash === "string" &&
+        (await verifyPasswordHash(pwd, masterRow.password_hash))
+      ) {
+        await upgradeLegacyPasswordHash(env, masterRow.id, pwd, masterRow.password_hash);
         const res: AuthResult = {
           authenticated: true,
           role: "admin",
@@ -178,9 +316,10 @@ export async function authenticatePassword(
         return res;
       }
     } else {
-      // No custom admin record in DB -> fallback to env.ADMIN_PASSWORD or DEFAULT_ADMIN_PASSWORD
-      const masterAdminPassword = env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASSWORD;
-      if (pwd === masterAdminPassword) {
+      // A first deployment may use the secret configured in the Worker
+      // environment. There is deliberately no built-in/default password.
+      const masterAdminPassword = env.ADMIN_PASSWORD?.trim();
+      if (masterAdminPassword && timingSafeEqual(await hashToken(masterAdminPassword), pwdHash)) {
         const res: AuthResult = {
           authenticated: true,
           role: "admin",
@@ -195,17 +334,22 @@ export async function authenticatePassword(
 
     // 2. D1 access_passwords check for standard users / secondary admins
     const { results } = await env.DB.prepare(
-      "SELECT id, name, role, max_stocks, is_active FROM access_passwords WHERE password_hash = ? AND is_active = 1 AND id != 'admin-master'"
-    ).bind(pwdHash).all();
+      "SELECT id, name, role, max_stocks, is_active, password_hash FROM access_passwords WHERE is_active = 1 AND id != 'admin-master'"
+    ).all();
 
-    if (results && results.length > 0) {
-      const user = results[0] as {
+    for (const row of results || []) {
+      const user = row as {
         id: string;
         name: string;
         role: "admin" | "user";
         max_stocks: number | null;
         is_active: number;
+        password_hash: string;
       };
+      if (typeof user.password_hash !== "string" || !(await verifyPasswordHash(pwd, user.password_hash))) {
+        continue;
+      }
+      await upgradeLegacyPasswordHash(env, user.id, pwd, user.password_hash);
       const res: AuthResult = {
         authenticated: true,
         role: user.role,
@@ -218,18 +362,6 @@ export async function authenticatePassword(
     }
   } catch (err) {
     console.error("Auth DB error:", err);
-    const masterAdminPassword = env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASSWORD;
-    if (pwd === masterAdminPassword) {
-      const res: AuthResult = {
-        authenticated: true,
-        role: "admin",
-        name: "管理者",
-        maxStocks: null,
-        id: "admin-master",
-      };
-      setAuthCache(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
-      return res;
-    }
   }
 
   return { authenticated: false, error: "パスワードが正しくありません" };
@@ -429,6 +561,11 @@ function json(data: unknown, status = 200, request?: Request, customHeaders?: Re
       headers["access-control-allow-headers"] = "content-type,x-owner-token,x-admin-key,x-auth-password,authorization";
       headers["vary"] = "Origin";
     }
+
+    const pathname = new URL(request.url).pathname;
+    if (pathname.startsWith("/api/auth/") || pathname.startsWith("/api/admin/")) {
+      headers["cache-control"] = "no-store";
+    }
   }
 
   return new Response(JSON.stringify(data), {
@@ -472,7 +609,13 @@ async function parseJsonBody(request: Request): Promise<{ ok: true; body: Record
 const RATE_LIMIT_WINDOW = 60; // seconds
 const RATE_LIMIT_MAX = 60; // max requests per window per endpoint
 
-async function checkRateLimit(env: Env, ip: string, endpoint: string): Promise<boolean> {
+async function checkRateLimit(
+  env: Env,
+  ip: string,
+  endpoint: string,
+  maxRequests = RATE_LIMIT_MAX,
+  failClosed = false,
+): Promise<boolean> {
   const now = Math.floor(Date.now() / 1000);
   try {
     const { results } = await env.DB.prepare(
@@ -483,7 +626,7 @@ async function checkRateLimit(env: Env, ip: string, endpoint: string): Promise<b
 
     const row = (results as { request_count: number; window_start: number }[])[0];
     if (row && now - row.window_start < RATE_LIMIT_WINDOW) {
-      if (row.request_count >= RATE_LIMIT_MAX) return false;
+      if (row.request_count >= maxRequests) return false;
       await env.DB.prepare(
         "UPDATE rate_limits SET request_count = request_count + 1 WHERE ip = ? AND endpoint = ?",
       )
@@ -502,8 +645,13 @@ async function checkRateLimit(env: Env, ip: string, endpoint: string): Promise<b
         .run();
     }
     return true;
-  } catch {
-    // If rate limit check fails, allow the request rather than blocking
+  } catch (err) {
+    if (failClosed) {
+      console.error(`Rate limit check failed for ${endpoint}:`, err);
+      return false;
+    }
+    // Non-authenticated public endpoints remain available if the optional
+    // abuse-prevention table is temporarily unavailable.
     return true;
   }
 }
@@ -541,8 +689,8 @@ export default {
             request
           );
         } catch (err) {
-          const message = err instanceof Error ? err.message : "Authentication error";
-          return json({ error: message }, 500, request);
+          console.error("Authentication endpoint error:", err);
+          return json({ error: "Internal server error" }, 500, request);
         }
       }
 
@@ -555,12 +703,12 @@ export default {
           }
           await ensurePasswordTable(env);
           const { results } = await env.DB.prepare(
-            "SELECT id, name, role, max_stocks, plain_password, is_active, created_at, updated_at FROM access_passwords WHERE id != 'admin-master' ORDER BY created_at DESC"
+            "SELECT id, name, role, max_stocks, is_active, created_at, updated_at FROM access_passwords WHERE id != 'admin-master' ORDER BY created_at DESC"
           ).all();
           return json(results || [], 200, request);
         } catch (err) {
-          const message = err instanceof Error ? err.message : "Failed to fetch passwords";
-          return json({ error: message }, 500, request);
+          console.error("Failed to fetch passwords:", err);
+          return json({ error: "Internal server error" }, 500, request);
         }
       }
 
@@ -577,8 +725,8 @@ export default {
           if (!name || typeof name !== "string" || name.trim().length === 0 || name.trim().length > 100) {
             return json({ error: "ユーザー名/ラベルは1〜100文字で入力してください" }, 400, request);
           }
-          if (!password || typeof password !== "string" || password.trim().length < 4 || password.trim().length > 100) {
-            return json({ error: "パスワードは4〜100文字で入力してください" }, 400, request);
+          if (!password || typeof password !== "string" || password.trim().length < 8 || password.trim().length > 100) {
+            return json({ error: "パスワードは8〜100文字で入力してください" }, 400, request);
           }
           let maxStockLimit: number | null = null;
           if (maxStocks !== undefined && maxStocks !== null && maxStocks !== "") {
@@ -590,13 +738,14 @@ export default {
           }
           const assignedRole = role === "admin" ? "admin" : "user";
           const id = `pwd-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-          const hash = await hashToken(password.trim());
+          const initialPassword = password.trim();
+          const hash = await hashPassword(initialPassword);
           const now = Math.floor(Date.now() / 1000);
 
           await ensurePasswordTable(env);
           await env.DB.prepare(
-            "INSERT INTO access_passwords (id, name, password_hash, plain_password, role, max_stocks, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)"
-          ).bind(id, name.trim(), hash, password.trim(), assignedRole, maxStockLimit, now, now).run();
+            "INSERT INTO access_passwords (id, name, password_hash, role, max_stocks, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)"
+          ).bind(id, name.trim(), hash, assignedRole, maxStockLimit, now, now).run();
           clearAuthCache();
 
           return json(
@@ -605,7 +754,7 @@ export default {
               password: {
                 id,
                 name: name.trim(),
-                plain_password: password.trim(),
+                initialPassword,
                 role: assignedRole,
                 max_stocks: maxStockLimit,
                 is_active: 1,
@@ -616,8 +765,8 @@ export default {
             request
           );
         } catch (err) {
-          const message = err instanceof Error ? err.message : "Failed to create password";
-          return json({ error: message }, 500, request);
+          console.error("Failed to create password:", err);
+          return json({ error: "Internal server error" }, 500, request);
         }
       }
 
@@ -649,20 +798,24 @@ export default {
             updates.push("name = ?");
             params.push(name.trim().slice(0, 100));
           }
-          if (typeof password === "string" && password.trim().length >= 4) {
-            const hash = await hashToken(password.trim());
-            updates.push("password_hash = ?", "plain_password = ?");
-            params.push(hash, password.trim());
+          if (typeof password === "string" && password.trim().length > 0) {
+            if (password.trim().length < 8 || password.trim().length > 100) {
+              return json({ error: "パスワードは8〜100文字で入力してください" }, 400, request);
+            }
+            const hash = await hashPassword(password.trim());
+            updates.push("password_hash = ?");
+            params.push(hash);
           }
           if (maxStocks !== undefined) {
             if (maxStocks === null || maxStocks === 0 || maxStocks === "") {
               updates.push("max_stocks = NULL");
             } else {
               const num = Number(maxStocks);
-              if (Number.isFinite(num) && num >= 1) {
-                updates.push("max_stocks = ?");
-                params.push(Math.floor(num));
+              if (!Number.isFinite(num) || num < 1 || num > 500) {
+                return json({ error: "銘柄数上限は1〜500の数値を指定してください" }, 400, request);
               }
+              updates.push("max_stocks = ?");
+              params.push(Math.floor(num));
             }
           }
           if (role === "admin" || role === "user") {
@@ -685,8 +838,8 @@ export default {
 
           return json({ ok: true }, 200, request);
         } catch (err) {
-          const message = err instanceof Error ? err.message : "Failed to update password";
-          return json({ error: message }, 500, request);
+          console.error("Failed to update password:", err);
+          return json({ error: "Internal server error" }, 500, request);
         }
       }
 
@@ -709,8 +862,8 @@ export default {
           clearAuthCache();
           return json({ ok: true }, 200, request);
         } catch (err) {
-          const message = err instanceof Error ? err.message : "Failed to delete password";
-          return json({ error: message }, 500, request);
+          console.error("Failed to delete password:", err);
+          return json({ error: "Internal server error" }, 500, request);
         }
       }
 
@@ -718,27 +871,27 @@ export default {
       if (url.pathname === "/api/admin/admin-password" && request.method === "PUT") {
         try {
           const auth = await authenticatePassword(request, env);
-          if (!auth.authenticated || auth.role !== "admin") {
+          if (!auth.authenticated || auth.role !== "admin" || auth.id !== "admin-master") {
             return json({ error: "管理者権限が必要です" }, 403, request);
           }
           const parsed = await parseJsonBody(request);
           if (!parsed.ok) return parsed.response;
           const newPassword = typeof parsed.body.newPassword === "string" ? parsed.body.newPassword.trim() : "";
-          if (newPassword.length < 6) {
-            return json({ error: "管理者パスワードは6文字以上で入力してください" }, 400, request);
+          if (newPassword.length < 8 || newPassword.length > 100) {
+            return json({ error: "管理者パスワードは8〜100文字で入力してください" }, 400, request);
           }
           await ensurePasswordTable(env);
-          const hash = await hashToken(newPassword);
+          const hash = await hashPassword(newPassword);
           const now = Math.floor(Date.now() / 1000);
           await env.DB.prepare(
-            "INSERT INTO access_passwords (id, name, password_hash, plain_password, role, max_stocks, is_active, created_at, updated_at) VALUES ('admin-master', 'マスター管理者', ?, NULL, 'admin', NULL, 1, ?, ?) ON CONFLICT(id) DO UPDATE SET password_hash = excluded.password_hash, plain_password = NULL, updated_at = excluded.updated_at"
+            "INSERT INTO access_passwords (id, name, password_hash, role, max_stocks, is_active, created_at, updated_at) VALUES ('admin-master', 'マスター管理者', ?, 'admin', NULL, 1, ?, ?) ON CONFLICT(id) DO UPDATE SET password_hash = excluded.password_hash, role = 'admin', max_stocks = NULL, is_active = 1, updated_at = excluded.updated_at"
           ).bind(hash, now, now).run();
           clearAuthCache();
 
           return json({ ok: true, message: "管理者パスワードを更新しました" }, 200, request);
         } catch (err) {
-          const message = err instanceof Error ? err.message : "Failed to update admin password";
-          return json({ error: message }, 500, request);
+          console.error("Failed to update admin password:", err);
+          return json({ error: "Internal server error" }, 500, request);
         }
       }
 
@@ -849,8 +1002,8 @@ export default {
           clearMemoryCache("calc:");
           return json({ ok: true, message: "銘柄を追加・更新しました", ticker }, 200, request);
         } catch (err) {
-          const message = err instanceof Error ? err.message : "Failed to add stock";
-          return json({ error: message }, 500, request);
+          console.error("Failed to add stock:", err);
+          return json({ error: "Internal server error" }, 500, request);
         }
       }
 
@@ -863,7 +1016,7 @@ export default {
             return json({ error: "indexId and ticker parameters are required" }, 400, request);
           }
 
-          const auth = await authenticatePassword(request, env, url.searchParams.get("password"));
+          const auth = await authenticatePassword(request, env);
           if (!auth.authenticated) {
             return json({ error: "この操作にはパスワード認証が必要です" }, 401, request);
           }
@@ -897,10 +1050,7 @@ export default {
           if (auth.role !== "admin") {
             if (existingHash) {
               const providedToken =
-                request.headers.get("x-owner-token")?.trim() ||
-                url.searchParams.get("token")?.trim() ||
-                url.searchParams.get("ownerToken")?.trim() ||
-                "";
+                request.headers.get("x-owner-token")?.trim() || "";
 
               if (!providedToken) {
                 return json({ error: "この指数から銘柄を削除する権限がありません（作成者トークンが必要です）" }, 403, request);
@@ -931,8 +1081,8 @@ export default {
           clearMemoryCache("calc:");
           return json({ ok: true, message: "銘柄を削除しました", ticker }, 200, request);
         } catch (err) {
-          const message = err instanceof Error ? err.message : "Failed to delete stock";
-          return json({ error: message }, 500, request);
+          console.error("Failed to delete stock:", err);
+          return json({ error: "Internal server error" }, 500, request);
         }
       }
 
@@ -1080,9 +1230,8 @@ export default {
           "cache-control": "public, max-age=60, s-maxage=300",
         });
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Snapshot fetch failed";
         console.error("API Error [snapshot]:", err);
-        return json({ error: message }, 500, request);
+        return json({ error: "Internal server error" }, 500, request);
       }
     }
 
@@ -1163,9 +1312,8 @@ export default {
           "cache-control": "public, max-age=15, stale-while-revalidate=60",
         });
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to fetch indices";
         console.error("API Error [indices]:", err);
-        return json({ error: message }, 500, request);
+        return json({ error: "Internal server error" }, 500, request);
       }
     }
 
@@ -1363,9 +1511,8 @@ export default {
 
         return json({ ok: true, id, ownerToken: providedToken, message: "Index saved successfully" }, 200, request);
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to save index";
         console.error("API Error [POST indices]:", err);
-        return json({ error: message }, 500, request);
+        return json({ error: "Internal server error" }, 500, request);
       }
     }
 
@@ -1410,14 +1557,11 @@ export default {
           return json({ error: "Index not found" }, 404, request);
         }
 
-        const explicitPwd = url.searchParams.get("password");
-        const auth = await authenticatePassword(request, env, explicitPwd);
+        const auth = await authenticatePassword(request, env);
         const isAdmin = auth.authenticated && auth.role === "admin";
 
         const providedToken =
-          request.headers.get("x-owner-token")?.trim() ||
-          url.searchParams.get("token")?.trim() ||
-          "";
+          request.headers.get("x-owner-token")?.trim() || "";
 
         if (!isAdmin) {
           if (existingHash) {
@@ -1444,9 +1588,8 @@ export default {
 
         return json({ ok: true, id, message: "Index deleted successfully" }, 200, request);
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to delete index";
         console.error("API Error [DELETE indices]:", err);
-        return json({ error: message }, 500, request);
+        return json({ error: "Internal server error" }, 500, request);
       }
     }
 
@@ -1615,9 +1758,8 @@ export default {
 
         return json({ ok: true, results }, 200, request);
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Sync failed";
         console.error("API Error [sync-prices]:", err);
-        return json({ error: message }, 500, request);
+        return json({ error: "Internal server error" }, 500, request);
       }
     }
 
@@ -1782,9 +1924,8 @@ export default {
 
         return json(responseData, 200, request);
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Calculation failed";
         console.error("API Error [calculate]:", err);
-        return json({ error: message }, 500, request);
+        return json({ error: "Internal server error" }, 500, request);
       }
     }
 
@@ -1821,9 +1962,7 @@ export default {
     return json({ error: "Static asset handler not available" }, 404, request);
   } catch (unhandledErr) {
     console.error("Unhandled Worker error:", unhandledErr);
-    const message = unhandledErr instanceof Error ? unhandledErr.message : "Internal Server Error";
-    return json({ error: message }, 500, request);
+    return json({ error: "Internal server error" }, 500, request);
   }
   },
 };
-

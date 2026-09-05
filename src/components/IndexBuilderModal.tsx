@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from "react";
+import React, { useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { X, Plus, Trash2, Sliders, Check, RefreshCw, KeyRound, Lock, ShieldCheck } from "lucide-react";
 import type { BasketItem } from "../types";
 import type { CustomIndex } from "../data/indices";
 import { useAuth } from "../hooks/useAuth";
 import { AuthModal } from "./AuthModal";
+import { useModalFocus } from "../hooks/useModalFocus";
 
 interface IndexBuilderModalProps {
   isOpen: boolean;
@@ -47,17 +48,9 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
   const [customTheme, setCustomTheme] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  useModalFocus(isOpen, dialogRef, onClose, nameInputRef);
 
   if (!isOpen) return null;
 
@@ -205,6 +198,8 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
       role="dialog"
       aria-modal="true"
       aria-labelledby="modal-builder-title"
+      data-modal-dialog
+      ref={dialogRef}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -337,6 +332,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
               </label>
               <input
                 id="builder-index-name"
+                ref={nameInputRef}
                 type="text"
                 className="input-search"
                 style={{ paddingLeft: 12 }}

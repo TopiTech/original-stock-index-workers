@@ -1,5 +1,12 @@
-import { describe, it, expect, vi } from "vitest";
-import worker, { toYahooSymbol, SYSTEM_INDICES, hashToken } from "../../worker/index";
+import { beforeEach, describe, it, expect, vi } from "vitest";
+import worker, { toYahooSymbol, SYSTEM_INDICES, hashToken, clearAuthCache, resetPasswordTableEnsured } from "../../worker/index";
+
+const TEST_ADMIN_PASSWORD = "test-admin-password";
+
+beforeEach(() => {
+  clearAuthCache();
+  resetPasswordTableEnsured();
+});
 
 function createMockEnv(overrides?: Partial<any>) {
   const executeQuery = async (query: string, params: unknown[] = []) => {
@@ -79,6 +86,7 @@ function createMockEnv(overrides?: Partial<any>) {
       prepare: prepareMock,
       batch: vi.fn().mockResolvedValue([]),
     },
+    ADMIN_PASSWORD: TEST_ADMIN_PASSWORD,
     ...overrides,
   };
 }
@@ -724,12 +732,12 @@ describe("worker fetch handlers", () => {
   });
 
   describe("Authentication & Admin Password Management", () => {
-    it("POST /api/auth/verify verifies default master admin password", async () => {
+    it("POST /api/auth/verify verifies the configured deployment admin password", async () => {
       const env = createMockEnv();
       const req = new Request("http://localhost/api/auth/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: "admin1234" }),
+        body: JSON.stringify({ password: TEST_ADMIN_PASSWORD }),
       });
 
       const res = await worker.fetch(req, env as any);
@@ -753,6 +761,39 @@ describe("worker fetch handlers", () => {
       expect(data.ok).toBe(false);
     });
 
+    it("does not authenticate with a built-in password when ADMIN_PASSWORD is unset", async () => {
+      const env = createMockEnv({ ADMIN_PASSWORD: undefined });
+      const req = new Request("http://localhost/api/auth/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "admin1234" }),
+      });
+
+      const res = await worker.fetch(req, env as any);
+      expect(res.status).toBe(401);
+    });
+
+    it("fails closed when the authentication rate-limit check is unavailable", async () => {
+      const env = createMockEnv();
+      const defaultPrepare = env.DB.prepare;
+      env.DB.prepare = vi.fn().mockImplementation((query: string) => {
+        if (query.includes("FROM rate_limits")) {
+          throw new Error("rate-limit table unavailable");
+        }
+        return defaultPrepare(query);
+      });
+      const req = new Request("http://localhost/api/auth/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: TEST_ADMIN_PASSWORD }),
+      });
+
+      const res = await worker.fetch(req, env as any);
+      expect(res.status).toBe(401);
+      const data = await res.json();
+      expect(data.error).toContain("認証試行回数");
+    });
+
     it("GET /api/admin/passwords rejects non-admin with 403", async () => {
       const env = createMockEnv();
       const req = new Request("http://localhost/api/admin/passwords", {
@@ -771,7 +812,7 @@ describe("worker fetch handlers", () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-auth-password": "admin1234",
+          "x-auth-password": TEST_ADMIN_PASSWORD,
         },
         body: JSON.stringify({
           name: "Test Analyst",
@@ -812,7 +853,7 @@ describe("worker fetch handlers", () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-auth-password": "admin1234",
+          "x-auth-password": TEST_ADMIN_PASSWORD,
         },
         body: JSON.stringify({
           indexId: "test-index",
@@ -880,7 +921,7 @@ describe("worker fetch handlers", () => {
       }));
       const adminHeaders = {
         "Content-Type": "application/json",
-        "x-auth-password": "admin1234",
+        "x-auth-password": TEST_ADMIN_PASSWORD,
       };
 
       const saveRes = await worker.fetch(
@@ -1049,4 +1090,3 @@ describe("worker fetch handlers", () => {
     });
   });
 });
-

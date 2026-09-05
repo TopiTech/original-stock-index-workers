@@ -1,5 +1,20 @@
-import { describe, it, expect, vi } from "vitest";
-import worker, { hashToken, timingSafeEqual, SYSTEM_INDICES, getDefaultAdminPassword } from "../../worker/index";
+import { beforeEach, describe, it, expect, vi } from "vitest";
+import worker, {
+  hashPassword,
+  hashToken,
+  timingSafeEqual,
+  verifyPasswordHash,
+  SYSTEM_INDICES,
+  clearAuthCache,
+  resetPasswordTableEnsured,
+} from "../../worker/index";
+
+const TEST_ADMIN_PASSWORD = "test-admin-password";
+
+beforeEach(() => {
+  clearAuthCache();
+  resetPasswordTableEnsured();
+});
 
 interface PasswordRecord {
   id: string;
@@ -37,6 +52,12 @@ function createSecurityTestEnv() {
             const master = passwords.get("admin-master");
             return { results: master ? [master] : [] };
           }
+          if (query.includes("FROM access_passwords") && query.includes("id != 'admin-master'") && query.includes("password_hash")) {
+            const matches = Array.from(passwords.values()).filter(
+              (p) => p.is_active === 1 && p.id !== "admin-master",
+            );
+            return { results: matches };
+          }
           if (query.includes("FROM access_passwords WHERE password_hash = ? AND is_active = 1 AND id != 'admin-master'")) {
             const hash = params[0] as string;
             const matches = Array.from(passwords.values()).filter(
@@ -53,7 +74,7 @@ function createSecurityTestEnv() {
           }
           if (query.includes("FROM access_passwords WHERE id != 'admin-master'")) {
             const matches = Array.from(passwords.values()).filter((p) => p.id !== "admin-master");
-            return { results: matches };
+            return { results: matches.map(({ plain_password: _plainPassword, ...row }) => row) };
           }
           if (query.includes("FROM indices WHERE id = ?")) {
             const id = params[0] as string;
@@ -76,7 +97,7 @@ function createSecurityTestEnv() {
         run: async () => {
           if (query.includes("INSERT INTO access_passwords") || query.includes("INSERT OR REPLACE INTO access_passwords")) {
             if (query.includes("'admin-master'")) {
-              // Master admin update: VALUES ('admin-master', 'マスター管理者', ?, NULL, 'admin', NULL, 1, ?, ?)
+              // Master admin update: VALUES ('admin-master', 'マスター管理者', ?, 'admin', NULL, 1, ?, ?)
               const hash = params[0] as string;
               const now = params[1] as number;
               passwords.set("admin-master", {
@@ -92,12 +113,12 @@ function createSecurityTestEnv() {
               });
             } else {
               // User password create
-              const [id, name, hash, plain, role, maxStocks, now1, now2] = params as [string, string, string, string, "admin" | "user", number | null, number, number];
+              const [id, name, hash, role, maxStocks, now1, now2] = params as [string, string, string, "admin" | "user", number | null, number, number];
               passwords.set(id, {
                 id,
                 name,
                 password_hash: hash,
-                plain_password: plain,
+                plain_password: null,
                 role,
                 max_stocks: maxStocks,
                 is_active: 1,
@@ -112,6 +133,10 @@ function createSecurityTestEnv() {
             const targetId = params[params.length - 1] as string;
             const existing = passwords.get(targetId);
             if (existing) {
+              if (query.includes("password_hash = ?")) {
+                existing.password_hash = params[0] as string;
+                existing.updated_at = params[1] as number;
+              }
               if (query.includes("role = ?")) {
                 const roleParam = params.find((p) => p === "admin" || p === "user") as "admin" | "user";
                 if (roleParam) existing.role = roleParam;
@@ -165,7 +190,7 @@ function createSecurityTestEnv() {
         }
         if (query.includes("FROM access_passwords WHERE id != 'admin-master'")) {
           const matches = Array.from(passwords.values()).filter((p) => p.id !== "admin-master");
-          return { results: matches };
+          return { results: matches.map(({ plain_password: _plainPassword, ...row }) => row) };
         }
         if (query.includes("FROM access_passwords")) {
           return { results: Array.from(passwords.values()) };
@@ -190,6 +215,7 @@ function createSecurityTestEnv() {
           return [];
         }),
       },
+      ADMIN_PASSWORD: TEST_ADMIN_PASSWORD,
     },
     passwords,
     indices,
@@ -198,12 +224,12 @@ function createSecurityTestEnv() {
 }
 
 describe("Security and Admin Regression Tests", () => {
-  it("authenticates with default admin password when no customized password exists", async () => {
+  it("authenticates with the deployment admin secret when no customized password exists", async () => {
     const { env } = createSecurityTestEnv();
     const req = new Request("http://localhost/api/auth/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password: getDefaultAdminPassword() }),
+      body: JSON.stringify({ password: TEST_ADMIN_PASSWORD }),
     });
 
     const res = await worker.fetch(req, env as any);
@@ -211,6 +237,37 @@ describe("Security and Admin Regression Tests", () => {
     const data = await res.json();
     expect(data.ok).toBe(true);
     expect(data.role).toBe("admin");
+  });
+
+  it("uses salted PBKDF2 hashes and only returns an issued password once", async () => {
+    const { env, passwords } = createSecurityTestEnv();
+    const req = new Request("http://localhost/api/admin/passwords", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-auth-password": TEST_ADMIN_PASSWORD,
+      },
+      body: JSON.stringify({
+        name: "Issued User",
+        password: "issued-password-123",
+        maxStocks: 5,
+      }),
+    });
+
+    const res = await worker.fetch(req, env as any);
+    expect(res.status).toBe(201);
+    const data = await res.json();
+    expect(data.password.initialPassword).toBe("issued-password-123");
+    expect(data.password.plain_password).toBeUndefined();
+
+    const stored = Array.from(passwords.values()).find((record) => record.name === "Issued User");
+    expect(stored?.plain_password).toBeNull();
+    expect(stored?.password_hash.startsWith("pbkdf2-sha256$100000$")).toBe(true);
+    expect(await verifyPasswordHash("issued-password-123", stored!.password_hash)).toBe(true);
+    expect(await verifyPasswordHash("wrong-password", stored!.password_hash)).toBe(false);
+
+    const otherHash = await hashPassword("issued-password-123");
+    expect(otherHash).not.toBe(stored!.password_hash);
   });
 
   it("permanently invalidates default admin password once admin changes the password", async () => {
@@ -221,7 +278,7 @@ describe("Security and Admin Regression Tests", () => {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
-        "x-auth-password": getDefaultAdminPassword(),
+        "x-auth-password": TEST_ADMIN_PASSWORD,
       },
       body: JSON.stringify({ newPassword: "SuperSecretPassword2026!" }),
     });
@@ -234,11 +291,11 @@ describe("Security and Admin Regression Tests", () => {
     expect(masterRecord).toBeDefined();
     expect(masterRecord?.plain_password).toBeNull();
 
-    // 2. Attempt to login with OLD default password (admin1234) -> MUST BE REJECTED (401)
+    // 2. The old built-in password must not authenticate.
     const oldLoginReq = new Request("http://localhost/api/auth/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password: getDefaultAdminPassword() }),
+      body: JSON.stringify({ password: TEST_ADMIN_PASSWORD }),
     });
 
     const oldLoginRes = await worker.fetch(oldLoginReq, env as any);
@@ -302,6 +359,7 @@ describe("Security and Admin Regression Tests", () => {
     expect(Array.isArray(list)).toBe(true);
     expect(list.length).toBe(1);
     expect(list[0].id).toBe("pwd-user-1");
+    expect(list[0].plain_password).toBeUndefined();
     // Ensure admin-master is not present in the returned list
     const hasAdminMaster = list.some((item: any) => item.id === "admin-master");
     expect(hasAdminMaster).toBe(false);
@@ -326,7 +384,7 @@ describe("Security and Admin Regression Tests", () => {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
-        "x-auth-password": getDefaultAdminPassword(),
+        "x-auth-password": TEST_ADMIN_PASSWORD,
       },
       body: JSON.stringify({
         id: "pwd-user-2",
@@ -339,6 +397,34 @@ describe("Security and Admin Regression Tests", () => {
     expect(passwords.get("pwd-user-2")?.role).toBe("admin");
   });
 
+  it("does not allow a secondary admin to rotate the master password", async () => {
+    const { env, passwords } = createSecurityTestEnv();
+    passwords.set("pwd-secondary-admin", {
+      id: "pwd-secondary-admin",
+      name: "Secondary Admin",
+      password_hash: await hashToken("secondary-password"),
+      plain_password: null,
+      role: "admin",
+      max_stocks: null,
+      is_active: 1,
+      created_at: 1000,
+      updated_at: 1000,
+    });
+
+    const req = new Request("http://localhost/api/admin/admin-password", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "x-auth-password": "secondary-password",
+      },
+      body: JSON.stringify({ newPassword: "new-master-password" }),
+    });
+
+    const res = await worker.fetch(req, env as any);
+    expect(res.status).toBe(403);
+    expect(passwords.has("admin-master")).toBe(false);
+  });
+
   it("allows admins to edit system indices in POST /api/indices", async () => {
     const { env } = createSecurityTestEnv();
 
@@ -346,7 +432,7 @@ describe("Security and Admin Regression Tests", () => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-auth-password": getDefaultAdminPassword(),
+        "x-auth-password": TEST_ADMIN_PASSWORD,
       },
       body: JSON.stringify({
         id: "nikkei-175",
@@ -424,12 +510,19 @@ describe("Security and Admin Regression Tests", () => {
       let eventFired = 0;
       const originalDispatch = (globalThis as any).dispatchEvent;
       const originalStorage = (globalThis as any).localStorage;
+      const originalSessionStorage = (globalThis as any).sessionStorage;
       const mockStorage = new Map<string, string>();
+      const mockSessionStorage = new Map<string, string>();
 
       (globalThis as any).localStorage = {
         getItem: (k: string) => mockStorage.get(k) || null,
         setItem: (k: string, v: string) => mockStorage.set(k, v),
         removeItem: (k: string) => mockStorage.delete(k),
+      };
+      (globalThis as any).sessionStorage = {
+        getItem: (k: string) => mockSessionStorage.get(k) || null,
+        setItem: (k: string, v: string) => mockSessionStorage.set(k, v),
+        removeItem: (k: string) => mockSessionStorage.delete(k),
       };
 
       (globalThis as any).dispatchEvent = (evt: Event) => {
@@ -442,12 +535,16 @@ describe("Security and Admin Regression Tests", () => {
       try {
         storeAuth({ role: "admin", name: "管理者", password: "test", maxStocks: null });
         expect(eventFired).toBe(1);
+        expect(mockSessionStorage.has("custom_stock_index_auth")).toBe(true);
+        expect(mockStorage.has("custom_stock_index_auth")).toBe(false);
 
         clearAuth();
         expect(eventFired).toBe(2);
+        expect(mockSessionStorage.has("custom_stock_index_auth")).toBe(false);
       } finally {
         (globalThis as any).dispatchEvent = originalDispatch;
         (globalThis as any).localStorage = originalStorage;
+        (globalThis as any).sessionStorage = originalSessionStorage;
       }
     });
   });
@@ -552,7 +649,7 @@ describe("Security and Admin Regression Tests", () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-auth-password": getDefaultAdminPassword(),
+          "x-auth-password": TEST_ADMIN_PASSWORD,
         },
         body: JSON.stringify({
           indexId: "custom-a",
@@ -571,7 +668,7 @@ describe("Security and Admin Regression Tests", () => {
       const req = new Request("http://localhost/api/admin/passwords?id=admin-master", {
         method: "DELETE",
         headers: {
-          "x-auth-password": getDefaultAdminPassword(),
+          "x-auth-password": TEST_ADMIN_PASSWORD,
         },
       });
       const res = await worker.fetch(req, env as any);
@@ -588,7 +685,7 @@ describe("Security and Admin Regression Tests", () => {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          "x-auth-password": getDefaultAdminPassword(),
+          "x-auth-password": TEST_ADMIN_PASSWORD,
         },
         body: JSON.stringify({
           id: "admin-master",
@@ -605,7 +702,7 @@ describe("Security and Admin Regression Tests", () => {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          "x-auth-password": getDefaultAdminPassword(),
+          "x-auth-password": TEST_ADMIN_PASSWORD,
         },
         body: JSON.stringify({
           id: "admin-master",
@@ -675,7 +772,7 @@ describe("Security and Admin Regression Tests", () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-auth-password": getDefaultAdminPassword(),
+          "x-auth-password": TEST_ADMIN_PASSWORD,
         },
         body: JSON.stringify({
           id: "case-test-index",
@@ -755,7 +852,7 @@ describe("Security and Admin Regression Tests", () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-auth-password": "admin1234",
+          "x-auth-password": TEST_ADMIN_PASSWORD,
         },
         body: JSON.stringify({
           id: "protected-legacy-index",
@@ -868,7 +965,7 @@ describe("Security and Admin Regression Tests", () => {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          "x-auth-password": "admin1234",
+          "x-auth-password": TEST_ADMIN_PASSWORD,
         },
         body: JSON.stringify({
           id: "admin-master",

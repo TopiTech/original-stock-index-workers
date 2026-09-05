@@ -1,7 +1,8 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Plus, X, AlertCircle, Sparkles, Building2 } from "lucide-react";
 import type { BasketItem } from "../types";
+import { useModalFocus } from "../hooks/useModalFocus";
 
 interface AddStockModalProps {
   isOpen: boolean;
@@ -43,17 +44,9 @@ export function AddStockModal({
   const [weight, setWeight] = useState(10);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  React.useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const tickerInputRef = useRef<HTMLInputElement>(null);
+  useModalFocus(isOpen, dialogRef, onClose, tickerInputRef);
 
   if (!isOpen) return null;
 
@@ -111,6 +104,8 @@ export function AddStockModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="add-stock-modal-title"
+      data-modal-dialog
+      ref={dialogRef}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -258,10 +253,12 @@ export function AddStockModal({
           <form onSubmit={handleSubmit} id="add-stock-form">
             <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12, marginBottom: 12 }}>
               <div>
-                <label style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
+                <label htmlFor="add-stock-ticker" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
                   銘柄コード <span style={{ color: "var(--neon-red)" }}>*</span>
                 </label>
                 <input
+                  id="add-stock-ticker"
+                  ref={tickerInputRef}
                   type="text"
                   value={ticker}
                   onChange={(e) => setTicker(e.target.value.toUpperCase())}
@@ -280,10 +277,11 @@ export function AddStockModal({
                 />
               </div>
               <div>
-                <label style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
+                <label htmlFor="add-stock-name" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
                   銘柄名 <span style={{ color: "var(--neon-red)" }}>*</span>
                 </label>
                 <input
+                  id="add-stock-name"
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -305,10 +303,11 @@ export function AddStockModal({
 
             <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, marginBottom: 16 }}>
               <div>
-                <label style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
+                <label htmlFor="add-stock-theme" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
                   テーマ / セクター
                 </label>
                 <input
+                  id="add-stock-theme"
                   type="text"
                   value={theme}
                   onChange={(e) => setTheme(e.target.value)}
@@ -327,11 +326,12 @@ export function AddStockModal({
                 />
               </div>
               <div>
-                <label style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
+                <label htmlFor="add-stock-weight" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
                   構成比率 (重み)
                 </label>
                 <div style={{ position: "relative" }}>
                   <input
+                    id="add-stock-weight"
                     type="number"
                     min="0.1"
                     max="100"

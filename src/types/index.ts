@@ -81,9 +81,7 @@ export interface UserPasswordItem {
   name: string;
   role: AuthRole;
   max_stocks: number | null;
-  plain_password?: string;
   is_active: number;
   created_at: number;
   updated_at?: number;
 }
-

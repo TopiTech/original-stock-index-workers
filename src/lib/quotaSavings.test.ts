@@ -8,11 +8,14 @@ import worker, {
   authenticatePassword,
 } from "../../worker/index";
 
+const TEST_ADMIN_PASSWORD = "test-admin-password";
+
 type SyncLogRow = { ticker: string; last_synced_at: number };
 type StockSeriesRow = { ticker: string; prices: string; updated_at: number };
 
 interface SavingsTestEnv {
   ASSETS: { fetch: ReturnType<typeof vi.fn> };
+  ADMIN_PASSWORD: string;
   DB: {
     prepare: ReturnType<typeof vi.fn>;
     batch: ReturnType<typeof vi.fn>;
@@ -29,6 +32,7 @@ function createSavingsTestEnv(): SavingsTestEnv {
     ASSETS: {
       fetch: vi.fn().mockResolvedValue(new Response("Asset", { status: 200 })),
     },
+    ADMIN_PASSWORD: TEST_ADMIN_PASSWORD,
     _syncLogs: new Map(),
     _stockSeries: new Map(),
     _stockPrices: new Map(),
@@ -393,10 +397,11 @@ describe("Cloudflare Quota Savings: Auth and Password Table Caching", () => {
           };
         }),
       },
+      ADMIN_PASSWORD: TEST_ADMIN_PASSWORD,
     };
 
     const req = new Request("http://localhost/api/admin/passwords", {
-      headers: { "x-auth-password": "admin1234" },
+      headers: { "x-auth-password": TEST_ADMIN_PASSWORD },
     });
 
     // 1st auth call: queries D1

@@ -64,7 +64,6 @@ CREATE TABLE IF NOT EXISTS access_passwords (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     password_hash TEXT NOT NULL,
-    plain_password TEXT,
     role TEXT NOT NULL DEFAULT 'user',
     max_stocks INTEGER DEFAULT 10,
     is_active INTEGER DEFAULT 1,

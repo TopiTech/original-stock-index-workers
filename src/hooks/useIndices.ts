@@ -230,11 +230,13 @@ export function useIndices() {
         const headers: Record<string, string> = {
           ...authHeaders,
         };
+        if (password) {
+          headers["x-auth-password"] = password;
+        }
         if (token) {
           headers["x-owner-token"] = token;
         }
         const params = new URLSearchParams({ indexId, ticker });
-        if (password) params.set("password", password);
         const res = await fetch(`${API_BASE}/indices/stock?${params.toString()}`, {
           method: "DELETE",
           headers,

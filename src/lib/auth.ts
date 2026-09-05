@@ -2,14 +2,41 @@ import type { AuthSession } from "../types";
 
 const AUTH_STORAGE_KEY = "custom_stock_index_auth";
 
+function getSessionStorage(): Storage | null {
+  try {
+    return typeof sessionStorage === "undefined" ? null : sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function getLocalStorage(): Storage | null {
+  try {
+    return typeof localStorage === "undefined" ? null : localStorage;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Retrieve saved auth session from localStorage
+ * Retrieve the current-tab auth session. Passwords are intentionally kept in
+ * sessionStorage instead of persistent localStorage; legacy localStorage
+ * entries are migrated and removed on first read.
  */
 export function getStoredAuth(): AuthSession | null {
   try {
-    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    const sessionStore = getSessionStorage();
+    const localStore = getLocalStorage();
+    const sessionRaw = sessionStore?.getItem(AUTH_STORAGE_KEY) || null;
+    const legacyRaw = localStore?.getItem(AUTH_STORAGE_KEY) || null;
+    const raw = sessionRaw || legacyRaw;
     if (!raw) return null;
-    return JSON.parse(raw);
+    const session = JSON.parse(raw) as AuthSession;
+    if (!sessionRaw && legacyRaw && sessionStore) {
+      sessionStore.setItem(AUTH_STORAGE_KEY, legacyRaw);
+      localStore?.removeItem(AUTH_STORAGE_KEY);
+    }
+    return session;
   } catch {
     return null;
   }
@@ -27,11 +54,20 @@ function notifyAuthChanged(): void {
 }
 
 /**
- * Persist auth session to localStorage
+ * Persist auth session for the current tab only.
  */
 export function storeAuth(session: AuthSession): void {
   try {
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+    const serialized = JSON.stringify(session);
+    const sessionStore = getSessionStorage();
+    if (sessionStore) {
+      sessionStore.setItem(AUTH_STORAGE_KEY, serialized);
+      getLocalStorage()?.removeItem(AUTH_STORAGE_KEY);
+    } else {
+      // Fallback for non-browser/older environments where sessionStorage is
+      // unavailable; the application still needs to remain usable there.
+      getLocalStorage()?.setItem(AUTH_STORAGE_KEY, serialized);
+    }
     notifyAuthChanged();
   } catch (err) {
     console.error("Failed to store auth:", err);
@@ -43,7 +79,8 @@ export function storeAuth(session: AuthSession): void {
  */
 export function clearAuth(): void {
   try {
-    localStorage.removeItem(AUTH_STORAGE_KEY);
+    getSessionStorage()?.removeItem(AUTH_STORAGE_KEY);
+    getLocalStorage()?.removeItem(AUTH_STORAGE_KEY);
     notifyAuthChanged();
   } catch {}
 }
