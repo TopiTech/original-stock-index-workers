@@ -1266,6 +1266,7 @@ export default {
         // Check if index already exists in D1
         let existingHash: string | null = null;
         let isExisting = false;
+        let hasOwnerTokenHashColumn = true;
         try {
           const { results } = await env.DB.prepare(
             "SELECT id, owner_token_hash FROM indices WHERE id = ?",
@@ -1276,6 +1277,7 @@ export default {
           }
         } catch {
           // In case owner_token_hash column doesn't exist yet on unmigrated db
+          hasOwnerTokenHashColumn = false;
           try {
             const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(id).all();
             if (results && results.length > 0) isExisting = true;
@@ -1318,11 +1320,11 @@ export default {
         const nowMs = Math.floor(Date.now() / 1000);
 
         let insertIndexStmt;
-        try {
+        if (hasOwnerTokenHashColumn) {
           insertIndexStmt = env.DB.prepare(
             "INSERT OR REPLACE INTO indices (id, name, description, base_value, sort_order, owner_token_hash, created_at) VALUES (?, ?, ?, ?, 50, ?, COALESCE((SELECT created_at FROM indices WHERE id = ?), ?))",
           ).bind(id, name, description, baseValue, targetHash, id, nowMs);
-        } catch {
+        } else {
           // Fallback if columns not migrated yet
           insertIndexStmt = env.DB.prepare(
             "INSERT OR REPLACE INTO indices (id, name, description, base_value, sort_order) VALUES (?, ?, ?, ?, 50)",
@@ -1339,7 +1341,23 @@ export default {
           ),
         ];
 
-        await env.DB.batch(statements);
+        try {
+          await env.DB.batch(statements);
+        } catch (batchErr: any) {
+          if (
+            hasOwnerTokenHashColumn &&
+            batchErr &&
+            typeof batchErr.message === "string" &&
+            (batchErr.message.includes("owner_token_hash") || batchErr.message.includes("created_at"))
+          ) {
+            const fallbackStmt = env.DB.prepare(
+              "INSERT OR REPLACE INTO indices (id, name, description, base_value, sort_order) VALUES (?, ?, ?, ?, 50)",
+            ).bind(id, name, description, baseValue);
+            await env.DB.batch([fallbackStmt, ...statements.slice(1)]);
+          } else {
+            throw batchErr;
+          }
+        }
         clearMemoryCache("api:indices");
         clearMemoryCache("calc:");
 
@@ -1380,7 +1398,13 @@ export default {
             isExisting = true;
             existingHash = (results[0] as { owner_token_hash?: string }).owner_token_hash || null;
           }
-        } catch {}
+        } catch {
+          // Fallback if owner_token_hash column doesn't exist yet on unmigrated db
+          try {
+            const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(id).all();
+            if (results && results.length > 0) isExisting = true;
+          } catch {}
+        }
 
         if (!isExisting) {
           return json({ error: "Index not found" }, 404, request);

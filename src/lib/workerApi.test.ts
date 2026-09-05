@@ -927,5 +927,126 @@ describe("worker fetch handlers", () => {
       expect(data.basket[0].ticker).toBe("AAPL");
       expect(data.basket[1].ticker).toBe("MSFT");
     });
+
+    it("POST /api/indices gracefully saves index on unmigrated database missing owner_token_hash column", async () => {
+      let executedQueryWithLegacyColumns = false;
+      const env = {
+        ASSETS: { fetch: vi.fn().mockResolvedValue(new Response("Asset")) },
+        DB: {
+          prepare: vi.fn().mockImplementation((query: string) => ({
+            bind: vi.fn().mockImplementation((...params: unknown[]) => ({
+              all: vi.fn().mockImplementation(async () => {
+                if (query.includes("owner_token_hash")) {
+                  throw new Error("D1_ERROR: table indices has no column named owner_token_hash: SQLITE_ERROR");
+                }
+                if (query.includes("FROM indices WHERE id = ?")) {
+                  return { results: [] };
+                }
+                return { results: [] };
+              }),
+              run: vi.fn().mockImplementation(async () => {
+                if (query.includes("owner_token_hash")) {
+                  throw new Error("D1_ERROR: table indices has no column named owner_token_hash: SQLITE_ERROR");
+                }
+                return { success: true };
+              }),
+              query,
+              params,
+            })),
+          })),
+          batch: vi.fn().mockImplementation(async (stmts: any[]) => {
+            for (const s of stmts) {
+              if (s?.query?.includes("owner_token_hash") || s?.query?.includes("created_at")) {
+                throw new Error("D1_ERROR: table indices has no column named owner_token_hash: SQLITE_ERROR");
+              }
+              if (s?.query?.includes("INSERT OR REPLACE INTO indices (id, name, description, base_value, sort_order)")) {
+                executedQueryWithLegacyColumns = true;
+              }
+            }
+            return [];
+          }),
+        },
+      };
+
+      const req = new Request("http://localhost/api/indices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "unmigrated-index-1",
+          name: "Unmigrated Index",
+          description: "Testing fallback without owner_token_hash",
+          baseValue: 1000,
+          basket: [{ ticker: "7203", name: "Toyota", weight: 100, theme: "Auto" }],
+        }),
+      });
+
+      const res = await worker.fetch(req, env as any);
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.ok).toBe(true);
+      expect(executedQueryWithLegacyColumns).toBe(true);
+    });
+
+    it("DELETE /api/indices finds and deletes index on unmigrated database missing owner_token_hash column", async () => {
+      let deleted = false;
+      const env = createMockEnv({
+        DB: {
+          prepare: vi.fn().mockImplementation((query: string) => {
+            const exec = async (params: any[] = []) => {
+              if (query.includes("owner_token_hash")) {
+                throw new Error("D1_ERROR: table indices has no column named owner_token_hash: SQLITE_ERROR");
+              }
+              if (query.includes("SELECT id FROM indices WHERE id = ?")) {
+                return { results: [{ id: "legacy-index-1" }] };
+              }
+              if (query.includes("access_passwords")) {
+                return {
+                  results: [
+                    {
+                      id: "admin-master",
+                      name: "Admin",
+                      password_hash: await hashToken("admin-password"),
+                      role: "admin",
+                      is_active: 1,
+                    },
+                  ],
+                };
+              }
+              return { results: [] };
+            };
+            return {
+              bind: vi.fn().mockImplementation((...params: any[]) => ({
+                all: () => exec(params),
+                run: vi.fn().mockImplementation(async () => {
+                  if (query.includes("DELETE FROM indices")) deleted = true;
+                  return { success: true };
+                }),
+              })),
+              all: () => exec([]),
+              run: vi.fn().mockImplementation(async () => {
+                if (query.includes("DELETE FROM indices")) deleted = true;
+                return { success: true };
+              }),
+            };
+          }),
+          batch: vi.fn().mockImplementation(async (stmts: any[]) => {
+            deleted = true;
+            return [];
+          }),
+        },
+      });
+
+      const req = new Request("http://localhost/api/indices?id=legacy-index-1", {
+        method: "DELETE",
+        headers: { "x-auth-password": "admin-password" },
+      });
+
+      const res = await worker.fetch(req, env as any);
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.ok).toBe(true);
+      expect(deleted).toBe(true);
+    });
   });
 });
+
