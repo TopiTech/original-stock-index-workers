@@ -116,12 +116,7 @@ export function ConstituentsTable({
     }
   };
 
-  const handleDeleteStockClick = async (ticker: string, stockName: string) => {
-    if (!isAuthenticated) {
-      setPendingDeleteStock({ ticker, name: stockName });
-      setIsAuthModalOpen(true);
-      return;
-    }
+  const executeDeleteStock = async (ticker: string, stockName: string) => {
     if (basket.length <= 1) {
       setTableError("構成銘柄が1件のみのため削除できません。指数には最低1銘柄必要です。");
       return;
@@ -137,6 +132,15 @@ export function ConstituentsTable({
         setTableError(null);
       }
     }
+  };
+
+  const handleDeleteStockClick = async (ticker: string, stockName: string) => {
+    if (!isAuthenticated) {
+      setPendingDeleteStock({ ticker, name: stockName });
+      setIsAuthModalOpen(true);
+      return;
+    }
+    await executeDeleteStock(ticker, stockName);
   };
 
   const handleAddStockSubmit = async (stock: BasketItem) => {
@@ -641,9 +645,12 @@ export function ConstituentsTable({
         }}
         onSuccess={() => {
           if (pendingDeleteStock) {
+            // AuthModal の onSuccess は isAuthenticated 反映前のクロージャから
+            // 呼ばれるため、認証チェックを迂回して直接削除を実行する
+            // （チェックを再実行すると認証モーダルが再度開いてしまう）。
             const target = pendingDeleteStock;
             setPendingDeleteStock(null);
-            handleDeleteStockClick(target.ticker, target.name);
+            void executeDeleteStock(target.ticker, target.name);
           } else {
             setIsAddStockModalOpen(true);
           }

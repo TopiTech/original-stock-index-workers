@@ -48,7 +48,10 @@ export const SYSTEM_INDICES = new Set([
   "jp-core",
 ]);
 
-const MAX_BASKET_ITEMS = 100;
+// Upper bound for a single index basket. Must stay below D1 batch/query
+// limits (each basket item becomes one INSERT statement in the save batch)
+// while comfortably accommodating the largest built-in index (175 stocks).
+const MAX_BASKET_ITEMS = 500;
 const PASSWORD_HASH_PREFIX = "pbkdf2-sha256";
 const PASSWORD_HASH_ITERATIONS = 100_000;
 const AUTH_RATE_LIMIT_MAX = 10;
@@ -264,8 +267,15 @@ export async function authenticatePassword(
   }
 
   const pwdHash = await hashToken(pwd);
+  // Cache only the master admin result. The cache is keyed by the SHA-256 of
+  // the raw password, so caching regular users here would be unsafe: two
+  // accounts that share the same password would collide and the first
+  // account's role/limits would be served to the second. There is exactly one
+  // admin-master row, so its result is unambiguous and it is also the hottest
+  // authenticated path (every admin request). Regular users always scan D1,
+  // which also makes deactivation and limit changes take effect immediately.
   const cachedAuth = authCache.get(pwdHash);
-  if (cachedAuth && Date.now() < cachedAuth.expiresAt) {
+  if (cachedAuth && Date.now() < cachedAuth.expiresAt && cachedAuth.result.id === "admin-master") {
     return cachedAuth.result;
   }
 
@@ -339,12 +349,12 @@ export async function authenticatePassword(
     let passwordRows: D1Row[] | undefined;
     try {
       const dbRes = await env.DB.prepare(
-        "SELECT id, name, role, max_stocks, max_indices, is_active, password_hash FROM access_passwords WHERE is_active = 1 AND id != 'admin-master'"
+        "SELECT id, name, role, max_stocks, max_indices, is_active, password_hash FROM access_passwords WHERE is_active = 1 AND id != 'admin-master' ORDER BY created_at ASC"
       ).all();
       passwordRows = dbRes.results;
     } catch {
       const dbRes = await env.DB.prepare(
-        "SELECT id, name, role, max_stocks, is_active, password_hash FROM access_passwords WHERE is_active = 1 AND id != 'admin-master'"
+        "SELECT id, name, role, max_stocks, is_active, password_hash FROM access_passwords WHERE is_active = 1 AND id != 'admin-master' ORDER BY created_at ASC"
       ).all();
       passwordRows = dbRes.results;
     }
@@ -363,6 +373,8 @@ export async function authenticatePassword(
         continue;
       }
       await upgradeLegacyPasswordHash(env, user.id, pwd, user.password_hash);
+      // NOTE: deliberately NOT cached in authCache — see the comment above
+      // about same-password collisions across user accounts.
       const res: AuthResult = {
         authenticated: true,
         role: user.role,
@@ -371,7 +383,6 @@ export async function authenticatePassword(
         maxIndices: user.max_indices !== null && user.max_indices !== undefined ? Number(user.max_indices) : null,
         id: user.id,
       };
-      setAuthCache(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
       return res;
     }
   } catch (err) {
@@ -973,8 +984,14 @@ export default {
           const ticker = typeof rawStock.ticker === "string" ? rawStock.ticker.trim().toUpperCase() : "";
           const name = typeof rawStock.name === "string" ? rawStock.name.trim() : "";
           const theme = typeof rawStock.theme === "string" ? rawStock.theme.trim() : "カスタム";
-          const rawWeight = Number(rawStock.weight);
-          const weight = Number.isFinite(rawWeight) && rawWeight > 0 ? rawWeight : 10;
+          const rawWeight =
+            rawStock.weight === undefined || rawStock.weight === null || rawStock.weight === ""
+              ? 10
+              : Number(rawStock.weight);
+          if (!Number.isFinite(rawWeight) || rawWeight <= 0 || rawWeight > 100) {
+            return json({ error: "銘柄の構成比率 (weight) は0超100以下の数値を指定してください" }, 400, request);
+          }
+          const weight = rawWeight;
 
           if (!ticker || !/^[A-Za-z0-9.\-]+$/.test(ticker) || ticker.length > 20) {
             return json({ error: "無効な銘柄コードです" }, 400, request);
@@ -1063,7 +1080,13 @@ export default {
         try {
           const indexId = url.searchParams.get("indexId");
           const ticker = url.searchParams.get("ticker");
-          if (!indexId || !ticker) {
+          if (
+            !indexId ||
+            !ticker ||
+            ticker.trim().length === 0 ||
+            ticker.trim().length > 20 ||
+            !/^[A-Za-z0-9.\-]+$/.test(ticker.trim())
+          ) {
             return json({ error: "indexId and ticker parameters are required" }, 400, request);
           }
 
@@ -1296,12 +1319,15 @@ export default {
           if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
             return notModified(request, {
               "etag": etag,
-              "cache-control": "public, max-age=15, stale-while-revalidate=60",
+              // ETag/304 revalidation only; the CDN must not cache this list
+              // (mutations cannot purge the edge cache, so public caching
+              // would serve stale index lists after saves/deletes).
+              "cache-control": "no-cache",
             });
           }
           return json(cachedIndices, 200, request, {
             "etag": etag,
-            "cache-control": "public, max-age=15, stale-while-revalidate=60",
+            "cache-control": "no-cache",
           });
         }
 
@@ -1354,13 +1380,13 @@ export default {
         if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
           return notModified(request, {
             "etag": etag,
-            "cache-control": "public, max-age=15, stale-while-revalidate=60",
+            "cache-control": "no-cache",
           });
         }
 
         return json(indicesList, 200, request, {
           "etag": etag,
-          "cache-control": "public, max-age=15, stale-while-revalidate=60",
+          "cache-control": "no-cache",
         });
       } catch (err) {
         console.error("API Error [indices]:", err);
@@ -1417,6 +1443,9 @@ export default {
         const basket = Array.isArray(body.basket) ? body.basket : [];
         if (basket.length === 0) {
           return json({ error: "Basket must contain at least 1 item" }, 400, request);
+        }
+        if (basket.length > MAX_BASKET_ITEMS) {
+          return json({ error: `Basket must contain at most ${MAX_BASKET_ITEMS} items` }, 400, request);
         }
 
         const seenTickers = new Set<string>();
@@ -1861,6 +1890,9 @@ export default {
         const baseValue = typeof rawBaseValue === "number" ? rawBaseValue : 1000;
         if (!Array.isArray(basket) || basket.length === 0) {
           return json({ error: "Invalid basket: must contain at least 1 item" }, 400, request);
+        }
+        if (basket.length > MAX_BASKET_ITEMS) {
+          return json({ error: `Invalid basket: must contain at most ${MAX_BASKET_ITEMS} items` }, 400, request);
         }
 
         // Strict basket validation: fail on any invalid entry
