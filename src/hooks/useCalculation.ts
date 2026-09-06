@@ -226,7 +226,7 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
               }
             }
             if (changed) {
-              localStorage.setItem("custom_index_sync_cache_v2", JSON.stringify(cache));
+              localStorage.setItem(SYNC_STORAGE_KEY, JSON.stringify(cache));
             }
           } catch {
             // ignore
