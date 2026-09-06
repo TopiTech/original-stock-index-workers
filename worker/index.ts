@@ -201,9 +201,25 @@ export async function ensurePasswordTable(env: Env): Promise<void> {
     try {
       await env.DB.prepare("ALTER TABLE access_passwords ADD COLUMN max_indices INTEGER DEFAULT NULL").run();
     } catch {}
-    // Add creator_id column to indices if not exists
+    // Ensure all columns on indices exist for unmigrated databases
+    try {
+      await env.DB.prepare("ALTER TABLE indices ADD COLUMN owner_token_hash TEXT").run();
+    } catch {}
+    try {
+      await env.DB.prepare("ALTER TABLE indices ADD COLUMN created_at INTEGER").run();
+    } catch {}
     try {
       await env.DB.prepare("ALTER TABLE indices ADD COLUMN creator_id TEXT").run();
+    } catch {}
+    // Ensure benchmark_cache table if not exists
+    try {
+      await env.DB.prepare(`
+        CREATE TABLE IF NOT EXISTS benchmark_cache (
+          symbol TEXT PRIMARY KEY,
+          data TEXT NOT NULL,
+          cached_at INTEGER NOT NULL
+        )
+      `).run();
     } catch {}
     isPasswordTableEnsured = true;
   } catch {
@@ -966,9 +982,16 @@ export default {
           const parsed = await parseJsonBody(request);
           if (!parsed.ok) return parsed.response;
           const { indexId, stock, password } = parsed.body;
-          if (!indexId || typeof indexId !== "string") {
-            return json({ error: "indexId is required" }, 400, request);
+          if (
+            !indexId ||
+            typeof indexId !== "string" ||
+            indexId.trim().length === 0 ||
+            indexId.trim().length > 100 ||
+            !/^[A-Za-z0-9.\-_]+$/.test(indexId.trim())
+          ) {
+            return json({ error: "indexId is required (1-100 alphanumeric, dot, hyphen, underscore)" }, 400, request);
           }
+          const cleanIndexId = indexId.trim();
 
           // 認証チェック
           const auth = await authenticatePassword(request, env, typeof password === "string" ? password : null);
@@ -976,7 +999,7 @@ export default {
             return json({ error: "この操作にはパスワード認証が必要です" }, 401, request);
           }
 
-          if (SYSTEM_INDICES.has(indexId) && auth.role !== "admin") {
+          if (SYSTEM_INDICES.has(cleanIndexId) && auth.role !== "admin") {
             return json({ error: "システム指数の銘柄変更には管理者権限が必要です" }, 403, request);
           }
 
@@ -1006,7 +1029,7 @@ export default {
           // 現在の銘柄数チェック
           const { results: existingStocks } = await env.DB.prepare(
             "SELECT ticker FROM basket_items WHERE index_id = ?"
-          ).bind(indexId).all();
+          ).bind(cleanIndexId).all();
 
           // 所有権チェック（非管理者の場合）
           let existingHash: string | null = null;
@@ -1014,14 +1037,14 @@ export default {
           try {
             const { results } = await env.DB.prepare(
               "SELECT id, owner_token_hash FROM indices WHERE id = ?"
-            ).bind(indexId).all();
+            ).bind(cleanIndexId).all();
             if (results && results.length > 0) {
               hasCheckedIndex = true;
               existingHash = (results[0] as { owner_token_hash?: string }).owner_token_hash || null;
             }
           } catch {
             try {
-              const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(indexId).all();
+              const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(cleanIndexId).all();
               if (results && results.length > 0) hasCheckedIndex = true;
             } catch {}
           }
@@ -1067,7 +1090,7 @@ export default {
 
           await env.DB.prepare(
             "INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES (?, ?, ?, ?, ?)"
-          ).bind(indexId, ticker, name, weight, theme).run();
+          ).bind(cleanIndexId, ticker, name, weight, theme).run();
 
           clearMemoryCache("api:indices");
           clearMemoryCache("calc:");
@@ -1081,17 +1104,22 @@ export default {
       // 構成銘柄の個別削除 (パスワード認証)
       if (url.pathname === "/api/indices/stock" && request.method === "DELETE") {
         try {
-          const indexId = url.searchParams.get("indexId");
-          const ticker = url.searchParams.get("ticker");
+          const rawIndexId = url.searchParams.get("indexId");
+          const rawTicker = url.searchParams.get("ticker");
           if (
-            !indexId ||
-            !ticker ||
-            ticker.trim().length === 0 ||
-            ticker.trim().length > 20 ||
-            !/^[A-Za-z0-9.\-]+$/.test(ticker.trim())
+            !rawIndexId ||
+            rawIndexId.trim().length === 0 ||
+            rawIndexId.trim().length > 100 ||
+            !/^[A-Za-z0-9.\-_]+$/.test(rawIndexId.trim()) ||
+            !rawTicker ||
+            rawTicker.trim().length === 0 ||
+            rawTicker.trim().length > 20 ||
+            !/^[A-Za-z0-9.\-]+$/.test(rawTicker.trim())
           ) {
-            return json({ error: "indexId and ticker parameters are required" }, 400, request);
+            return json({ error: "Valid indexId and ticker parameters are required" }, 400, request);
           }
+          const indexId = rawIndexId.trim();
+          const ticker = rawTicker.trim().toUpperCase();
 
           const auth = await authenticatePassword(request, env);
           if (!auth.authenticated) {
@@ -1337,7 +1365,7 @@ export default {
         const { results } = await env.DB.prepare(
           `
           SELECT
-            i.id, i.name, i.description, i.base_value,
+            i.id, i.name, i.description, i.base_value, i.sort_order,
             b.ticker, b.name as stock_name, b.weight, b.theme
           FROM indices i
           LEFT JOIN basket_items b ON i.id = b.index_id
@@ -1350,18 +1378,21 @@ export default {
 
         const indicesMap = new Map<
           string,
-          { id: string; name: string; description: string; baseValue: number; basket: BasketItem[] }
+          { id: string; name: string; description: string; baseValue: number; basket: BasketItem[]; sortOrder?: number }
         >();
         for (const row of results as D1Row[]) {
           const id = String(row.id);
           if (!indicesMap.has(id)) {
             const rawBase = Number(row.base_value);
             const baseValue = Number.isFinite(rawBase) && rawBase > 0 ? rawBase : 1000;
+            const rawSort = Number(row.sort_order);
+            const sortOrder = Number.isFinite(rawSort) ? rawSort : 50;
             indicesMap.set(id, {
               id,
               name: String(row.name),
               description: row.description ? String(row.description) : "",
               baseValue,
+              sortOrder,
               basket: [],
             });
           }
@@ -1442,6 +1473,14 @@ export default {
           return json({ error: "Invalid baseValue" }, 400, request);
         }
         const baseValue = typeof body.baseValue === "number" ? body.baseValue : 1000;
+
+        let sortOrder: number | null = null;
+        if (body.sortOrder !== undefined && body.sortOrder !== null) {
+          if (typeof body.sortOrder !== "number" || !Number.isFinite(body.sortOrder) || body.sortOrder < 0 || body.sortOrder > 9999) {
+            return json({ error: "Invalid sortOrder: must be a number between 0 and 9999" }, 400, request);
+          }
+          sortOrder = Math.floor(body.sortOrder);
+        }
 
         const basket = Array.isArray(body.basket) ? body.basket : [];
         if (basket.length === 0) {
@@ -1553,19 +1592,28 @@ export default {
               return json({ error: "この指数は保護されているため更新できません（管理者権限が必要です）" }, 403, request);
             }
           } else {
-            // Admin edit - if a token is provided, assign it now
-            if (providedToken) {
-              targetHash = await hashToken(providedToken);
+            // Admin edit:
+            // 1. Built-in system indices must never have an owner_token_hash.
+            if (SYSTEM_INDICES.has(id)) {
+              targetHash = null;
             } else if (existingHash) {
+              // 2. Preserve existing owner's hash so admin edits don't hijack ownership or lock out users.
               targetHash = existingHash;
+            } else if (providedToken) {
+              // 3. Unowned custom index being edited by admin
+              targetHash = await hashToken(providedToken);
             }
           }
         } else {
           // Brand new index
-          if (!providedToken) {
-            providedToken = crypto.randomUUID();
+          if (SYSTEM_INDICES.has(id)) {
+            targetHash = null;
+          } else {
+            if (!providedToken) {
+              providedToken = crypto.randomUUID();
+            }
+            targetHash = await hashToken(providedToken);
           }
-          targetHash = await hashToken(providedToken);
         }
 
         const nowMs = Math.floor(Date.now() / 1000);
@@ -1575,18 +1623,18 @@ export default {
         if (hasOwnerTokenHashColumn) {
           try {
             insertIndexStmt = env.DB.prepare(
-              "INSERT OR REPLACE INTO indices (id, name, description, base_value, sort_order, owner_token_hash, creator_id, created_at) VALUES (?, ?, ?, ?, 50, ?, COALESCE((SELECT creator_id FROM indices WHERE id = ?), ?), COALESCE((SELECT created_at FROM indices WHERE id = ?), ?))",
-            ).bind(id, name, description, baseValue, targetHash, id, creatorId, id, nowMs);
+              "INSERT OR REPLACE INTO indices (id, name, description, base_value, owner_token_hash, creator_id, created_at, sort_order) VALUES (?, ?, ?, ?, ?, COALESCE((SELECT creator_id FROM indices WHERE id = ?), ?), COALESCE((SELECT created_at FROM indices WHERE id = ?), ?), COALESCE(?, (SELECT sort_order FROM indices WHERE id = ?), 50))",
+            ).bind(id, name, description, baseValue, targetHash, id, creatorId, id, nowMs, sortOrder, id);
           } catch {
             insertIndexStmt = env.DB.prepare(
-              "INSERT OR REPLACE INTO indices (id, name, description, base_value, sort_order, owner_token_hash, created_at) VALUES (?, ?, ?, ?, 50, ?, COALESCE((SELECT created_at FROM indices WHERE id = ?), ?))",
-            ).bind(id, name, description, baseValue, targetHash, id, nowMs);
+              "INSERT OR REPLACE INTO indices (id, name, description, base_value, owner_token_hash, created_at, sort_order) VALUES (?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM indices WHERE id = ?), ?), COALESCE(?, (SELECT sort_order FROM indices WHERE id = ?), 50))",
+            ).bind(id, name, description, baseValue, targetHash, id, nowMs, sortOrder, id);
           }
         } else {
           // Fallback if columns not migrated yet
           insertIndexStmt = env.DB.prepare(
-            "INSERT OR REPLACE INTO indices (id, name, description, base_value, sort_order) VALUES (?, ?, ?, ?, 50)",
-          ).bind(id, name, description, baseValue);
+            "INSERT OR REPLACE INTO indices (id, name, description, base_value, sort_order) VALUES (?, ?, ?, ?, COALESCE(?, (SELECT sort_order FROM indices WHERE id = ?), 50))",
+          ).bind(id, name, description, baseValue, sortOrder, id);
         }
 
         const statements = [
@@ -1609,8 +1657,8 @@ export default {
             (batchErr.message.includes("owner_token_hash") || batchErr.message.includes("created_at") || batchErr.message.includes("creator_id"))
           ) {
             const fallbackStmt = env.DB.prepare(
-              "INSERT OR REPLACE INTO indices (id, name, description, base_value, sort_order) VALUES (?, ?, ?, ?, 50)",
-            ).bind(id, name, description, baseValue);
+              "INSERT OR REPLACE INTO indices (id, name, description, base_value, sort_order) VALUES (?, ?, ?, ?, COALESCE(?, (SELECT sort_order FROM indices WHERE id = ?), 50))",
+            ).bind(id, name, description, baseValue, sortOrder, id);
             await env.DB.batch([fallbackStmt, ...statements.slice(1)]);
           } else {
             throw batchErr;
@@ -1619,7 +1667,12 @@ export default {
         clearMemoryCache("api:indices");
         clearMemoryCache("calc:");
 
-        return json({ ok: true, id, ownerToken: providedToken, message: "Index saved successfully" }, 200, request);
+        return json({
+          ok: true,
+          id,
+          ownerToken: isAdmin && isExisting && existingHash ? undefined : (SYSTEM_INDICES.has(id) ? undefined : providedToken),
+          message: "Index saved successfully",
+        }, 200, request);
       } catch (err) {
         console.error("API Error [POST indices]:", err);
         return json({ error: "Internal server error" }, 500, request);

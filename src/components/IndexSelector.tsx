@@ -2,7 +2,7 @@ import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, Tag, Badge, SearchInput } from "./ui";
 import { Layers, CheckCircle2, Plus, Trash2, UserCheck } from "lucide-react";
-import type { CustomIndex } from "../data/indices";
+import { SYSTEM_INDEX_IDS, type CustomIndex } from "../data/indices";
 import { normalizeWeights } from "../lib/indexEngine";
 import { isIndexOwner } from "../lib/ownership";
 
@@ -14,14 +14,6 @@ interface IndexSelectorProps {
   onDeleteIndex?: (id: string) => void;
   isOwner?: (id: string) => boolean;
 }
-
-const SYSTEM_INDEX_IDS = new Set([
-  "nikkei-175",
-  "eroge-index",
-  "ai-semi",
-  "infra-tech",
-  "jp-core",
-]);
 
 export function IndexSelector({
   indices,
@@ -95,23 +87,35 @@ export function IndexSelector({
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.98 }}
               className={`index-item ${isSelected ? "active" : ""}`}
-              role="button"
-              tabIndex={0}
-              aria-pressed={isSelected}
               onClick={() => onSelect(idx)}
-              onKeyDown={(e) => {
-                if (e.target !== e.currentTarget) return;
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  onSelect(idx);
-                }
-              }}
             >
               <div className="row space-between" style={{ marginBottom: 4 }}>
-                <div className="row" style={{ gap: 6, alignItems: "center" }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: isSelected ? "var(--neon-cyan)" : "#fff" }}>
+                <button
+                  type="button"
+                  className="index-select-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelect(idx);
+                  }}
+                  aria-pressed={isSelected}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    padding: 0,
+                    margin: 0,
+                    cursor: "pointer",
+                    textAlign: "left",
+                    color: "inherit",
+                    font: "inherit",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    flex: 1,
+                  }}
+                >
+                  <span style={{ fontWeight: 700, fontSize: 14, color: isSelected ? "var(--neon-cyan)" : "#fff" }}>
                     {idx.name}
-                  </div>
+                  </span>
                   {isMyIndex && (
                     <span
                       className="tag"
@@ -131,7 +135,7 @@ export function IndexSelector({
                       <UserCheck size={10} /> My 指数
                     </span>
                   )}
-                </div>
+                </button>
                 <div className="row" style={{ gap: 6 }}>
                   {isMyIndex && onDeleteIndex && (
                     <button
@@ -140,15 +144,6 @@ export function IndexSelector({
                         e.stopPropagation();
                         if (confirm(`指数「${idx.name}」を削除しますか？\n（作成者のみ削除可能です）`)) {
                           onDeleteIndex(idx.id);
-                        }
-                      }}
-                      onKeyDown={(e: React.KeyboardEvent) => {
-                        e.stopPropagation();
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          if (confirm(`指数「${idx.name}」を削除しますか？\n（作成者のみ削除可能です）`)) {
-                            onDeleteIndex(idx.id);
-                          }
                         }
                       }}
                       style={{

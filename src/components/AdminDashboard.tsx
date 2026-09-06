@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { storeAuth } from "../lib/auth";
-import type { CustomIndex } from "../data/indices";
+import { SYSTEM_INDICES, type CustomIndex } from "../data/indices";
 import type { BasketItem, UserPasswordItem } from "../types";
 import { Card, Tag, Badge, SearchInput } from "./ui";
 
@@ -253,10 +253,25 @@ export function AdminDashboard({
   };
 
   // Copy password to clipboard
-  const handleCopy = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
+  const handleCopy = async (text: string, id: string) => {
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch (err) {
+      console.warn("Failed to copy password:", err);
+    }
   };
 
   // Toggle active password
@@ -290,6 +305,10 @@ export function AdminDashboard({
     e.preventDefault();
     if (!addTicker.trim() || !addName.trim()) return;
     const cleanTicker = addTicker.trim().toUpperCase();
+    if (!/^[A-Za-z0-9.\-]+$/.test(cleanTicker) || cleanTicker.length > 20) {
+      setIndexEditMessage({ type: "error", text: "有効な銘柄コードを入力してください（英数字・ドット・ハイフンのみ、20文字以内）" });
+      return;
+    }
     if (editBasket.some((b) => b.ticker === cleanTicker)) {
       setIndexEditMessage({ type: "error", text: `銘柄コード ${cleanTicker} は既に追加されています` });
       return;
@@ -315,6 +334,10 @@ export function AdminDashboard({
       setIndexEditMessage({ type: "error", text: "指数名は必須です" });
       return;
     }
+    if (isNaN(editBaseValue) || editBaseValue <= 0 || editBaseValue > 1000000) {
+      setIndexEditMessage({ type: "error", text: "基準値は0より大きく1,000,000以下の数値を入力してください" });
+      return;
+    }
     if (editBasket.length === 0) {
       setIndexEditMessage({ type: "error", text: "最低1銘柄の構成銘柄が必要です" });
       return;
@@ -322,12 +345,14 @@ export function AdminDashboard({
 
     setSavingIndex(true);
     setIndexEditMessage(null);
+    const currentIndex = indices.find((idx) => idx.id === selectedEditIndexId);
     const updated: CustomIndex = {
       id: selectedEditIndexId,
       name: editName.trim(),
       description: editDescription.trim(),
       baseValue: editBaseValue,
       basket: editBasket,
+      sortOrder: currentIndex?.sortOrder,
     };
 
     const res = await saveCustomIndex(updated);
@@ -1094,10 +1119,11 @@ export function AdminDashboard({
             {/* Index Metadata Settings */}
             <div className="admin-index-meta-grid">
               <div>
-                <label style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
+                <label htmlFor="admin-edit-index-name" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
                   指数名
                 </label>
                 <input
+                  id="admin-edit-index-name"
                   type="text"
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
@@ -1114,11 +1140,15 @@ export function AdminDashboard({
                 />
               </div>
               <div>
-                <label style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
+                <label htmlFor="admin-edit-base-value" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
                   基準値 (Base Value)
                 </label>
                 <input
+                  id="admin-edit-base-value"
                   type="number"
+                  min="1"
+                  max="1000000"
+                  step="any"
                   value={editBaseValue}
                   onChange={(e) => setEditBaseValue(Number(e.target.value))}
                   style={{
@@ -1136,10 +1166,11 @@ export function AdminDashboard({
             </div>
 
             <div style={{ marginBottom: 20 }}>
-              <label style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
+              <label htmlFor="admin-edit-description" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
                 指数の説明
               </label>
               <textarea
+                id="admin-edit-description"
                 value={editDescription}
                 onChange={(e) => setEditDescription(e.target.value)}
                 rows={2}
@@ -1331,7 +1362,7 @@ export function AdminDashboard({
             {/* Action Bar */}
             <div className="row space-between" style={{ borderTop: "1px solid var(--border-subtle)", paddingTop: 16 }}>
               <div>
-                {!["nikkei-175", "eroge-index", "ai-semi", "infra-tech", "jp-core"].includes(selectedEditIndexId) && (
+                {!SYSTEM_INDICES.has(selectedEditIndexId) && (
                   <button
                     type="button"
                     onClick={async () => {

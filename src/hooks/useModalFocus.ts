@@ -38,9 +38,11 @@ export function useModalFocus<T extends HTMLElement>(
     const dialog = dialogRef.current;
     const previousActiveElement = document.activeElement as HTMLElement | null;
     const initialTarget = initialFocusRef?.current;
-    const target = initialTarget && dialog.contains(initialTarget)
-      ? initialTarget
-      : getFocusableElements(dialog)[0];
+    const isTargetFocusable =
+      initialTarget &&
+      dialog.contains(initialTarget) &&
+      !("disabled" in initialTarget && (initialTarget as { disabled?: boolean }).disabled);
+    const target = isTargetFocusable ? initialTarget : getFocusableElements(dialog)[0];
     target?.focus();
 
     const handleKeyDown = (event: KeyboardEvent) => {

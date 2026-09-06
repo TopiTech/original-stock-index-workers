@@ -6,7 +6,18 @@ export interface CustomIndex {
   description: string;
   baseValue: number;
   basket: BasketItem[];
+  sortOrder?: number;
 }
+
+// Built-in system index IDs that cannot be deleted or assigned user ownership
+export const SYSTEM_INDICES = new Set([
+  "nikkei-175",
+  "eroge-index",
+  "ai-semi",
+  "infra-tech",
+  "jp-core",
+]);
+export const SYSTEM_INDEX_IDS = SYSTEM_INDICES;
 
 export const DEFAULT_INDICES: CustomIndex[] = [
   {

@@ -65,9 +65,27 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225") {
       headers,
     })
       .then(async (res) => {
-        if (res.status === 304 && cached) {
-          cached.timestamp = Date.now();
-          return cached.data;
+        if (res.status === 304) {
+          if (cached) {
+            cached.timestamp = Date.now();
+            return cached.data;
+          }
+          // If 304 received without memory cache, refetch fresh data
+          const freshRes = await fetch(`${API_BASE}/snapshot?symbol=${encodeURIComponent(selectedBenchmark)}`, {
+            signal: controller.signal,
+          });
+          if (!freshRes.ok) {
+            const errData = await freshRes.json().catch(() => ({}));
+            throw new Error(errData.error || `${selectedBenchmark} データの取得に失敗しました`);
+          }
+          const freshEtag = freshRes.headers.get("etag");
+          const freshData: BenchmarkData = await freshRes.json();
+          benchmarkSessionCache.set(selectedBenchmark, {
+            data: freshData,
+            timestamp: Date.now(),
+            etag: freshEtag,
+          });
+          return freshData;
         }
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
