@@ -410,6 +410,8 @@ export default function App() {
                   className="btn btn-sm btn-default"
                   onClick={() => setIsDesktopSidebarOpen((prev) => !prev)}
                   title={isDesktopSidebarOpen ? "サイドバーを折りたたむ" : "サイドバーを展開する"}
+                  aria-expanded={isDesktopSidebarOpen}
+                  aria-controls="index-sidebar"
                   style={{ padding: "6px 10px", fontSize: 11 }}
                 >
                   <Menu size={13} />
