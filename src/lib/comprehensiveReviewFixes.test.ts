@@ -72,14 +72,10 @@ describe("Comprehensive Review Fixes", () => {
               ],
             };
           }
-          return { results: [] };
-        },
-        first: (query, params) => {
           if (query.includes("SELECT max_stocks FROM access_passwords WHERE id = ?")) {
-            expect(params[0]).toBe("user-creator-abc");
-            return { max_stocks: 2 }; // creator has 2-stock limit
+            return { results: [{ max_stocks: 2 }] };
           }
-          return null;
+          return { results: [] };
         },
       });
 
@@ -171,6 +167,177 @@ describe("Comprehensive Review Fixes", () => {
       expect(res.status).toBe(200);
       expect(db.batch).toHaveBeenCalled();
     });
+
+    it("fails closed when the creator quota cannot be read", async () => {
+      const validToken = "user-owner-token-123";
+      const validHash = await hashToken(validToken);
+      const db = createMockDb({
+        all: (query) => {
+          if (query.includes("SELECT id, owner_token_hash, creator_id FROM indices")) {
+            return {
+              results: [
+                {
+                  id: "idx-user-1",
+                  owner_token_hash: validHash,
+                  creator_id: "user-creator-abc",
+                },
+              ],
+            };
+          }
+          if (query.includes("SELECT max_stocks FROM access_passwords WHERE id = ?")) {
+            throw new Error("D1 temporarily unavailable");
+          }
+          return { results: [] };
+        },
+      });
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+      try {
+        const res = await worker.fetch(
+          new Request("http://localhost/api/indices", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-owner-token": validToken,
+            },
+            body: JSON.stringify({
+              id: "idx-user-1",
+              name: "Updated Index Name",
+              baseValue: 1000,
+              basket: [{ ticker: "7203", name: "Toyota", weight: 100 }],
+            }),
+          }),
+          { ASSETS: { fetch: vi.fn() }, DB: db, ADMIN_PASSWORD: "test-admin-password" } as any,
+        );
+
+        expect(res.status).toBe(503);
+        expect(db.batch).not.toHaveBeenCalled();
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+
+    it("enforces the original creator's stock cap when another user has the owner token", async () => {
+      const ownerToken = "shared-owner-token";
+      const operatorPassword = "higher-quota-operator";
+      const [ownerHash, operatorHash] = await Promise.all([hashToken(ownerToken), hashToken(operatorPassword)]);
+      const db = createMockDb({
+        all: (query) => {
+          if (query.includes("WHERE id = 'admin-master'")) return { results: [] };
+          if (query.includes("WHERE is_active = 1 AND id != 'admin-master'")) {
+            return {
+              results: [
+                {
+                  id: "operator-user",
+                  name: "Operator",
+                  role: "user",
+                  max_stocks: 500,
+                  max_indices: null,
+                  is_active: 1,
+                  password_hash: operatorHash,
+                },
+              ],
+            };
+          }
+          if (query.includes("SELECT ticker FROM basket_items WHERE index_id = ?")) {
+            return { results: [{ ticker: "7203" }, { ticker: "9984" }] };
+          }
+          if (query.includes("SELECT id, owner_token_hash, creator_id FROM indices")) {
+            return {
+              results: [
+                {
+                  id: "idx-user-1",
+                  owner_token_hash: ownerHash,
+                  creator_id: "limited-creator",
+                },
+              ],
+            };
+          }
+          if (query.includes("SELECT max_stocks FROM access_passwords WHERE id = ?")) {
+            return { results: [{ max_stocks: 2 }] };
+          }
+          return { results: [] };
+        },
+      });
+
+      const res = await worker.fetch(
+        new Request("http://localhost/api/indices/stock", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-auth-password": operatorPassword,
+            "x-owner-token": ownerToken,
+          },
+          body: JSON.stringify({
+            indexId: "idx-user-1",
+            stock: { ticker: "8035", name: "Tokyo Electron", theme: "Semi", weight: 10 },
+          }),
+        }),
+        { ASSETS: { fetch: vi.fn() }, DB: db, ADMIN_PASSWORD: "test-admin-password" } as any,
+      );
+
+      expect(res.status).toBe(403);
+      expect((await res.json()).error).toContain("作成者の設定により最大2銘柄");
+    });
+  });
+
+  describe("[HIGH-03] Large Basket D1 Batching", () => {
+    it("chunks a quota-guarded 500-stock save within D1's statement parameter and invocation budgets", async () => {
+      const password = "limited-user-password";
+      const passwordHash = await hashToken(password);
+      const db = createMockDb({
+        all: (query) => {
+          if (query.includes("WHERE id = 'admin-master'")) return { results: [] };
+          if (query.includes("WHERE is_active = 1 AND id != 'admin-master'")) {
+            return {
+              results: [
+                {
+                  id: "limited-user",
+                  name: "Limited User",
+                  role: "user",
+                  max_stocks: 500,
+                  max_indices: 5,
+                  is_active: 1,
+                  password_hash: passwordHash,
+                },
+              ],
+            };
+          }
+          if (query.includes("SELECT id, owner_token_hash, creator_id FROM indices")) {
+            return { results: [] };
+          }
+          if (query.includes("SELECT COUNT(*) as count FROM indices WHERE creator_id = ?")) {
+            return { results: [{ count: 0 }] };
+          }
+          return { results: [] };
+        },
+      });
+      const basket = Array.from({ length: 500 }, (_, index) => ({
+        ticker: `T${index}`,
+        name: `Stock ${index}`,
+        theme: "Test",
+        weight: 1,
+      }));
+
+      const res = await worker.fetch(
+        new Request("http://localhost/api/indices", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-auth-password": password },
+          body: JSON.stringify({ id: "large-index", name: "Large Index", baseValue: 1000, basket }),
+        }),
+        { ASSETS: { fetch: vi.fn() }, DB: db, ADMIN_PASSWORD: "test-admin-password" } as any,
+      );
+
+      expect(res.status).toBe(200);
+      const statements = db.batch.mock.calls[0][0] as Array<{ query: string }>;
+      const basketWrites = statements.filter((statement) => statement.query.includes("INSERT OR REPLACE INTO basket_items"));
+      expect(statements).toHaveLength(29); // upsert + delete + ceil(500 / 19) writes
+      expect(basketWrites).toHaveLength(27);
+      expect(statements.length).toBeLessThanOrEqual(50);
+      for (const statement of basketWrites) {
+        expect((statement.query.match(/\?/g) || []).length).toBeLessThanOrEqual(100);
+      }
+    });
   });
 
   describe("[HIGH-01] Snapshot Stale Fallback Headers and Payload", () => {
@@ -217,6 +384,47 @@ describe("Comprehensive Review Fixes", () => {
         expect(body.snapshot.symbol).toBe("^N225");
       } finally {
         globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("serves fresh Yahoo data even when the legacy snapshot cache write fails", async () => {
+      const db = createMockDb({
+        run: (query) => {
+          if (query.includes("INSERT OR REPLACE INTO snapshot_cache")) {
+            throw new Error("D1 write unavailable");
+          }
+          return { meta: { changes: 1 } };
+        },
+      });
+      const originalFetch = globalThis.fetch;
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      globalThis.fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            chart: {
+              result: [
+                {
+                  timestamp: [1788566400, 1788652800],
+                  indicators: { quote: [{ close: [39000, 39100] }] },
+                },
+              ],
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+
+      try {
+        const res = await worker.fetch(
+          new Request("http://localhost/api/snapshot?symbol=%5EN225"),
+          { ASSETS: { fetch: vi.fn() }, DB: db, ADMIN_PASSWORD: "test-admin-password" } as any,
+        );
+
+        expect(res.status).toBe(200);
+        expect((await res.json()).snapshot.current).toBe(39100);
+      } finally {
+        globalThis.fetch = originalFetch;
+        consoleError.mockRestore();
       }
     });
   });

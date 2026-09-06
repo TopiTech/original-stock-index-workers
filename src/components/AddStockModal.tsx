@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { Plus, X, AlertCircle, Sparkles } from "lucide-react";
 import type { BasketItem } from "../types";
 import { useModalFocus } from "../hooks/useModalFocus";
-import { searchPopularStocks, type PopularStock } from "../data/popularStocks";
+import { searchPopularStocks } from "../data/popularStocks";
 
 interface AddStockModalProps {
   isOpen: boolean;
@@ -47,7 +47,10 @@ export function AddStockModal({
   const [error, setError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const tickerInputRef = useRef<HTMLInputElement>(null);
-  useModalFocus(isOpen, dialogRef, onClose, tickerInputRef);
+  const handleClose = () => {
+    if (!loading) onClose();
+  };
+  useModalFocus(isOpen, dialogRef, handleClose, tickerInputRef);
 
   const popularSuggestions = useMemo(() => {
     const query = ticker || name;
@@ -110,7 +113,7 @@ export function AddStockModal({
     <div
       className="modal-overlay"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) handleClose();
       }}
       style={{
         position: "fixed",
@@ -166,7 +169,8 @@ export function AddStockModal({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
+            disabled={loading}
             aria-label="閉じる"
             style={{
               background: "transparent",
@@ -422,7 +426,7 @@ export function AddStockModal({
           <div className="row" style={{ gap: 10 }}>
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="btn btn-sm btn-outline"
               disabled={loading}
             >

@@ -1,6 +1,6 @@
 import { useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { AlertTriangle, AlertCircle, X, Check } from "lucide-react";
+import { motion } from "framer-motion";
+import { AlertTriangle, AlertCircle, X } from "lucide-react";
 import { useModalFocus } from "../hooks/useModalFocus";
 
 interface ConfirmModalProps {
@@ -28,7 +28,10 @@ export function ConfirmModal({
 }: ConfirmModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const confirmBtnRef = useRef<HTMLButtonElement>(null);
-  useModalFocus(isOpen, dialogRef, onClose, confirmBtnRef);
+  const handleClose = () => {
+    if (!loading) onClose();
+  };
+  useModalFocus(isOpen, dialogRef, handleClose, confirmBtnRef);
 
   if (!isOpen) return null;
 
@@ -38,7 +41,7 @@ export function ConfirmModal({
     <div
       className="modal-overlay"
       onClick={(e) => {
-        if (e.target === e.currentTarget && !loading) onClose();
+        if (e.target === e.currentTarget) handleClose();
       }}
       style={{
         position: "fixed",
@@ -97,7 +100,7 @@ export function ConfirmModal({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             disabled={loading}
             aria-label="閉じる"
             style={{
@@ -131,7 +134,7 @@ export function ConfirmModal({
             <button
               type="button"
               className="btn btn-sm btn-outline"
-              onClick={onClose}
+              onClick={handleClose}
               disabled={loading}
             >
               {cancelText}

@@ -157,6 +157,75 @@ function prepareIndexUpsert(
   ).bind(...params);
 }
 
+// D1 allows at most 100 bound parameters per SQL statement. A basket row has
+// five values, and quota-guarded writes reserve two additional bindings for
+// the creator check. Chunking also keeps a 500-item save below the Workers
+// Free plan's per-invocation D1 query limit.
+const D1_MAX_BOUND_PARAMETERS = 100;
+const BASKET_ITEM_BINDINGS = 5;
+
+function prepareBasketItemWrites(
+  env: Env,
+  items: BasketItemInput[],
+  indexId: string,
+  quotaGuarded: boolean,
+  creatorId: string | null,
+): D1PreparedStatement[] {
+  const needsGuard = quotaGuarded && creatorId !== null;
+  const rowsPerStatement = Math.floor(
+    (D1_MAX_BOUND_PARAMETERS - (needsGuard ? 2 : 0)) / BASKET_ITEM_BINDINGS,
+  );
+
+  const prepareSingleWrite = (item: BasketItemInput): D1PreparedStatement => {
+    if (!needsGuard) {
+      return env.DB.prepare(
+        "INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES (?, ?, ?, ?, ?)",
+      ).bind(indexId, item.ticker, item.name, item.weight, item.theme);
+    }
+
+    return env.DB.prepare(
+      "INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM indices WHERE id = ? AND creator_id = ?)",
+    ).bind(indexId, item.ticker, item.name, item.weight, item.theme, indexId, creatorId);
+  };
+
+  // Preserve the simple statement shape for normal small baskets while
+  // switching larger writes to multi-row statements before they can exhaust
+  // the Worker/D1 query budget.
+  if (items.length <= rowsPerStatement) {
+    return items.map(prepareSingleWrite);
+  }
+
+  const statements: D1PreparedStatement[] = [];
+  for (let offset = 0; offset < items.length; offset += rowsPerStatement) {
+    const chunk = items.slice(offset, offset + rowsPerStatement);
+    const placeholders = chunk.map(() => "(?, ?, ?, ?, ?)").join(", ");
+    const params: (string | number)[] = [];
+    for (const item of chunk) {
+      params.push(indexId, item.ticker, item.name, item.weight, item.theme);
+    }
+
+    if (!needsGuard) {
+      statements.push(
+        env.DB.prepare(
+          `INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES ${placeholders}`,
+        ).bind(...params),
+      );
+      continue;
+    }
+
+    statements.push(
+      env.DB.prepare(
+        `WITH incoming(index_id, ticker, name, weight, theme) AS (VALUES ${placeholders})
+         INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme)
+         SELECT index_id, ticker, name, weight, theme FROM incoming
+         WHERE EXISTS (SELECT 1 FROM indices WHERE id = ? AND creator_id = ?)`,
+      ).bind(...params, indexId, creatorId),
+    );
+  }
+
+  return statements;
+}
+
 // Built-in system index IDs that cannot be deleted
 export const SYSTEM_INDICES = new Set([
   "nikkei-175",
@@ -172,9 +241,9 @@ const BENCHMARK_MAP: Record<string, { label: string; desc: string }> = {
   "USDJPY=X": { label: "米ドル/円", desc: "USD/JPY 為替レート" },
 };
 
-// Upper bound for a single index basket. Must stay below D1 batch/query
-// limits (each basket item becomes one INSERT statement in the save batch)
-// while comfortably accommodating the largest built-in index (175 stocks).
+// Upper bound for a single index basket. The save path chunks basket writes so
+// this remains below D1 statement-parameter and Worker invocation limits while
+// comfortably accommodating the largest built-in index (175 stocks).
 const MAX_BASKET_ITEMS = 500;
 const PASSWORD_HASH_PREFIX = "pbkdf2-sha256";
 const PASSWORD_HASH_ITERATIONS = 100_000;
@@ -1218,19 +1287,38 @@ export default {
 
           // 所有権チェック（非管理者の場合）
           let existingHash: string | null = null;
+          let existingCreatorId: string | null = null;
           let hasCheckedIndex = false;
           try {
             const { results } = await env.DB.prepare(
-              "SELECT id, owner_token_hash FROM indices WHERE id = ?"
+              "SELECT id, owner_token_hash, creator_id FROM indices WHERE id = ?"
             ).bind(cleanIndexId).all();
             if (results && results.length > 0) {
               hasCheckedIndex = true;
-              existingHash = (results[0] as { owner_token_hash?: string }).owner_token_hash || null;
+              const index = results[0] as { owner_token_hash?: string; creator_id?: string | null };
+              existingHash = index.owner_token_hash || null;
+              existingCreatorId =
+                typeof index.creator_id === "string" && index.creator_id.length > 0
+                  ? index.creator_id
+                  : null;
             }
           } catch (lookupErr: unknown) {
-            if (!isMissingColumnError(lookupErr, "owner_token_hash")) throw lookupErr;
-            const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(cleanIndexId).all();
-            if (results && results.length > 0) hasCheckedIndex = true;
+            if (!isMissingColumnError(lookupErr, "creator_id") && !isMissingColumnError(lookupErr, "owner_token_hash")) {
+              throw lookupErr;
+            }
+            try {
+              const { results } = await env.DB.prepare(
+                "SELECT id, owner_token_hash FROM indices WHERE id = ?",
+              ).bind(cleanIndexId).all();
+              if (results && results.length > 0) {
+                hasCheckedIndex = true;
+                existingHash = (results[0] as { owner_token_hash?: string }).owner_token_hash || null;
+              }
+            } catch (lookupErr2: unknown) {
+              if (!isMissingColumnError(lookupErr2, "owner_token_hash")) throw lookupErr2;
+              const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(cleanIndexId).all();
+              if (results && results.length > 0) hasCheckedIndex = true;
+            }
           }
 
           if (!hasCheckedIndex) {
@@ -1269,6 +1357,47 @@ export default {
                 400,
                 request,
               );
+            }
+            // Owner tokens authorize a particular index, not a larger
+            // account quota. Preserve the quota attached to the index's
+            // original creator even when the caller authenticates through a
+            // different non-admin account.
+            if (auth.role !== "admin" && existingCreatorId) {
+              try {
+                const { results: creatorRows } = await env.DB.prepare(
+                  "SELECT max_stocks FROM access_passwords WHERE id = ?",
+                ).bind(existingCreatorId).all();
+                const creatorRow = creatorRows?.[0] as { max_stocks?: unknown } | undefined;
+                const rawCreatorMaxStocks = creatorRow?.max_stocks;
+                if (rawCreatorMaxStocks !== null && rawCreatorMaxStocks !== undefined) {
+                  const creatorMaxStocks = Number(rawCreatorMaxStocks);
+                  if (
+                    !Number.isSafeInteger(creatorMaxStocks) ||
+                    creatorMaxStocks < 1 ||
+                    creatorMaxStocks > MAX_BASKET_ITEMS
+                  ) {
+                    return json(
+                      { error: "作成者の銘柄数上限を確認できないため、後で再試行してください" },
+                      503,
+                      request,
+                    );
+                  }
+                  if (currentCount >= creatorMaxStocks) {
+                    return json(
+                      { error: `この指数は作成者の設定により最大${creatorMaxStocks}銘柄までに制限されています（現在${currentCount}銘柄）` },
+                      403,
+                      request,
+                    );
+                  }
+                }
+              } catch (quotaLookupErr) {
+                console.error("Failed to check index creator stock quota:", quotaLookupErr);
+                return json(
+                  { error: "作成者の銘柄数上限を確認できないため、後で再試行してください" },
+                  503,
+                  request,
+                );
+              }
             }
             // 新規追加の場合、ユーザー権限なら上限銘柄数をチェック
             if (auth.role === "user" && auth.maxStocks && auth.maxStocks > 0) {
@@ -1539,11 +1668,17 @@ export default {
 
         // Save to cache
         if (symbol === "^N225") {
-          await env.DB.prepare(
-            "INSERT OR REPLACE INTO snapshot_cache (id, data, cached_at) VALUES (1, ?, ?)",
-          )
-            .bind(JSON.stringify(responseData), now)
-            .run();
+          try {
+            await env.DB.prepare(
+              "INSERT OR REPLACE INTO snapshot_cache (id, data, cached_at) VALUES (1, ?, ?)",
+            )
+              .bind(JSON.stringify(responseData), now)
+              .run();
+          } catch (cacheErr) {
+            // Fresh Yahoo data remains useful even if the optional cache
+            // write is unavailable (for example during a D1 incident).
+            console.error("Failed to persist snapshot cache:", cacheErr);
+          }
         } else {
           try {
             await env.DB.prepare(
@@ -1843,20 +1978,38 @@ export default {
         // If caller is not admin and the index was created by a user, enforce that user's max_stocks limit.
         if (isExisting && !isAdmin && existingCreatorId) {
           try {
-            const creatorRow = await env.DB.prepare(
+            const { results: creatorRows } = await env.DB.prepare(
               "SELECT max_stocks FROM access_passwords WHERE id = ?"
-            ).bind(existingCreatorId).first<{ max_stocks?: number | null }>();
-            if (creatorRow && typeof creatorRow.max_stocks === "number" && creatorRow.max_stocks > 0) {
-              if (basket.length > creatorRow.max_stocks) {
+            ).bind(existingCreatorId).all();
+            const creatorRow = creatorRows?.[0] as { max_stocks?: unknown } | undefined;
+            if (creatorRow && creatorRow.max_stocks !== null && creatorRow.max_stocks !== undefined) {
+              const creatorMaxStocks = Number(creatorRow.max_stocks);
+              if (
+                !Number.isSafeInteger(creatorMaxStocks) ||
+                creatorMaxStocks < 1 ||
+                creatorMaxStocks > MAX_BASKET_ITEMS
+              ) {
                 return json(
-                  { error: `このユーザー用パスワードでは銘柄数を最大${creatorRow.max_stocks}銘柄までに制限されています（指定: ${basket.length}銘柄）` },
+                  { error: "作成者の銘柄数上限を確認できないため、後で再試行してください" },
+                  503,
+                  request,
+                );
+              }
+              if (basket.length > creatorMaxStocks) {
+                return json(
+                  { error: `このユーザー用パスワードでは銘柄数を最大${creatorMaxStocks}銘柄までに制限されています（指定: ${basket.length}銘柄）` },
                   403,
                   request
                 );
               }
             }
-          } catch {
-            // ignore if query fails
+          } catch (quotaLookupErr) {
+            console.error("Failed to check index creator stock quota:", quotaLookupErr);
+            return json(
+              { error: "作成者の銘柄数上限を確認できないため、後で再試行してください" },
+              503,
+              request,
+            );
           }
         }
 
@@ -1968,19 +2121,13 @@ export default {
           const deleteBasket = env.DB.prepare(
             `DELETE FROM basket_items WHERE index_id = ?${basketWriteGuard}`,
           ).bind(id, ...basketWriteGuardParams);
-          const saveBasketItems = validatedBasket.map((b) => {
-            const ticker = String(b.ticker).trim().toUpperCase();
-            const stockName = String(b.name).trim();
-            const stockTheme = String(b.theme || "カスタム").trim();
-            if (!quotaGuarded) {
-              return env.DB.prepare(
-                "INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES (?, ?, ?, ?, ?)",
-              ).bind(id, ticker, stockName, Number(b.weight), stockTheme);
-            }
-            return env.DB.prepare(
-              "INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM indices WHERE id = ? AND creator_id = ?)",
-            ).bind(id, ticker, stockName, Number(b.weight), stockTheme, ...basketWriteGuardParams);
-          });
+          const saveBasketItems = prepareBasketItemWrites(
+            env,
+            validatedBasket,
+            id,
+            quotaGuarded,
+            quotaGuarded ? (auth.id as string) : null,
+          );
           return [indexUpsert, deleteBasket, ...saveBasketItems];
         };
 

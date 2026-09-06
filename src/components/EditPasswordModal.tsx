@@ -44,7 +44,10 @@ export function EditPasswordModal({
 
   const dialogRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
-  useModalFocus(isOpen, dialogRef, onClose, nameInputRef);
+  const handleClose = () => {
+    if (!loading) onClose();
+  };
+  useModalFocus(isOpen, dialogRef, handleClose, nameInputRef);
 
   useEffect(() => {
     if (item) {
@@ -126,7 +129,7 @@ export function EditPasswordModal({
     <div
       className="modal-overlay"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) handleClose();
       }}
       style={{
         position: "fixed",
@@ -177,7 +180,8 @@ export function EditPasswordModal({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
+            disabled={loading}
             aria-label="閉じる"
             style={{
               background: "transparent",
@@ -400,7 +404,7 @@ export function EditPasswordModal({
           <div className="row" style={{ gap: 10, justifyContent: "flex-end" }}>
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="btn btn-sm btn-outline"
               disabled={loading}
               style={{ padding: "8px 16px" }}

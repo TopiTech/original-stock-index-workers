@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { CustomIndex } from "../data/indices";
-import type { PricePoint, StockDetail, StockSeries } from "../types";
+import type { BasketItem, PricePoint, StockDetail, StockSeries } from "../types";
 import { calculateStockDetails } from "../lib/analytics";
 import { getAuthHeaders } from "../lib/auth";
 import { isPriceCacheFresh } from "../lib/marketCache";
@@ -39,6 +39,41 @@ function updateLocalSyncCache(tickers: string[]): void {
 
 // In-memory cache for calculated index results across tab clicks
 const clientCalcCache = new Map<string, { series: PricePoint[]; stockUniverse: StockSeries[]; timestamp: number }>();
+
+/**
+ * The Worker includes a StockSeries entry for every requested ticker, even
+ * when no usable price points were found. Treat an empty/invalid series as
+ * missing so the UI can warn the user and retry it on a later calculation.
+ */
+export function getMissingPriceDataTickers(
+  basket: readonly BasketItem[],
+  stockUniverse: readonly StockSeries[],
+): string[] {
+  const tickersWithPriceData = new Set(
+    stockUniverse
+      .filter(
+        (stock) =>
+          Array.isArray(stock.series) &&
+          stock.series.some(
+            (point) =>
+              typeof point?.close === "number" &&
+              Number.isFinite(point.close) &&
+              point.close > 0,
+          ),
+      )
+      .map((stock) => stock.ticker.trim().toUpperCase()),
+  );
+
+  const seen = new Set<string>();
+  return basket.flatMap((item) => {
+    const normalizedTicker = item.ticker.trim().toUpperCase();
+    if (!normalizedTicker || tickersWithPriceData.has(normalizedTicker) || seen.has(normalizedTicker)) {
+      return [];
+    }
+    seen.add(normalizedTicker);
+    return [item.ticker];
+  });
+}
 
 export function useCalculation(selectedIndex: CustomIndex | null) {
   const { session } = useAuth();
@@ -210,10 +245,7 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
       setStockUniverse(universe);
 
       if (selectedIndex.basket.length > 0) {
-        const returnedTickers = new Set(universe.map((u: StockSeries) => u.ticker));
-        const missingTickers = selectedIndex.basket
-          .map((b) => b.ticker)
-          .filter((t) => !returnedTickers.has(t));
+        const missingTickers = getMissingPriceDataTickers(selectedIndex.basket, universe);
         if (missingTickers.length > 0) {
           try {
             const cache = getLocalSyncCache();

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { searchPopularStocks, POPULAR_STOCKS } from "../data/popularStocks";
+import { searchPopularStocks } from "../data/popularStocks";
 import { normalizeWeights } from "./indexEngine";
 
 describe("UI/UX Enhancements Unit Tests", () => {

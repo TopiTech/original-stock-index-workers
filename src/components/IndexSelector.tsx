@@ -13,7 +13,7 @@ interface IndexSelectorProps {
   selectedIndex: CustomIndex | null;
   onSelect: (index: CustomIndex) => void;
   onCreateIndex?: () => void;
-  onDeleteIndex?: (id: string) => void;
+  onDeleteIndex?: (id: string) => Promise<{ ok: boolean; error?: string }>;
   isOwner?: (id: string) => boolean;
 }
 
@@ -25,10 +25,11 @@ export function IndexSelector({
   onDeleteIndex,
   isOwner,
 }: IndexSelectorProps) {
-  const { success } = useToast();
+  const { success, error: toastError } = useToast();
   const [search, setSearch] = useState("");
   const [isExpanded, setIsExpanded] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<CustomIndex | null>(null);
+  const [deletingIndex, setDeletingIndex] = useState(false);
 
   const filteredIndices = useMemo(() => {
     if (!search.trim()) return indices;
@@ -37,7 +38,7 @@ export function IndexSelector({
       (idx) =>
         idx.name.toLowerCase().includes(q) ||
         idx.description.toLowerCase().includes(q) ||
-        idx.basket.some((b) => b.name.toLowerCase().includes(q) || b.ticker.includes(q)),
+        idx.basket.some((b) => b.name.toLowerCase().includes(q) || b.ticker.toLowerCase().includes(q)),
     );
   }, [indices, search]);
 
@@ -324,12 +325,24 @@ export function IndexSelector({
         confirmText="削除する"
         cancelText="キャンセル"
         variant="danger"
-        onConfirm={() => {
-          if (deleteTarget && onDeleteIndex) {
+        loading={deletingIndex}
+        onConfirm={async () => {
+          if (!deleteTarget || !onDeleteIndex) return;
+
+          setDeletingIndex(true);
+          try {
+            const result = await onDeleteIndex(deleteTarget.id);
+            if (!result.ok) {
+              toastError(result.error || "指数の削除に失敗しました");
+              return;
+            }
             const name = deleteTarget.name;
-            onDeleteIndex(deleteTarget.id);
             setDeleteTarget(null);
             success(`指数「${name}」を削除しました`);
+          } catch (err) {
+            toastError(err instanceof Error ? err.message : "指数の削除に失敗しました");
+          } finally {
+            setDeletingIndex(false);
           }
         }}
       />

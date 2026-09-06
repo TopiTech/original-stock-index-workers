@@ -13,7 +13,6 @@ interface IndexBuilderModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (index: CustomIndex, ownerToken?: string) => Promise<{ ok: boolean; error?: string; ownerToken?: string }>;
-  currentIndicesCount?: number;
 }
 
 const SAMPLE_STOCKS: { ticker: string; name: string; theme: string }[] = [
@@ -34,7 +33,7 @@ const SAMPLE_STOCKS: { ticker: string; name: string; theme: string }[] = [
   { ticker: "6920", name: "レーザーテック", theme: "最先端マスク検査" },
 ];
 
-export function IndexBuilderModal({ isOpen, onClose, onSave, currentIndicesCount }: IndexBuilderModalProps) {
+export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModalProps) {
   const { session, isAuthenticated, isUser, maxStocks, maxIndices } = useAuth();
   const { success: toastSuccess } = useToast();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -54,7 +53,10 @@ export function IndexBuilderModal({ isOpen, onClose, onSave, currentIndicesCount
   const [error, setError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
-  useModalFocus(isOpen, dialogRef, onClose, nameInputRef);
+  const handleClose = () => {
+    if (!saving) onClose();
+  };
+  useModalFocus(isOpen, dialogRef, handleClose, nameInputRef);
 
   const popularSuggestions = useMemo(() => {
     const query = customTicker || customName;
@@ -183,17 +185,6 @@ export function IndexBuilderModal({ isOpen, onClose, onSave, currentIndicesCount
       return;
     }
 
-    if (
-      isUser &&
-      maxIndices !== null &&
-      maxIndices > 0 &&
-      typeof currentIndicesCount === "number" &&
-      currentIndicesCount >= maxIndices
-    ) {
-      setError(`このパスワードの上限（最大${maxIndices}件）を超えています（現在${currentIndicesCount}件登録済み）`);
-      return;
-    }
-
     const safeBase = baseValue;
 
     setSaving(true);
@@ -232,7 +223,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave, currentIndicesCount
     <div
       className="modal-overlay"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) handleClose();
       }}
       style={{
         position: "fixed",
@@ -288,7 +279,8 @@ export function IndexBuilderModal({ isOpen, onClose, onSave, currentIndicesCount
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
+            disabled={saving}
             aria-label="閉じる"
             style={{
               background: "transparent",
@@ -638,7 +630,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave, currentIndicesCount
           </div>
 
           <div className="row" style={{ gap: 10 }}>
-            <button type="button" className="btn btn-outline" onClick={onClose} disabled={saving}>
+            <button type="button" className="btn btn-outline" onClick={handleClose} disabled={saving}>
               キャンセル
             </button>
             <button

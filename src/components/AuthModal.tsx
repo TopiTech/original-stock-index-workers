@@ -25,7 +25,10 @@ export function AuthModal({
   const [showPassword, setShowPassword] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const passwordInputRef = useRef<HTMLInputElement>(null);
-  useModalFocus(isOpen, dialogRef, onClose, passwordInputRef);
+  const handleClose = () => {
+    if (!loading) onClose();
+  };
+  useModalFocus(isOpen, dialogRef, handleClose, passwordInputRef);
 
   if (!isOpen) return null;
 
@@ -51,7 +54,7 @@ export function AuthModal({
     <div
       className="modal-overlay"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) handleClose();
       }}
       style={{
         position: "fixed",
@@ -101,7 +104,8 @@ export function AuthModal({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
+            disabled={loading}
             aria-label="閉じる"
             style={{
               background: "transparent",
@@ -207,7 +211,7 @@ export function AuthModal({
           <div className="row" style={{ gap: 10, justifyContent: "flex-end" }}>
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="btn btn-sm btn-outline"
               disabled={loading}
             >

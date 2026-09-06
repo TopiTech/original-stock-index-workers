@@ -25,6 +25,7 @@ import { AddStockModal } from "./AddStockModal";
 import { ConfirmModal } from "./ConfirmModal";
 import { useToast } from "./Toast";
 import { toYahooSymbol } from "../lib/yahooSymbol";
+import { escapeCsvCell } from "../lib/csv";
 
 interface ConstituentsTableProps {
   basket: BasketItem[];
@@ -101,6 +102,7 @@ export function ConstituentsTable({
   const [isAddStockModalOpen, setIsAddStockModalOpen] = useState(false);
   const [pendingDeleteStock, setPendingDeleteStock] = useState<{ ticker: string; name: string } | null>(null);
   const [confirmDeleteStock, setConfirmDeleteStock] = useState<{ ticker: string; name: string } | null>(null);
+  const [deletingStock, setDeletingStock] = useState(false);
   const [tableError, setTableError] = useState<string | null>(null);
 
   const isLimitReached = isUser && maxStocks !== null && maxStocks > 0 && basket.length >= maxStocks;
@@ -120,14 +122,23 @@ export function ConstituentsTable({
       return;
     }
     if (onRemoveStock) {
-      const res = await onRemoveStock(ticker);
-      if (!res.ok) {
-        setTableError(res.error || "銘柄の削除に失敗しました");
-        toastError(res.error || "銘柄の削除に失敗しました");
-      } else {
-        setTableError(null);
-        setConfirmDeleteStock(null);
-        success(`銘柄「${stockName} (${ticker})」を削除しました`);
+      setDeletingStock(true);
+      try {
+        const res = await onRemoveStock(ticker);
+        if (!res.ok) {
+          setTableError(res.error || "銘柄の削除に失敗しました");
+          toastError(res.error || "銘柄の削除に失敗しました");
+        } else {
+          setTableError(null);
+          setConfirmDeleteStock(null);
+          success(`銘柄「${stockName} (${ticker})」を削除しました`);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "銘柄の削除に失敗しました";
+        setTableError(message);
+        toastError(message);
+      } finally {
+        setDeletingStock(false);
       }
     }
   };
@@ -254,9 +265,9 @@ export function ConstituentsTable({
       "指数寄与度(pt)",
     ];
     const rows = filteredAndSorted.map((item) => [
-      item.ticker,
-      `"${item.name.replace(/"/g, '""')}"`,
-      `"${item.theme.replace(/"/g, '""')}"`,
+      escapeCsvCell(item.ticker),
+      escapeCsvCell(item.name),
+      escapeCsvCell(item.theme),
       item.weight.toFixed(2),
       item.currentPrice,
       item.changePct.toFixed(2),
@@ -270,7 +281,12 @@ export function ConstituentsTable({
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    const safeFileName = indexName.replace(/[/\\?%*:|"<>]/g, "_").trim() || "custom_index";
+    const safeFileName = Array.from(indexName, (character) =>
+      character.charCodeAt(0) <= 31 || character.charCodeAt(0) === 127 ? "_" : character,
+    )
+      .join("")
+      .replace(/[/\\?%*:|"<>]/g, "_")
+      .trim() || "custom_index";
     link.setAttribute("download", `${safeFileName}_constituents_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
@@ -391,6 +407,8 @@ export function ConstituentsTable({
 
       {tableError && (
         <div
+          role="alert"
+          aria-live="assertive"
           className="row"
           style={{
             gap: 8,
@@ -793,12 +811,12 @@ export function ConstituentsTable({
         }}
         onSuccess={() => {
           if (pendingDeleteStock) {
-            // AuthModal の onSuccess は isAuthenticated 反映前のクロージャから
-            // 呼ばれるため、認証チェックを迂回して直接削除を実行する
-            // （チェックを再実行すると認証モーダルが再度開いてしまう）。
+            // Authentication finishes before this component's session state
+            // re-renders. Preserve the original action, but still require an
+            // explicit destructive-operation confirmation after login.
             const target = pendingDeleteStock;
             setPendingDeleteStock(null);
-            void executeDeleteStock(target.ticker, target.name);
+            setConfirmDeleteStock(target);
           } else {
             setIsAddStockModalOpen(true);
           }
@@ -826,9 +844,10 @@ export function ConstituentsTable({
         confirmText="削除する"
         cancelText="キャンセル"
         variant="danger"
-        onConfirm={() => {
+        loading={deletingStock}
+        onConfirm={async () => {
           if (confirmDeleteStock) {
-            void executeDeleteStock(confirmDeleteStock.ticker, confirmDeleteStock.name);
+            await executeDeleteStock(confirmDeleteStock.ticker, confirmDeleteStock.name);
           }
         }}
       />

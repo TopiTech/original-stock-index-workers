@@ -516,7 +516,6 @@ export default function App() {
         isOpen={isBuilderOpen}
         onClose={() => setIsBuilderOpen(false)}
         onSave={saveCustomIndex}
-        currentIndicesCount={indices.length}
       />
     </div>
   );

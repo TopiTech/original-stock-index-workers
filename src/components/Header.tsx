@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { TrendingUp, Shield, KeyRound, Lock, ShieldCheck, LogIn } from "lucide-react";
+import { TrendingUp, Shield, KeyRound, ShieldCheck, LogIn } from "lucide-react";
 import { Badge } from "./ui";
 import { useAuth } from "../hooks/useAuth";
 import { useToast } from "./Toast";
