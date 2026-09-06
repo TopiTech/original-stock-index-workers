@@ -1,8 +1,9 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import { Plus, X, AlertCircle, Sparkles } from "lucide-react";
 import type { BasketItem } from "../types";
 import { useModalFocus } from "../hooks/useModalFocus";
+import { searchPopularStocks, type PopularStock } from "../data/popularStocks";
 
 interface AddStockModalProps {
   isOpen: boolean;
@@ -47,6 +48,12 @@ export function AddStockModal({
   const dialogRef = useRef<HTMLDivElement>(null);
   const tickerInputRef = useRef<HTMLInputElement>(null);
   useModalFocus(isOpen, dialogRef, onClose, tickerInputRef);
+
+  const popularSuggestions = useMemo(() => {
+    const query = ticker || name;
+    if (!query.trim() || query.trim().length < 1) return [];
+    return searchPopularStocks(query, 4);
+  }, [ticker, name]);
 
   if (!isOpen) return null;
 
@@ -308,6 +315,39 @@ export function AddStockModal({
                 />
               </div>
             </div>
+
+            {/* Incremental suggestions if typing */}
+            {popularSuggestions.length > 0 && (
+              <div className="row flex-wrap" style={{ gap: 6, alignItems: "center", marginBottom: 14 }}>
+                <span className="mono tiny muted" style={{ fontSize: 10, display: "inline-flex", alignItems: "center", gap: 3 }}>
+                  <Sparkles size={11} style={{ color: "var(--neon-cyan)" }} /> 候補補完:
+                </span>
+                {popularSuggestions.map((s) => (
+                  <button
+                    key={s.ticker}
+                    type="button"
+                    onClick={() => handleSelectPreset(s)}
+                    className="tag tag-muted"
+                    style={{
+                      cursor: "pointer",
+                      fontSize: 10,
+                      padding: "2px 6px",
+                      background: "rgba(6, 182, 212, 0.08)",
+                      border: "1px solid rgba(6, 182, 212, 0.25)",
+                      color: "var(--text-primary)",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                    title="クリックして自動入力"
+                  >
+                    <strong style={{ color: "var(--neon-cyan)" }}>{s.ticker}</strong>
+                    <span>{s.name}</span>
+                    <span className="muted" style={{ fontSize: 9 }}>({s.theme})</span>
+                  </button>
+                ))}
+              </div>
+            )}
 
             <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, marginBottom: 16 }}>
               <div>

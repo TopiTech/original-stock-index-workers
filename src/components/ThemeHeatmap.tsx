@@ -211,9 +211,10 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
               type="button"
               className="btn btn-sm btn-outline"
               onClick={() => onSelectTheme(null)}
-              style={{ fontSize: 10, padding: "2px 6px" }}
+              style={{ fontSize: 11, padding: "2px 8px", borderColor: "var(--border-cyan)", color: "var(--neon-cyan)" }}
+              title="テーマ絞り込みを解除"
             >
-              テーマ解除 ({selectedTheme})
+              ✕ テーマ解除 ({selectedTheme})
             </button>
           )}
         </div>
@@ -226,7 +227,9 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
         <span className="heatmap-legend-item">
           <span className="heatmap-swatch heatmap-swatch-negative" aria-hidden="true" />下落
         </span>
-        <span className="heatmap-legend-note">※タイルホバーで銘柄詳細・寄与度を表示</span>
+        <span className="heatmap-legend-note" style={{ color: "var(--neon-cyan)" }}>
+          ※ タイルをクリックしてテーマ絞り込み / ホバーで詳細情報
+        </span>
       </div>
 
       {viewMode === "grid" ? (

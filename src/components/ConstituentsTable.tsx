@@ -22,6 +22,8 @@ import { normalizeWeights } from "../lib/indexEngine";
 import { useAuth } from "../hooks/useAuth";
 import { AuthModal } from "./AuthModal";
 import { AddStockModal } from "./AddStockModal";
+import { ConfirmModal } from "./ConfirmModal";
+import { useToast } from "./Toast";
 import { toYahooSymbol } from "../lib/yahooSymbol";
 
 interface ConstituentsTableProps {
@@ -91,12 +93,14 @@ export function ConstituentsTable({
   onRemoveStock,
 }: ConstituentsTableProps) {
   const { session, isAuthenticated, isAdmin, isUser, maxStocks, logout } = useAuth();
+  const { success, error: toastError } = useToast();
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<SortField>("weight");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isAddStockModalOpen, setIsAddStockModalOpen] = useState(false);
   const [pendingDeleteStock, setPendingDeleteStock] = useState<{ ticker: string; name: string } | null>(null);
+  const [confirmDeleteStock, setConfirmDeleteStock] = useState<{ ticker: string; name: string } | null>(null);
   const [tableError, setTableError] = useState<string | null>(null);
 
   const isLimitReached = isUser && maxStocks !== null && maxStocks > 0 && basket.length >= maxStocks;
@@ -115,26 +119,30 @@ export function ConstituentsTable({
       setTableError("構成銘柄が1件のみのため削除できません。指数には最低1銘柄必要です。");
       return;
     }
-    if (!confirm(`銘柄「${stockName} (${ticker})」をこの指数から削除しますか？`)) {
-      return;
-    }
     if (onRemoveStock) {
       const res = await onRemoveStock(ticker);
       if (!res.ok) {
         setTableError(res.error || "銘柄の削除に失敗しました");
+        toastError(res.error || "銘柄の削除に失敗しました");
       } else {
         setTableError(null);
+        setConfirmDeleteStock(null);
+        success(`銘柄「${stockName} (${ticker})」を削除しました`);
       }
     }
   };
 
   const handleDeleteStockClick = async (ticker: string, stockName: string) => {
+    if (basket.length <= 1) {
+      setTableError("構成銘柄が1件のみのため削除できません。指数には最低1銘柄必要です。");
+      return;
+    }
     if (!isAuthenticated) {
       setPendingDeleteStock({ ticker, name: stockName });
       setIsAuthModalOpen(true);
       return;
     }
-    await executeDeleteStock(ticker, stockName);
+    setConfirmDeleteStock({ ticker, name: stockName });
   };
 
   const handleAddStockSubmit = async (stock: BasketItem) => {
@@ -144,6 +152,7 @@ export function ConstituentsTable({
         return res;
       }
       setTableError(null);
+      success(`銘柄「${stock.name} (${stock.ticker})」を追加しました`);
       return { ok: true };
     }
     return { ok: false, error: "追加ハンドラが設定されていません" };
@@ -267,6 +276,7 @@ export function ConstituentsTable({
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+    success("CSVファイルをダウンロードしました");
   };
 
   const handleHeaderKeyDown = (e: React.KeyboardEvent, field: SortField) => {
@@ -275,6 +285,8 @@ export function ConstituentsTable({
       toggleSort(field);
     }
   };
+
+  const hasActiveFilters = Boolean(selectedTheme || search.trim());
 
   return (
     <Card className="section">
@@ -304,6 +316,77 @@ export function ConstituentsTable({
             <Download size={12} /> CSV
           </button>
         </div>
+      </div>
+
+      {/* Active Filter Chips */}
+      {hasActiveFilters && (
+        <div className="table-filter-bar" role="status" aria-label="適用中のフィルター">
+          <span className="muted tiny mono">絞り込み中:</span>
+          {selectedTheme && (
+            <span className="filter-active-chip">
+              テーマ: {selectedTheme}
+            </span>
+          )}
+          {search.trim() && (
+            <span className="filter-active-chip">
+              検索: &quot;{search.trim()}&quot;
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", padding: 0 }}
+                aria-label="検索キーワードをクリア"
+              >
+                ✕
+              </button>
+            </span>
+          )}
+          {search.trim() && (
+            <button
+              type="button"
+              className="filter-clear-all"
+              onClick={() => setSearch("")}
+            >
+              検索を解除
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Mobile Sort Controls */}
+      <div className="mobile-sort-controls">
+        <div className="row" style={{ gap: 6, alignItems: "center" }}>
+          <span className="mono tiny muted">並び替え:</span>
+          <select
+            className="mobile-sort-select"
+            value={sortField}
+            onChange={(e) => setSortField(e.target.value as SortField)}
+            aria-label="並び替え項目を選択"
+          >
+            <option value="weight">構成比率</option>
+            <option value="changePct">前日比</option>
+            <option value="contributionPt">寄与度</option>
+            <option value="currentPrice">株価</option>
+            <option value="name">銘柄名</option>
+            <option value="ticker">コード</option>
+            <option value="theme">テーマ</option>
+          </select>
+        </div>
+        <button
+          type="button"
+          className="mobile-sort-dir-btn"
+          onClick={() => setSortOrder((o) => (o === "asc" ? "desc" : "asc"))}
+          aria-label={sortOrder === "asc" ? "昇順 (クリックで降順に変更)" : "降順 (クリックで昇順に変更)"}
+        >
+          {sortOrder === "asc" ? (
+            <>
+              <ArrowUp size={13} /> 昇順
+            </>
+          ) : (
+            <>
+              <ArrowDown size={13} /> 降順
+            </>
+          )}
+        </button>
       </div>
 
       {tableError && (
@@ -733,6 +816,22 @@ export function ConstituentsTable({
           onAddStock={handleAddStockSubmit}
         />
       )}
+
+      {/* Confirm Stock Deletion Modal */}
+      <ConfirmModal
+        isOpen={confirmDeleteStock !== null}
+        onClose={() => setConfirmDeleteStock(null)}
+        title="構成銘柄の削除"
+        description={`銘柄「${confirmDeleteStock?.name} (${confirmDeleteStock?.ticker})」をこの指数から削除しますか？\n（削除後は残りの銘柄で構成比率が自動調整されます）`}
+        confirmText="削除する"
+        cancelText="キャンセル"
+        variant="danger"
+        onConfirm={() => {
+          if (confirmDeleteStock) {
+            void executeDeleteStock(confirmDeleteStock.ticker, confirmDeleteStock.name);
+          }
+        }}
+      />
     </Card>
   );
 }

@@ -45,7 +45,7 @@ interface PerformanceChartProps {
   onEmptyAction?: () => void;
 }
 
-type ViewMode = "value" | "percent";
+type ViewMode = "value" | "percent" | "spread";
 
 export function PerformanceChart({
   data,
@@ -84,7 +84,7 @@ export function PerformanceChart({
     return new Map(data.map((d, idx) => [d.date, smaValues[idx]]));
   }, [data, showSMA25]);
 
-  // Compute transformed series for % mode vs value mode
+  // Compute transformed series for % mode vs value mode vs spread mode
   const displayData = useMemo(() => {
     if (filteredData.length === 0) return [];
     if (viewMode === "value") {
@@ -99,10 +99,26 @@ export function PerformanceChart({
       });
     }
 
-    // Percent mode: relative to the first point of the filtered window
+    // Baseline normalized to first point of timeframe
     const firstPoint = filteredData[0];
     const firstVal = firstPoint.value || baseValue;
     const firstNikkei = firstPoint.nikkei || baseValue;
+
+    if (viewMode === "spread") {
+      return filteredData.map((d) => {
+        const customPct = firstVal > 0 ? ((d.value - firstVal) / firstVal) * 100 : 0;
+        const benchPct = firstNikkei > 0 ? ((d.nikkei - firstNikkei) / firstNikkei) * 100 : 0;
+        const spread = customPct - benchPct;
+        return {
+          date: d.date,
+          value: spread,
+          nikkei: 0,
+          rawCustom: d.value,
+          rawNikkei: d.nikkei,
+          spread,
+        };
+      });
+    }
 
     return filteredData.map((d) => {
       const s5 = fullSma5Map.get(d.date);
@@ -178,6 +194,7 @@ export function PerformanceChart({
             items={[
               { label: "指数値", value: "value" },
               { label: "騰落率 (%)", value: "percent" },
+              { label: "超過リターン (α)", value: "spread" },
             ]}
             active={viewMode}
             onChange={setViewMode}
@@ -313,7 +330,13 @@ export function PerformanceChart({
                 axisLine={{ stroke: "var(--border-subtle)" }}
                 width={65}
                 tick={{ fill: "var(--text-secondary)", fontSize: 11, fontFamily: "var(--mono-font)" }}
-                tickFormatter={(v) => (viewMode === "percent" ? `${v >= 0 ? "+" : ""}${v.toFixed(1)}%` : fmt.format(v))}
+                tickFormatter={(v) =>
+                  viewMode === "percent"
+                    ? `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`
+                    : viewMode === "spread"
+                      ? `${v >= 0 ? "+" : ""}${v.toFixed(1)}%pt`
+                      : fmt.format(v)
+                }
                 domain={["auto", "auto"]}
               />
 
@@ -327,44 +350,62 @@ export function PerformanceChart({
 
                   const cVal = typeof customItem?.value === "number" && Number.isFinite(customItem.value) ? customItem.value : undefined;
                   const bVal = typeof benchItem?.value === "number" && Number.isFinite(benchItem.value) ? benchItem.value : undefined;
-                  const spread = cVal !== undefined && bVal !== undefined ? cVal - bVal : null;
+                  const spread = cVal !== undefined && bVal !== undefined ? (viewMode === "spread" ? cVal : cVal - bVal) : null;
 
                   return (
                     <div className="custom-tooltip">
                       <div className="tooltip-date">{label}</div>
-                      <div className="tooltip-row">
-                        <span style={{ color: "var(--neon-cyan)" }}>独自指数:</span>
-                        <span style={{ fontWeight: 700 }}>
-                          {cVal !== undefined
-                            ? viewMode === "percent"
-                              ? `${cVal >= 0 ? "+" : ""}${pct.format(cVal)}%`
-                              : fmt.format(cVal)
-                            : "---"}
-                        </span>
-                      </div>
-                      <div className="tooltip-row">
-                        <span style={{ color: "var(--text-secondary)" }}>{benchmarkLabel}:</span>
-                        <span>
-                          {bVal !== undefined
-                            ? viewMode === "percent"
-                              ? `${bVal >= 0 ? "+" : ""}${pct.format(bVal)}%`
-                              : fmt.format(bVal)
-                            : "---"}
-                        </span>
-                      </div>
-                      {showSMA5 && sma5Item?.value !== undefined && (
+                      {viewMode === "spread" ? (
+                        <div className="tooltip-row">
+                          <span style={{ color: spread !== null && spread >= 0 ? "var(--neon-green)" : "var(--neon-red)" }}>
+                            市場超過リターン (α):
+                          </span>
+                          <span
+                            style={{
+                              fontWeight: 700,
+                              color: spread !== null && spread >= 0 ? "var(--neon-green)" : "var(--neon-red)",
+                            }}
+                          >
+                            {spread !== null ? `${spread > 0 ? "+" : ""}${pct.format(spread)}%pt` : "---"}
+                          </span>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="tooltip-row">
+                            <span style={{ color: "var(--neon-cyan)" }}>独自指数:</span>
+                            <span style={{ fontWeight: 700 }}>
+                              {cVal !== undefined
+                                ? viewMode === "percent"
+                                  ? `${cVal >= 0 ? "+" : ""}${pct.format(cVal)}%`
+                                  : fmt.format(cVal)
+                                : "---"}
+                            </span>
+                          </div>
+                          <div className="tooltip-row">
+                            <span style={{ color: "var(--text-secondary)" }}>{benchmarkLabel}:</span>
+                            <span>
+                              {bVal !== undefined
+                                ? viewMode === "percent"
+                                  ? `${bVal >= 0 ? "+" : ""}${pct.format(bVal)}%`
+                                  : fmt.format(bVal)
+                                : "---"}
+                            </span>
+                          </div>
+                        </>
+                      )}
+                      {showSMA5 && sma5Item?.value !== undefined && viewMode !== "spread" && (
                         <div className="tooltip-row">
                           <span style={{ color: "var(--neon-yellow)" }}>SMA (5):</span>
                           <span>{viewMode === "percent" ? `${pct.format(sma5Item.value as number)}%` : fmt.format(sma5Item.value as number)}</span>
                         </div>
                       )}
-                      {showSMA25 && sma25Item?.value !== undefined && (
+                      {showSMA25 && sma25Item?.value !== undefined && viewMode !== "spread" && (
                         <div className="tooltip-row">
                           <span style={{ color: "var(--neon-magenta)" }}>SMA (25):</span>
                           <span>{viewMode === "percent" ? `${pct.format(sma25Item.value as number)}%` : fmt.format(sma25Item.value as number)}</span>
                         </div>
                       )}
-                      {spread !== null && (
+                      {spread !== null && viewMode !== "spread" && (
                         <div
                           className="tooltip-row"
                           style={{
@@ -407,11 +448,21 @@ export function PerformanceChart({
                 />
               )}
 
-              {viewMode === "percent" && (
+              {viewMode !== "value" && (
                 <ReferenceLine
                   y={0}
                   stroke="var(--chart-reference-strong)"
                   strokeDasharray="3 3"
+                  label={
+                    viewMode === "spread"
+                      ? {
+                          value: `±0%pt (${benchmarkLabel}基準)`,
+                          fill: "var(--text-muted)",
+                          fontSize: 10,
+                          position: "insideTopLeft",
+                        }
+                      : undefined
+                  }
                 />
               )}
 
@@ -573,10 +624,19 @@ export function PerformanceChart({
 
       <div className="chart-legend-footer row space-between flex-wrap" style={{ marginTop: 14, gap: 8 }}>
         <div className="chart-legend muted tiny mono">
-          <span style={{ color: "var(--neon-cyan)" }}>―</span> 独自指数{" "}
-          <span style={{ color: "var(--text-muted)" }}>---</span> {benchmarkLabel} (Base {baseValue}正規化)
-          {showSMA5 && <span style={{ color: "var(--neon-yellow)" }}> ― SMA5</span>}
-          {showSMA25 && <span style={{ color: "var(--neon-magenta)" }}> ― SMA25</span>}
+          {viewMode === "spread" ? (
+            <>
+              <span style={{ color: "var(--neon-cyan)" }}>―</span> 独自指数 市場超過リターン (α){" "}
+              <span style={{ color: "var(--text-muted)" }}>---</span> {benchmarkLabel}基準線 (±0%pt)
+            </>
+          ) : (
+            <>
+              <span style={{ color: "var(--neon-cyan)" }}>―</span> 独自指数{" "}
+              <span style={{ color: "var(--text-muted)" }}>---</span> {benchmarkLabel} (Base {baseValue}正規化)
+              {showSMA5 && <span style={{ color: "var(--neon-yellow)" }}> ― SMA5</span>}
+              {showSMA25 && <span style={{ color: "var(--neon-magenta)" }}> ― SMA25</span>}
+            </>
+          )}
         </div>
         <div className="chart-source muted tiny mono">ソース: Yahoo Finance API (日足終値)</div>
       </div>

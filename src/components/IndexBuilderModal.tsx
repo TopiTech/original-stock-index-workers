@@ -1,11 +1,13 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useMemo } from "react";
 import { motion } from "framer-motion";
-import { X, Plus, Trash2, Sliders, Check, RefreshCw, KeyRound, Lock } from "lucide-react";
+import { X, Plus, Trash2, Sliders, Check, RefreshCw, KeyRound, Lock, Sparkles, Scale } from "lucide-react";
 import type { BasketItem } from "../types";
 import type { CustomIndex } from "../data/indices";
 import { useAuth } from "../hooks/useAuth";
 import { AuthModal } from "./AuthModal";
 import { useModalFocus } from "../hooks/useModalFocus";
+import { useToast } from "./Toast";
+import { searchPopularStocks, type PopularStock } from "../data/popularStocks";
 
 interface IndexBuilderModalProps {
   isOpen: boolean;
@@ -34,6 +36,7 @@ const SAMPLE_STOCKS: { ticker: string; name: string; theme: string }[] = [
 
 export function IndexBuilderModal({ isOpen, onClose, onSave, currentIndicesCount }: IndexBuilderModalProps) {
   const { session, isAuthenticated, isUser, maxStocks, maxIndices } = useAuth();
+  const { success: toastSuccess } = useToast();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -53,9 +56,24 @@ export function IndexBuilderModal({ isOpen, onClose, onSave, currentIndicesCount
   const nameInputRef = useRef<HTMLInputElement>(null);
   useModalFocus(isOpen, dialogRef, onClose, nameInputRef);
 
+  const popularSuggestions = useMemo(() => {
+    const query = customTicker || customName;
+    if (!query.trim() || query.trim().length < 1) return [];
+    return searchPopularStocks(query, 5).filter(
+      (s) => !basket.some((b) => b.ticker === s.ticker)
+    );
+  }, [customTicker, customName, basket]);
+
   if (!isOpen) return null;
 
   const isLimitReached = isUser && maxStocks !== null && maxStocks > 0 && basket.length >= maxStocks;
+
+  const handleSelectSuggestion = (s: PopularStock) => {
+    setCustomTicker(s.ticker);
+    setCustomName(s.name);
+    setCustomTheme(s.theme);
+    setError(null);
+  };
 
   const handleAddStock = (stock: { ticker: string; name: string; theme: string }) => {
     if (isLimitReached) {
@@ -121,6 +139,18 @@ export function IndexBuilderModal({ isOpen, onClose, onSave, currentIndicesCount
     setBasket(basket.map((b) => ({ ...b, weight: eqWeight })));
   };
 
+  const handleNormalizeWeights = () => {
+    if (basket.length === 0) return;
+    const currentTotal = basket.reduce((sum, b) => sum + b.weight, 0);
+    if (currentTotal <= 0) return;
+    setBasket(
+      basket.map((b) => ({
+        ...b,
+        weight: Number(((b.weight / currentTotal) * 100).toFixed(1)),
+      }))
+    );
+  };
+
   const totalWeight = basket.reduce((sum, b) => sum + b.weight, 0);
 
   const handleSubmit = async () => {
@@ -182,6 +212,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave, currentIndicesCount
     setSaving(false);
 
     if (res.ok) {
+      toastSuccess(`独自指数「${newIndex.name}」を作成・保存しました`);
       setName("");
       setDescription("");
       setBaseValue(1000);
@@ -422,7 +453,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave, currentIndicesCount
           {/* Custom Stock Form */}
           <form
             onSubmit={handleAddCustom}
-            className="row flex-wrap"
+            className="column"
             style={{
               gap: 8,
               padding: "10px 12px",
@@ -433,56 +464,103 @@ export function IndexBuilderModal({ isOpen, onClose, onSave, currentIndicesCount
               opacity: isLimitReached ? 0.6 : 1,
             }}
           >
-            <input
-              type="text"
-              placeholder="コード (例: 6701)"
-              aria-label="新規追加 銘柄コード"
-              className="input-search"
-              disabled={isLimitReached}
-              style={{ flex: "1 1 90px", height: 32, paddingLeft: 8, fontSize: 12 }}
-              value={customTicker}
-              onChange={(e) => setCustomTicker(e.target.value)}
-            />
-            <input
-              type="text"
-              placeholder="銘柄名 (例: NEC)"
-              aria-label="新規追加 銘柄名"
-              className="input-search"
-              disabled={isLimitReached}
-              style={{ flex: "2 1 120px", height: 32, paddingLeft: 8, fontSize: 12 }}
-              value={customName}
-              onChange={(e) => setCustomName(e.target.value)}
-            />
-            <input
-              type="text"
-              placeholder="テーマ (例: 通信)"
-              aria-label="新規追加 テーマ"
-              className="input-search"
-              disabled={isLimitReached}
-              style={{ flex: "1 1 90px", height: 32, paddingLeft: 8, fontSize: 12 }}
-              value={customTheme}
-              onChange={(e) => setCustomTheme(e.target.value)}
-            />
-            <button type="submit" disabled={isLimitReached} className="btn btn-sm btn-default" style={{ height: 32 }}>
-              <Plus size={12} /> 自由追加
-            </button>
+            <div className="row flex-wrap" style={{ gap: 8 }}>
+              <input
+                type="text"
+                placeholder="コード (例: 6701, NVDA)"
+                aria-label="新規追加 銘柄コード"
+                className="input-search"
+                disabled={isLimitReached}
+                style={{ flex: "1 1 90px", height: 32, paddingLeft: 8, fontSize: 12 }}
+                value={customTicker}
+                onChange={(e) => setCustomTicker(e.target.value)}
+              />
+              <input
+                type="text"
+                placeholder="銘柄名 (例: NEC)"
+                aria-label="新規追加 銘柄名"
+                className="input-search"
+                disabled={isLimitReached}
+                style={{ flex: "2 1 120px", height: 32, paddingLeft: 8, fontSize: 12 }}
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+              />
+              <input
+                type="text"
+                placeholder="テーマ (例: 通信)"
+                aria-label="新規追加 テーマ"
+                className="input-search"
+                disabled={isLimitReached}
+                style={{ flex: "1 1 90px", height: 32, paddingLeft: 8, fontSize: 12 }}
+                value={customTheme}
+                onChange={(e) => setCustomTheme(e.target.value)}
+              />
+              <button type="submit" disabled={isLimitReached} className="btn btn-sm btn-default" style={{ height: 32 }}>
+                <Plus size={12} /> 自由追加
+              </button>
+            </div>
+
+            {/* Popular Stock Incremental Suggestions */}
+            {popularSuggestions.length > 0 && (
+              <div className="row flex-wrap" style={{ gap: 6, alignItems: "center", paddingTop: 4 }}>
+                <span className="mono tiny muted" style={{ fontSize: 10, display: "inline-flex", alignItems: "center", gap: 3 }}>
+                  <Sparkles size={11} style={{ color: "var(--neon-cyan)" }} /> 候補補完:
+                </span>
+                {popularSuggestions.map((s) => (
+                  <button
+                    key={s.ticker}
+                    type="button"
+                    onClick={() => handleSelectSuggestion(s)}
+                    className="tag tag-muted"
+                    style={{
+                      cursor: "pointer",
+                      fontSize: 10,
+                      padding: "2px 6px",
+                      background: "rgba(6, 182, 212, 0.08)",
+                      border: "1px solid rgba(6, 182, 212, 0.25)",
+                      color: "var(--text-primary)",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                    title="クリックしてフォームに入力"
+                  >
+                    <strong style={{ color: "var(--neon-cyan)" }}>{s.ticker}</strong>
+                    <span>{s.name}</span>
+                    <span className="muted" style={{ fontSize: 9 }}>({s.theme})</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </form>
 
           {/* Basket List & Weight Sliders */}
           <div>
-            <div className="row space-between" style={{ marginBottom: 10 }}>
+            <div className="row space-between flex-wrap" style={{ marginBottom: 10, gap: 8 }}>
               <span className="mono tiny bold uppercase" style={{ color: "var(--neon-cyan)" }}>
                 構成銘柄とウェイト設定 ({basket.length} 銘柄 / 合計: {totalWeight.toFixed(1)}%
                 {Math.abs(totalWeight - 100) > 0.05 ? " ※保存時に100%へ自動正規化" : ""})
               </span>
-              <button
-                type="button"
-                onClick={handleEqualWeight}
-                className="btn btn-sm btn-outline"
-                style={{ fontSize: 10, padding: "2px 8px" }}
-              >
-                均等配分に揃える
-              </button>
+              <div className="row" style={{ gap: 6 }}>
+                <button
+                  type="button"
+                  onClick={handleNormalizeWeights}
+                  className="btn btn-sm btn-outline"
+                  style={{ fontSize: 10, padding: "2px 8px" }}
+                  title="現在の比率バランスを保ったまま合計100%に再配分"
+                >
+                  <Scale size={11} /> 100%に再配分
+                </button>
+                <button
+                  type="button"
+                  onClick={handleEqualWeight}
+                  className="btn btn-sm btn-outline"
+                  style={{ fontSize: 10, padding: "2px 8px" }}
+                  title="全銘柄を同じ比率に均等配分"
+                >
+                  均等配分に揃える
+                </button>
+              </div>
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 220, overflowY: "auto" }}>

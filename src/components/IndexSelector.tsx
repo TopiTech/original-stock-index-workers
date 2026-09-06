@@ -5,6 +5,8 @@ import { ChevronDown, Layers, CheckCircle2, Plus, Trash2, UserCheck } from "luci
 import { SYSTEM_INDEX_IDS, type CustomIndex } from "../data/indices";
 import { normalizeWeights } from "../lib/indexEngine";
 import { isIndexOwner } from "../lib/ownership";
+import { ConfirmModal } from "./ConfirmModal";
+import { useToast } from "./Toast";
 
 interface IndexSelectorProps {
   indices: CustomIndex[];
@@ -23,8 +25,10 @@ export function IndexSelector({
   onDeleteIndex,
   isOwner,
 }: IndexSelectorProps) {
+  const { success } = useToast();
   const [search, setSearch] = useState("");
   const [isExpanded, setIsExpanded] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState<CustomIndex | null>(null);
 
   const filteredIndices = useMemo(() => {
     if (!search.trim()) return indices;
@@ -181,9 +185,7 @@ export function IndexSelector({
                       type="button"
                       onClick={(e: React.MouseEvent) => {
                         e.stopPropagation();
-                        if (confirm(`指数「${idx.name}」を削除しますか？\n（作成者のみ削除可能です）`)) {
-                          onDeleteIndex(idx.id);
-                        }
+                        setDeleteTarget(idx);
                       }}
                       style={{
                         background: "transparent",
@@ -313,6 +315,24 @@ export function IndexSelector({
           </motion.div>
         )}
       </AnimatePresence>
+
+      <ConfirmModal
+        isOpen={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        title="指数の削除"
+        description={`独自指数「${deleteTarget?.name}」を削除しますか？\n（この操作は取り消せません。作成者のみ削除可能です）`}
+        confirmText="削除する"
+        cancelText="キャンセル"
+        variant="danger"
+        onConfirm={() => {
+          if (deleteTarget && onDeleteIndex) {
+            const name = deleteTarget.name;
+            onDeleteIndex(deleteTarget.id);
+            setDeleteTarget(null);
+            success(`指数「${name}」を削除しました`);
+          }
+        }}
+      />
     </Card>
   );
 }
