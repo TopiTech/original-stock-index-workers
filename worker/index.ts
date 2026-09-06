@@ -319,7 +319,19 @@ export async function authenticatePassword(
   }
 
   const ip = request.headers.get("cf-connecting-ip") || "unknown";
-  if (!(await checkRateLimit(env, ip, "auth", AUTH_RATE_LIMIT_MAX, true))) {
+  // Login verification and authenticated API traffic use separate rate-limit
+  // buckets: every admin request consumes an "auth" slot, so sharing one
+  // bucket let a busy admin session exhaust the same 10/min budget that
+  // protects password guessing and lock out legitimate logins.
+  if (
+    !(await checkRateLimit(
+      env,
+      ip,
+      "auth-login",
+      AUTH_RATE_LIMIT_MAX,
+      true,
+    ))
+  ) {
     return {
       authenticated: false,
       error: "認証試行回数が上限に達しました。しばらくしてから再試行してください",
@@ -2191,9 +2203,13 @@ export default {
         const assetRes = await env.ASSETS.fetch(request);
         const pathname = url.pathname;
         const headers = new Headers(assetRes.headers);
+        const contentType = headers.get("content-type") || "";
 
-        // HTML は常に最新を取得させ、ハッシュ付きアセットは長期キャッシュ
-        if (pathname === "/" || pathname === "" || pathname.endsWith(".html")) {
+        // HTML は常に最新を取得させ、ハッシュ付きアセットは長期キャッシュ。
+        // 判定はパスではなくレスポンスの Content-Type で行う。SPA フォールバック
+        // (not_found_handling: single-page-application) は /admin のような任意の
+        // ディープリンクでも index.html を返すため、パス一致では取りこぼす。
+        if (contentType.includes("text/html")) {
           headers.set("Cache-Control", "no-cache, no-store, must-revalidate");
         } else if (pathname.startsWith("/assets/")) {
           headers.set("Cache-Control", "public, max-age=31536000, immutable");

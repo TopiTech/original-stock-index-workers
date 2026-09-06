@@ -8,9 +8,13 @@
 		"directory": "./dist",
 		"binding": "ASSETS",
 		"not_found_handling": "single-page-application",
-		"run_worker_first": [
-			"/api/*"
-		]
+		// Worker must run for EVERY request: it attaches the security headers
+		// (CSP, X-Frame-Options, ...) and the HTML no-cache policy to static
+		// responses. With the previous ["/api/*"] form, asset-matching requests
+		// (including the SPA entry index.html) were served directly by the
+		// asset layer and never reached the Worker, silently dropping those
+		// headers in production.
+		"run_worker_first": true
 	},
 	"d1_databases": [
 		{
