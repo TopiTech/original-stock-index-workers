@@ -22,7 +22,7 @@ import { normalizeWeights } from "../lib/indexEngine";
 import { useAuth } from "../hooks/useAuth";
 import { AuthModal } from "./AuthModal";
 import { AddStockModal } from "./AddStockModal";
-import { toYahooSymbol } from "../lib/yahuuSymbol";
+import { toYahooSymbol } from "../lib/yahooSymbol";
 
 interface ConstituentsTableProps {
   basket: BasketItem[];

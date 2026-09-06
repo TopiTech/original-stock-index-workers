@@ -198,6 +198,7 @@ export async function ensurePasswordTable(env: Env): Promise<void> {
         password_hash TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT 'user',
         max_stocks INTEGER DEFAULT 10,
+        max_indices INTEGER DEFAULT NULL,
         is_active INTEGER DEFAULT 1,
         created_at INTEGER NOT NULL,
         updated_at INTEGER
@@ -608,6 +609,7 @@ function isAllowedOrigin(origin: string): boolean {
 function json(data: unknown, status = 200, request?: Request, customHeaders?: Record<string, string>) {
   const headers: Record<string, string> = {
     "content-type": "application/json; charset=utf-8",
+    "x-content-type-options": "nosniff",
     ...customHeaders,
   };
 
@@ -636,6 +638,7 @@ function json(data: unknown, status = 200, request?: Request, customHeaders?: Re
 
 function notModified(request?: Request, customHeaders?: Record<string, string>) {
   const headers: Record<string, string> = {
+    "x-content-type-options": "nosniff",
     ...customHeaders,
   };
   if (request) {
@@ -995,6 +998,12 @@ export default {
       // 構成銘柄の個別追加 (パスワード認証＋上限数チェック)
       if (url.pathname === "/api/indices/stock" && request.method === "POST") {
         try {
+          const ip = request.headers.get("cf-connecting-ip") || "unknown";
+          const allowed = await checkRateLimit(env, ip, "indices-stock");
+          if (!allowed) {
+            return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
+          }
+
           const parsed = await parseJsonBody(request);
           if (!parsed.ok) return parsed.response;
           const { indexId, stock, password } = parsed.body;
@@ -1122,6 +1131,12 @@ export default {
       // 構成銘柄の個別削除 (パスワード認証)
       if (url.pathname === "/api/indices/stock" && request.method === "DELETE") {
         try {
+          const ip = request.headers.get("cf-connecting-ip") || "unknown";
+          const allowed = await checkRateLimit(env, ip, "indices-stock");
+          if (!allowed) {
+            return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
+          }
+
           const rawIndexId = url.searchParams.get("indexId");
           const rawTicker = url.searchParams.get("ticker");
           if (
@@ -2144,6 +2159,10 @@ export default {
         } else if (pathname.startsWith("/assets/")) {
           headers.set("Cache-Control", "public, max-age=31536000, immutable");
         }
+
+        headers.set("X-Content-Type-Options", "nosniff");
+        headers.set("X-Frame-Options", "SAMEORIGIN");
+        headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
 
         return new Response(assetRes.body, {
           status: assetRes.status,

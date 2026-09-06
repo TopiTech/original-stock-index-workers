@@ -1,6 +1,7 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
 import worker, {
   clearAuthCache,
+  ensurePasswordTable,
   resetPasswordTableEnsured,
 } from "../../worker/index";
 
@@ -386,5 +387,95 @@ describe("Code review fixes: index list cache headers", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("no-cache");
     expect(res.headers.get("etag")).toBeTruthy();
+  });
+});
+
+describe("Code review fixes: Security headers, rate limiting, and password schema", () => {
+  it("includes X-Content-Type-Options: nosniff on API responses", async () => {
+    const { env } = createReviewEnv();
+    const res = await worker.fetch(new Request("http://localhost/api/health"), env);
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+
+  it("includes defensive security headers on static asset responses", async () => {
+    const { env } = createReviewEnv();
+    const res = await worker.fetch(new Request("http://localhost/index.html"), env);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+    expect(res.headers.get("referrer-policy")).toBe("strict-origin-when-cross-origin");
+  });
+
+  it("enforces rate limiting on POST /api/indices/stock", async () => {
+    const { env } = createReviewEnv();
+    const origPrepare = env.DB.prepare;
+    env.DB.prepare = vi.fn().mockImplementation((query: string) => {
+      if (query.includes("rate_limits") && query.includes("SELECT")) {
+        return {
+          bind: () => ({
+            all: async () => ({
+              results: [{ request_count: 60, window_start: Math.floor(Date.now() / 1000) }],
+            }),
+          }),
+        };
+      }
+      return origPrepare(query);
+    });
+
+    const res = await worker.fetch(
+      new Request("http://localhost/api/indices/stock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ indexId: "custom-1", stock: { ticker: "7203" } }),
+      }),
+      env,
+    );
+    expect(res.status).toBe(429);
+    const data = await res.json();
+    expect(data.error).toContain("Rate limit");
+  });
+
+  it("enforces rate limiting on DELETE /api/indices/stock", async () => {
+    const { env } = createReviewEnv();
+    const origPrepare = env.DB.prepare;
+    env.DB.prepare = vi.fn().mockImplementation((query: string) => {
+      if (query.includes("rate_limits") && query.includes("SELECT")) {
+        return {
+          bind: () => ({
+            all: async () => ({
+              results: [{ request_count: 60, window_start: Math.floor(Date.now() / 1000) }],
+            }),
+          }),
+        };
+      }
+      return origPrepare(query);
+    });
+
+    const res = await worker.fetch(
+      new Request("http://localhost/api/indices/stock?indexId=custom-1&ticker=7203", {
+        method: "DELETE",
+      }),
+      env,
+    );
+    expect(res.status).toBe(429);
+    const data = await res.json();
+    expect(data.error).toContain("Rate limit");
+  });
+
+  it("ensures initial access_passwords table DDL includes max_indices column", async () => {
+    resetPasswordTableEnsured();
+    const executedDdl: string[] = [];
+    const { env } = createReviewEnv();
+    const origPrepare = env.DB.prepare;
+    env.DB.prepare = vi.fn().mockImplementation((query: string) => {
+      if (query.includes("CREATE TABLE IF NOT EXISTS access_passwords")) {
+        executedDdl.push(query);
+      }
+      return origPrepare(query);
+    });
+
+    await ensurePasswordTable(env as any);
+    expect(executedDdl.length).toBeGreaterThan(0);
+    expect(executedDdl[0]).toContain("max_indices INTEGER DEFAULT NULL");
   });
 });

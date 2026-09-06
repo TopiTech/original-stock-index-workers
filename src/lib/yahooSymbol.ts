@@ -1,0 +1,15 @@
+/**
+ * Normalize a ticker to the form used by Yahoo Finance.
+ * Japanese Tokyo exchange tickers (start with a digit) map to Tokyo Exchange (.T).
+ * US/global tickers (e.g. AAPL) and index/forex symbols (^N225, USDJPY=X) remain as-is.
+ */
+export function toYahooSymbol(ticker: string): string {
+  const trimmed = ticker.trim().toUpperCase();
+  if (trimmed.includes(".") || trimmed.startsWith("^") || trimmed.endsWith("=X")) {
+    return trimmed;
+  }
+  if (/^\d/.test(trimmed)) {
+    return `${trimmed}.T`;
+  }
+  return trimmed;
+}

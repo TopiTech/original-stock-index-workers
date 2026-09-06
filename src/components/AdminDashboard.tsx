@@ -763,9 +763,9 @@ export function AdminDashboard({
               </div>
 
               <div style={{ marginBottom: 16 }}>
-                <label htmlFor="new-user-max-stocks" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}>
+                <div style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}>
                   追加可能銘柄数（制限）
-                </label>
+                </div>
                 <div className="row flex-wrap" style={{ gap: 6, marginBottom: 8 }}>
                   {[3, 5, 10, 20].map((preset) => (
                     <button
@@ -790,10 +790,11 @@ export function AdminDashboard({
 
                 {newUserMaxStocks !== null && (
                   <div className="row" style={{ gap: 8, alignItems: "center" }}>
-                    <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>カスタム上限:</span>
+                    <label htmlFor="new-user-max-stocks" style={{ fontSize: 12, color: "var(--text-secondary)" }}>カスタム上限:</label>
                     <input
                       id="new-user-max-stocks"
                       type="number"
+                      aria-label="カスタム上限銘柄数"
                       min="1"
                       max="500"
                       value={newUserMaxStocks}
@@ -814,9 +815,9 @@ export function AdminDashboard({
               </div>
 
               <div style={{ marginBottom: 16 }}>
-                <label htmlFor="new-user-max-indices" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}>
+                <div style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}>
                   追加可能指数数（制限）
-                </label>
+                </div>
                 <div className="row flex-wrap" style={{ gap: 6, marginBottom: 8 }}>
                   {[1, 3, 5, 10].map((preset) => (
                     <button
@@ -841,10 +842,11 @@ export function AdminDashboard({
 
                 {newUserMaxIndices !== null && (
                   <div className="row" style={{ gap: 8, alignItems: "center" }}>
-                    <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>カスタム上限:</span>
+                    <label htmlFor="new-user-max-indices" style={{ fontSize: 12, color: "var(--text-secondary)" }}>カスタム上限:</label>
                     <input
                       id="new-user-max-indices"
                       type="number"
+                      aria-label="カスタム上限指数数"
                       min="1"
                       max="100"
                       value={newUserMaxIndices}
@@ -859,7 +861,7 @@ export function AdminDashboard({
                         fontSize: 12,
                       }}
                     />
-                    <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>件まで作成可能</span>
+                    <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>指数まで作成可能</span>
                   </div>
                 )}
               </div>
@@ -1222,6 +1224,7 @@ export function AdminDashboard({
                         <td>
                           <input
                             type="number"
+                            aria-label={`${b.name} (${b.ticker}) の比率 (%)`}
                             min="0.1"
                             max="100"
                             step="0.5"

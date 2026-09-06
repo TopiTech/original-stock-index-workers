@@ -110,6 +110,21 @@ describe("analytics library", () => {
       expect(Number.isFinite(metrics.bestDay)).toBe(true);
       expect(Number.isFinite(metrics.worstDay)).toBe(true);
     });
+
+    it("safely handles total wipeout scenarios (totalReturn <= -100%) without NaN", () => {
+      const wipeoutCustom: PricePoint[] = [
+        { date: "2026-01-01", close: 1000, value: 1000 },
+        { date: "2026-01-02", close: 0.01, value: 0.01 },
+      ];
+      const bench: PricePoint[] = [
+        { date: "2026-01-01", close: 38000 },
+        { date: "2026-01-02", close: 38000 },
+      ];
+      const metrics = calculateRiskMetrics(wipeoutCustom, bench);
+      expect(metrics.annualReturn).toBeLessThanOrEqual(-99);
+      expect(Number.isFinite(metrics.annualReturn)).toBe(true);
+      expect(metrics.maxDrawdown).toBeGreaterThanOrEqual(99.9);
+    });
   });
 
   describe("calculateStockDetails", () => {

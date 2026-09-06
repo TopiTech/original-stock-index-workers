@@ -760,6 +760,17 @@ h3 {
   box-shadow: 0 0 10px var(--neon-cyan);
 }
 
+.index-item:focus-within {
+  border-color: var(--border-cyan);
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.15);
+}
+
+.index-select-btn:focus-visible {
+  outline: 2px solid var(--neon-cyan);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
 /* Chart Container & Tooltips */
 .chart-container {
   height: 400px;
