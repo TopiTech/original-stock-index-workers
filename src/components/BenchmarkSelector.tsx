@@ -14,11 +14,11 @@ export function BenchmarkSelector({
   loading = false,
 }: BenchmarkSelectorProps) {
   return (
-    <div className="row flex-wrap" style={{ gap: 6, alignItems: "center" }}>
-      <span className="mono tiny muted uppercase" style={{ marginRight: 4 }}>
+    <div className="benchmark-selector row flex-wrap">
+      <span className="benchmark-selector-label mono tiny muted uppercase">
         比較ベンチマーク:
       </span>
-      <div className="btn-group">
+      <div className="btn-group benchmark-options">
         {benchmarks.map((b) => {
           const isActive = selectedBenchmark === b.symbol;
           return (

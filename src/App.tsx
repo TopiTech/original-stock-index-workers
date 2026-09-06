@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { ChevronRight, Menu, X } from "lucide-react";
 import { useIndices } from "./hooks/useIndices";
 import { useBenchmark } from "./hooks/useBenchmark";
 import { useCalculation } from "./hooks/useCalculation";
@@ -19,7 +20,15 @@ import { LoadingScreen } from "./components/LoadingScreen";
 import { buildChartData } from "./lib/chartData";
 import type { CustomIndex } from "./data/indices";
 
+const MOBILE_LAYOUT_QUERY = "(max-width: 1080px)";
+
+function getInitialMobileLayout() {
+  return typeof window !== "undefined" && window.matchMedia(MOBILE_LAYOUT_QUERY).matches;
+}
+
 export default function App() {
+  const [isMobileLayout, setIsMobileLayout] = useState(getInitialMobileLayout);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => !getInitialMobileLayout());
   const [currentView, setCurrentView] = useState<"dashboard" | "admin">(() => {
     if (typeof window !== "undefined") {
       const path = window.location.pathname;
@@ -47,6 +56,34 @@ export default function App() {
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(MOBILE_LAYOUT_QUERY);
+    const syncLayout = () => {
+      setIsMobileLayout(mediaQuery.matches);
+      setIsSidebarOpen(!mediaQuery.matches);
+    };
+
+    syncLayout();
+    mediaQuery.addEventListener("change", syncLayout);
+    return () => mediaQuery.removeEventListener("change", syncLayout);
+  }, []);
+
+  useEffect(() => {
+    if (!isMobileLayout || !isSidebarOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsSidebarOpen(false);
+    };
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [isMobileLayout, isSidebarOpen]);
 
   const {
     indices,
@@ -90,9 +127,15 @@ export default function App() {
     (index: CustomIndex) => {
       setSelectedTheme(null);
       selectIndex(index);
+      if (isMobileLayout) setIsSidebarOpen(false);
     },
-    [selectIndex],
+    [isMobileLayout, selectIndex],
   );
+
+  const handleOpenBuilder = useCallback(() => {
+    setIsSidebarOpen(false);
+    setIsBuilderOpen(true);
+  }, []);
 
   const handleRetry = useCallback(() => {
     if (benchmarkError) refetchBenchmark();
@@ -148,6 +191,26 @@ export default function App() {
     <div className="app">
       <Header onNavigateToAdmin={() => navigateTo("admin")} />
 
+      <div className="mobile-dashboard-toolbar" aria-label="ダッシュボード操作">
+        <div className="mobile-current-index">
+          <span className="mono tiny uppercase muted">CURRENT INDEX</span>
+          <strong title={selectedIndex?.name}>
+            {selectedIndex?.name || "指数を選択してください"}
+          </strong>
+        </div>
+        <button
+          type="button"
+          className="btn btn-default mobile-sidebar-toggle"
+          onClick={() => setIsSidebarOpen(true)}
+          aria-controls="index-sidebar"
+          aria-expanded={isMobileLayout && isSidebarOpen}
+        >
+          <Menu size={16} />
+          <span>指数を選択</span>
+          <ChevronRight size={15} aria-hidden="true" />
+        </button>
+      </div>
+
       <motion.div
         initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
@@ -167,7 +230,42 @@ export default function App() {
       </motion.div>
 
       <div className="layout">
-        <aside>
+        <AnimatePresence>
+          {isMobileLayout && isSidebarOpen && (
+            <motion.button
+              type="button"
+              className="sidebar-backdrop"
+              aria-label="指数メニューを閉じる"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={() => setIsSidebarOpen(false)}
+            />
+          )}
+        </AnimatePresence>
+
+        <aside
+          id="index-sidebar"
+          className={`index-sidebar ${isSidebarOpen ? "is-open" : ""}`}
+          aria-label="指数セレクター"
+          aria-hidden={isMobileLayout && !isSidebarOpen}
+        >
+          <div className="sidebar-drawer-header">
+            <div className="row" style={{ gap: 8 }}>
+              <Menu size={16} style={{ color: "var(--neon-cyan)" }} />
+              <span className="mono tiny uppercase">指数メニュー</span>
+            </div>
+            <button
+              type="button"
+              className="sidebar-close-button"
+              onClick={() => setIsSidebarOpen(false)}
+              aria-label="指数メニューを閉じる"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
           <AnimatePresence mode="wait">
             <motion.div
               key="sidebar"
@@ -179,7 +277,7 @@ export default function App() {
                 indices={indices}
                 selectedIndex={selectedIndex}
                 onSelect={handleSelectIndex}
-                onCreateIndex={() => setIsBuilderOpen(true)}
+                onCreateIndex={handleOpenBuilder}
                 onDeleteIndex={deleteCustomIndex}
                 isOwner={isOwner}
               />
@@ -187,17 +285,10 @@ export default function App() {
           </AnimatePresence>
         </aside>
 
-        <main className="grid" style={{ gap: 20 }}>
+        <main className="dashboard-main grid" style={{ gap: 20 }}>
           {/* Benchmark Selector Bar */}
           <div
-            className="row space-between flex-wrap"
-            style={{
-              padding: "10px 16px",
-              background: "var(--surface-benchmark)",
-              border: "1px solid var(--border-subtle)",
-              borderRadius: 10,
-              gap: 12,
-            }}
+            className="benchmark-toolbar row space-between flex-wrap"
           >
             <BenchmarkSelector
               benchmarks={availableBenchmarks}

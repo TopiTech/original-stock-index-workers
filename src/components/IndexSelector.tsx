@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, Tag, Badge, SearchInput } from "./ui";
-import { Layers, CheckCircle2, Plus, Trash2, UserCheck } from "lucide-react";
+import { ChevronDown, Layers, CheckCircle2, Plus, Trash2, UserCheck } from "lucide-react";
 import { SYSTEM_INDEX_IDS, type CustomIndex } from "../data/indices";
 import { normalizeWeights } from "../lib/indexEngine";
 import { isIndexOwner } from "../lib/ownership";
@@ -24,6 +24,7 @@ export function IndexSelector({
   isOwner,
 }: IndexSelectorProps) {
   const [search, setSearch] = useState("");
+  const [isExpanded, setIsExpanded] = useState(true);
 
   const filteredIndices = useMemo(() => {
     if (!search.trim()) return indices;
@@ -46,35 +47,73 @@ export function IndexSelector({
   }, [selectedIndex]);
 
   return (
-    <Card className="section" style={{ height: "fit-content" }}>
-      <div className="row space-between" style={{ marginBottom: 14 }}>
-        <div className="row" style={{ gap: 8 }}>
-          <Layers size={16} style={{ color: "var(--neon-cyan)" }} />
-          <h2 style={{ margin: 0, fontSize: 16 }}>指数セレクター</h2>
-        </div>
-        <Badge variant="cyan">{indices.length} 指数</Badge>
-      </div>
-
-      {onCreateIndex && (
+    <Card className="section index-selector-card" style={{ height: "fit-content" }}>
+      <div className={`index-selector-header ${isExpanded ? "is-expanded" : ""}`}>
         <button
           type="button"
-          onClick={onCreateIndex}
-          className="btn btn-default"
-          style={{ width: "100%", marginBottom: 12, padding: "8px 12px" }}
+          className="index-selector-toggle"
+          onClick={() => setIsExpanded((expanded) => !expanded)}
+          aria-expanded={isExpanded}
+          aria-controls="index-selector-content"
+          title={isExpanded ? "指数セレクターを閉じる" : "指数セレクターを開く"}
         >
-          <Plus size={14} /> 独自指数を新規作成
+          <span className="index-selector-toggle-title">
+            <Layers size={16} style={{ color: "var(--neon-cyan)" }} />
+            <span>指数セレクター</span>
+          </span>
+          <span className="index-selector-toggle-meta">
+            <Badge variant="cyan">{indices.length} 指数</Badge>
+            <ChevronDown
+              size={17}
+              className="index-selector-chevron"
+              aria-hidden="true"
+            />
+          </span>
         </button>
-      )}
-
-      <div style={{ marginBottom: 12 }}>
-        <SearchInput
-          value={search}
-          onChange={setSearch}
-          placeholder="指数・銘柄検索..."
-        />
       </div>
 
-      <div className="index-list">
+      {!isExpanded && (
+        <div className="index-selector-collapsed-summary" aria-live="polite">
+          <span className="mono tiny uppercase muted">選択中</span>
+          <strong>{selectedIndex?.name || "指数を選択してください"}</strong>
+          {selectedIndex && (
+            <span className="mono tiny muted">{selectedIndex.basket.length} 銘柄</span>
+          )}
+        </div>
+      )}
+
+      <AnimatePresence initial={false}>
+        {isExpanded && (
+          <motion.div
+            id="index-selector-content"
+            key="index-selector-content"
+            className="index-selector-content"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.22 }}
+            style={{ overflow: "hidden" }}
+          >
+            {onCreateIndex && (
+              <button
+                type="button"
+                onClick={onCreateIndex}
+                className="btn btn-default"
+                style={{ width: "100%", marginBottom: 12, padding: "8px 12px" }}
+              >
+                <Plus size={14} /> 独自指数を新規作成
+              </button>
+            )}
+
+            <div style={{ marginBottom: 12 }}>
+              <SearchInput
+                value={search}
+                onChange={setSearch}
+                placeholder="指数・銘柄検索..."
+              />
+            </div>
+
+            <div className="index-list">
         {filteredIndices.map((idx) => {
           const isSelected = selectedIndex?.id === idx.id;
           const isSystem = SYSTEM_INDEX_IDS.has(idx.id);
@@ -197,24 +236,24 @@ export function IndexSelector({
           );
         })}
 
-        {filteredIndices.length === 0 && (
-          <div style={{ textAlign: "center", padding: "24px 0" }} className="muted tiny mono">
-            一致する指数がありません
-          </div>
-        )}
-      </div>
+              {filteredIndices.length === 0 && (
+                <div style={{ textAlign: "center", padding: "24px 0" }} className="muted tiny mono">
+                  一致する指数がありません
+                </div>
+              )}
+            </div>
 
-      <AnimatePresence mode="wait">
-        {selectedIndex && (
-          <motion.div
-            key={selectedIndex.id}
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.3 }}
-            style={{ overflow: "hidden" }}
-          >
-            <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--border-subtle)" }}>
+            <AnimatePresence mode="wait">
+              {selectedIndex && (
+                <motion.div
+                  key={selectedIndex.id}
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.3 }}
+                  style={{ overflow: "hidden" }}
+                >
+                  <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--border-subtle)" }}>
               <div className="row space-between" style={{ marginBottom: 10 }}>
                 <div className="muted tiny uppercase mono">
                   主要ウェイト TOP 3
@@ -257,7 +296,10 @@ export function IndexSelector({
                   </div>
                 ))}
               </div>
-            </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         )}
       </AnimatePresence>

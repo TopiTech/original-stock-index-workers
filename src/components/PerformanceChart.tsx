@@ -146,8 +146,8 @@ export function PerformanceChart({
   return (
     <Card className="section">
       {/* Header Controls */}
-      <div className="row space-between flex-wrap" style={{ marginBottom: 16, gap: 12 }}>
-        <div>
+      <div className="chart-header row space-between flex-wrap" style={{ marginBottom: 16, gap: 12 }}>
+        <div className="chart-heading">
           <div className="row" style={{ gap: 8 }}>
             <BarChart2 size={18} style={{ color: "var(--neon-cyan)" }} />
             <h2 style={{ margin: 0, fontSize: 17 }}>パフォーマンス分析チャート</h2>
@@ -157,8 +157,9 @@ export function PerformanceChart({
           </div>
         </div>
 
-        <div className="row flex-wrap" style={{ gap: 8 }}>
+        <div className="chart-controls row flex-wrap" style={{ gap: 8 }}>
           <ButtonGroup<Timeframe>
+            className="timeframe-group"
             items={[
               { label: "1W", value: "1W" },
               { label: "1M", value: "1M" },
@@ -172,6 +173,7 @@ export function PerformanceChart({
           />
 
           <ButtonGroup<ViewMode>
+            className="view-mode-group"
             items={[
               { label: "指数値", value: "value" },
               { label: "騰落率 (%)", value: "percent" },
@@ -181,7 +183,7 @@ export function PerformanceChart({
           />
 
           {/* Technical overlays */}
-          <div className="btn-group">
+          <div className="btn-group technical-group">
             <button
               type="button"
               className={`btn-group-item ${showSMA5 ? "active" : ""}`}
@@ -561,14 +563,14 @@ export function PerformanceChart({
         </div>
       )}
 
-      <div className="row space-between flex-wrap" style={{ marginTop: 14, gap: 8 }}>
-        <div className="muted tiny mono">
+      <div className="chart-legend-footer row space-between flex-wrap" style={{ marginTop: 14, gap: 8 }}>
+        <div className="chart-legend muted tiny mono">
           <span style={{ color: "var(--neon-cyan)" }}>―</span> 独自指数　
           <span style={{ color: "var(--text-muted)" }}>---</span> {benchmarkLabel} (Base {baseValue}正規化)
           {showSMA5 && <span style={{ color: "var(--neon-yellow)" }}> ― SMA5</span>}
           {showSMA25 && <span style={{ color: "var(--neon-magenta)" }}> ― SMA25</span>}
         </div>
-        <div className="muted tiny mono">ソース: Yahoo Finance API (日足終値)</div>
+        <div className="chart-source muted tiny mono">ソース: Yahoo Finance API (日足終値)</div>
       </div>
     </Card>
   );
