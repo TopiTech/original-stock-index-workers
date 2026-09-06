@@ -18,7 +18,7 @@ export function filterByTimeframe<T extends { date: string }>(data: T[], timefra
   if (timeframe === "YTD") {
     const currentYear = new Date().getFullYear().toString();
     const ytdData = data.filter((point) => point.date.startsWith(currentYear));
-    return ytdData.length > 0 ? ytdData : data.slice(-22);
+    return ytdData.length >= 2 ? ytdData : data.slice(-22);
   }
   return data;
 }

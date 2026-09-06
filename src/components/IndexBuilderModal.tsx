@@ -11,6 +11,7 @@ interface IndexBuilderModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (index: CustomIndex, ownerToken?: string) => Promise<{ ok: boolean; error?: string; ownerToken?: string }>;
+  currentIndicesCount?: number;
 }
 
 const SAMPLE_STOCKS: { ticker: string; name: string; theme: string }[] = [
@@ -31,7 +32,7 @@ const SAMPLE_STOCKS: { ticker: string; name: string; theme: string }[] = [
   { ticker: "6920", name: "レーザーテック", theme: "最先端マスク検査" },
 ];
 
-export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModalProps) {
+export function IndexBuilderModal({ isOpen, onClose, onSave, currentIndicesCount }: IndexBuilderModalProps) {
   const { session, isAuthenticated, isUser, maxStocks, maxIndices } = useAuth();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [name, setName] = useState("");
@@ -149,6 +150,17 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
 
     if (isUser && maxStocks !== null && maxStocks > 0 && basket.length > maxStocks) {
       setError(`このパスワードの上限（最大${maxStocks}銘柄）を超えています（現在${basket.length}銘柄）`);
+      return;
+    }
+
+    if (
+      isUser &&
+      maxIndices !== null &&
+      maxIndices > 0 &&
+      typeof currentIndicesCount === "number" &&
+      currentIndicesCount >= maxIndices
+    ) {
+      setError(`このパスワードの上限（最大${maxIndices}件）を超えています（現在${currentIndicesCount}件登録済み）`);
       return;
     }
 

@@ -80,16 +80,21 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225") {
             setLastUpdatedAt(cached.timestamp);
             return cached.data;
           }
-          // If 304 received without memory cache, refetch fresh data
+          // If 304 received without memory cache, refetch fresh data bypassing cache
           const freshRes = await fetch(`${API_BASE}/snapshot?symbol=${encodeURIComponent(selectedBenchmark)}`, {
             signal: controller.signal,
+            cache: "reload",
           });
           if (!freshRes.ok) {
             const errData = await freshRes.json().catch(() => ({}));
             throw new Error(errData.error || `${selectedBenchmark} データの取得に失敗しました`);
           }
           const freshEtag = freshRes.headers.get("etag");
-          const freshData: BenchmarkData = await freshRes.json();
+          const freshText = await freshRes.text();
+          if (!freshText) {
+            throw new Error(`${selectedBenchmark} データの取得に失敗しました（空のレスポンス）`);
+          }
+          const freshData: BenchmarkData = JSON.parse(freshText);
           benchmarkSessionCache.set(selectedBenchmark, {
             data: freshData,
             timestamp: Date.now(),

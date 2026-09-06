@@ -892,6 +892,9 @@ h3 {
 
 /* Table Component */
 .table-wrapper {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   max-height: 420px;
   overflow-y: auto;
   overflow-x: auto;

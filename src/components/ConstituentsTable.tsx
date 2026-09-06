@@ -515,22 +515,6 @@ export function ConstituentsTable({
                           href={getYahooFinanceUrl(item.ticker)}
                           target="_blank"
                           rel="noopener noreferrer"
-                          onClick={(event) => {
-                            // Defer navigation so the user sees the status update even on
-                            // slow connections, and so the link always navigates to an
-                            // explicitly trusted external domain.
-                            const anchor = event.currentTarget as HTMLAnchorElement | null;
-                            if (!anchor) return;
-                            const href = anchor.getAttribute("href") ?? "";
-                            if (!href) return;
-                            if (event.metaKey || event.ctrlKey) return;
-                            event.preventDefault();
-                            const newWindow = window.open(href, "_blank", "noopener");
-                            if (newWindow) {
-                              // best-effort focus; older browsers may ignore programmatic focus
-                              newWindow.focus();
-                            }
-                          }}
                           className="tag mono row"
                           style={{
                             textDecoration: "none",

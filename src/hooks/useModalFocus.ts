@@ -22,6 +22,9 @@ function getFocusableElements(dialog: HTMLElement): HTMLElement[] {
   );
 }
 
+let activeModalCount = 0;
+let originalBodyOverflow: string | null = null;
+
 /** Adds Escape handling, focus trapping, initial focus, and focus restoration to a modal. */
 export function useModalFocus<T extends HTMLElement>(
   isOpen: boolean,
@@ -37,8 +40,12 @@ export function useModalFocus<T extends HTMLElement>(
 
     const dialog = dialogRef.current;
     const previousActiveElement = document.activeElement as HTMLElement | null;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    if (activeModalCount === 0) {
+      originalBodyOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+    }
+    activeModalCount++;
+
     const initialTarget = initialFocusRef?.current;
     const isTargetFocusable =
       initialTarget &&
@@ -77,7 +84,11 @@ export function useModalFocus<T extends HTMLElement>(
     document.addEventListener("keydown", handleKeyDown, true);
     return () => {
       document.removeEventListener("keydown", handleKeyDown, true);
-      document.body.style.overflow = previousOverflow;
+      activeModalCount = Math.max(0, activeModalCount - 1);
+      if (activeModalCount === 0) {
+        document.body.style.overflow = originalBodyOverflow ?? "";
+        originalBodyOverflow = null;
+      }
       if (previousActiveElement?.isConnected) previousActiveElement.focus();
     };
   }, [dialogRef, initialFocusRef, isOpen]);

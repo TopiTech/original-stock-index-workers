@@ -568,7 +568,10 @@ interface MemoryCacheEntry<T> {
   data: T;
   expiresAt: number;
 }
+const MAX_GENERAL_CACHE_SIZE = 400;
+const MAX_CALC_CACHE_SIZE = 100;
 const memoryCache = new Map<string, MemoryCacheEntry<unknown>>();
+const calcMemoryCache = new Map<string, MemoryCacheEntry<unknown>>();
 
 let allowMemoryCacheInTest = false;
 export function setAllowMemoryCacheInTest(allow: boolean): void {
@@ -579,21 +582,25 @@ export function getMemoryCache<T>(key: string): T | null {
   if (typeof process !== "undefined" && process.env?.NODE_ENV === "test" && !allowMemoryCacheInTest) {
     return null;
   }
-  const entry = memoryCache.get(key);
+  const targetMap = key.startsWith("calc:") ? calcMemoryCache : memoryCache;
+  const entry = targetMap.get(key);
   if (!entry) return null;
   if (Date.now() > entry.expiresAt) {
-    memoryCache.delete(key);
+    targetMap.delete(key);
     return null;
   }
   return entry.data as T;
 }
 
 export function setMemoryCache(key: string, data: unknown, ttlSeconds: number): void {
-  if (memoryCache.size > 500) {
-    const oldestKey = memoryCache.keys().next().value;
-    if (oldestKey) memoryCache.delete(oldestKey);
+  const isCalc = key.startsWith("calc:");
+  const targetMap = isCalc ? calcMemoryCache : memoryCache;
+  const maxSize = isCalc ? MAX_CALC_CACHE_SIZE : MAX_GENERAL_CACHE_SIZE;
+  if (targetMap.size >= maxSize) {
+    const oldestKey = targetMap.keys().next().value;
+    if (oldestKey) targetMap.delete(oldestKey);
   }
-  memoryCache.set(key, {
+  targetMap.set(key, {
     data,
     expiresAt: Date.now() + ttlSeconds * 1000,
   });
@@ -602,6 +609,15 @@ export function setMemoryCache(key: string, data: unknown, ttlSeconds: number): 
 export function clearMemoryCache(prefix?: string): void {
   if (!prefix) {
     memoryCache.clear();
+    calcMemoryCache.clear();
+    return;
+  }
+  if (prefix === "calc:" || prefix.startsWith("calc:")) {
+    for (const key of Array.from(calcMemoryCache.keys())) {
+      if (key.startsWith(prefix)) {
+        calcMemoryCache.delete(key);
+      }
+    }
     return;
   }
   for (const key of Array.from(memoryCache.keys())) {
@@ -694,6 +710,7 @@ function json(data: unknown, status = 200, request?: Request, customHeaders?: Re
   const headers: Record<string, string> = {
     "content-type": "application/json; charset=utf-8",
     "x-content-type-options": "nosniff",
+    "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
     ...customHeaders,
   };
 
@@ -727,6 +744,7 @@ function json(data: unknown, status = 200, request?: Request, customHeaders?: Re
 function notModified(request?: Request, customHeaders?: Record<string, string>) {
   const headers: Record<string, string> = {
     "x-content-type-options": "nosniff",
+    "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
     ...customHeaders,
   };
   if (request) {
@@ -780,11 +798,11 @@ async function parseJsonBody(request: Request): Promise<{ ok: true; body: Record
       bytes.set(chunk, offset);
       offset += chunk.byteLength;
     }
-    const body = JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
+    const body = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
     if (!body || typeof body !== "object" || Array.isArray(body)) {
-      return { ok: false, response: json({ error: "Invalid JSON body" }, 400, request) };
+      return { ok: false, response: json({ error: "Invalid JSON body: expected an object" }, 400, request) };
     }
-    return { ok: true, body };
+    return { ok: true, body: body as Record<string, unknown> };
   } catch {
     return { ok: false, response: json({ error: "Invalid JSON body" }, 400, request) };
   }
@@ -803,6 +821,14 @@ async function checkRateLimit(
 ): Promise<boolean> {
   const now = Math.floor(Date.now() / 1000);
   try {
+    // Probabilistic cleanup of dead rate_limit rows (approx every 100 requests)
+    if (Math.random() < 0.01) {
+      env.DB.prepare("DELETE FROM rate_limits WHERE window_start < ?")
+        .bind(now - 3600)
+        .run()
+        .catch(() => {});
+    }
+
     // Reserve a request slot atomically. The former SELECT-then-UPDATE flow
     // allowed concurrent calls that all observed the same count just below the
     // limit, so each was admitted. The WHERE clause makes a saturated active
@@ -1484,7 +1510,14 @@ export default {
           if (cacheRow) {
             try {
               console.warn(`Using stale snapshot cache for ${symbol} due to Yahoo Finance failure`);
-              return json(JSON.parse(cacheRow.data), 200, request);
+              const staleData = JSON.parse(cacheRow.data);
+              if (typeof staleData === "object" && staleData !== null) {
+                staleData.stale = true;
+              }
+              return json(staleData, 200, request, {
+                "x-data-stale": "true",
+                "cache-control": "public, max-age=30",
+              });
             } catch {
               // Corrupted cache, continue to 502 error
             }
@@ -1767,24 +1800,35 @@ export default {
 
         // Check if index already exists in D1
         let existingHash: string | null = null;
+        let existingCreatorId: string | null = null;
         let isExisting = false;
         let hasOwnerTokenHashColumn = true;
         try {
           const { results } = await env.DB.prepare(
-            "SELECT id, owner_token_hash FROM indices WHERE id = ?",
+            "SELECT id, owner_token_hash, creator_id FROM indices WHERE id = ?",
           ).bind(id).all();
           if (results && results.length > 0) {
             isExisting = true;
-            existingHash = (results[0] as { owner_token_hash?: string }).owner_token_hash || null;
+            const row = results[0] as { owner_token_hash?: string; creator_id?: string | null };
+            existingHash = row.owner_token_hash || null;
+            existingCreatorId = row.creator_id || null;
           }
         } catch (lookupErr: unknown) {
-          // Only a confirmed missing column is a migration compatibility case.
-          // Treat transient/unknown D1 failures as errors so an admin edit
-          // cannot accidentally clear an existing owner hash.
-          if (!isMissingColumnError(lookupErr, "owner_token_hash")) throw lookupErr;
-          hasOwnerTokenHashColumn = false;
-          const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(id).all();
-          if (results && results.length > 0) isExisting = true;
+          if (!isMissingColumnError(lookupErr, "creator_id") && !isMissingColumnError(lookupErr, "owner_token_hash")) {
+            throw lookupErr;
+          }
+          try {
+            const { results } = await env.DB.prepare("SELECT id, owner_token_hash FROM indices WHERE id = ?").bind(id).all();
+            if (results && results.length > 0) {
+              isExisting = true;
+              existingHash = (results[0] as { owner_token_hash?: string }).owner_token_hash || null;
+            }
+          } catch (lookupErr2: unknown) {
+            if (!isMissingColumnError(lookupErr2, "owner_token_hash")) throw lookupErr2;
+            hasOwnerTokenHashColumn = false;
+            const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(id).all();
+            if (results && results.length > 0) isExisting = true;
+          }
         }
 
         // The client UI requires a password before saving. Enforce that
@@ -1793,6 +1837,27 @@ export default {
         // owner-token protected indices remain editable for compatibility.
         if (!isExisting && !auth.authenticated) {
           return json({ error: "指数の新規作成にはパスワード認証が必要です" }, 401, request);
+        }
+
+        // Prevent quota bypass on modifying existing indices:
+        // If caller is not admin and the index was created by a user, enforce that user's max_stocks limit.
+        if (isExisting && !isAdmin && existingCreatorId) {
+          try {
+            const creatorRow = await env.DB.prepare(
+              "SELECT max_stocks FROM access_passwords WHERE id = ?"
+            ).bind(existingCreatorId).first<{ max_stocks?: number | null }>();
+            if (creatorRow && typeof creatorRow.max_stocks === "number" && creatorRow.max_stocks > 0) {
+              if (basket.length > creatorRow.max_stocks) {
+                return json(
+                  { error: `このユーザー用パスワードでは銘柄数を最大${creatorRow.max_stocks}銘柄までに制限されています（指定: ${basket.length}銘柄）` },
+                  403,
+                  request
+                );
+              }
+            }
+          } catch {
+            // ignore if query fails
+          }
         }
 
         const isUserCreatingIndex = !isExisting && auth.authenticated && auth.role === "user";
@@ -2465,6 +2530,7 @@ export default {
         headers.set("X-Content-Type-Options", "nosniff");
         headers.set("X-Frame-Options", "SAMEORIGIN");
         headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+        headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
         headers.set(
           "Content-Security-Policy",
           "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'",

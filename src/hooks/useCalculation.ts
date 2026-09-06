@@ -208,6 +208,36 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
       setCustomSeries(data.series);
       const universe = Array.isArray(data.stockUniverse) ? data.stockUniverse : [];
       setStockUniverse(universe);
+
+      if (selectedIndex.basket.length > 0) {
+        const returnedTickers = new Set(universe.map((u: StockSeries) => u.ticker));
+        const missingTickers = selectedIndex.basket
+          .map((b) => b.ticker)
+          .filter((t) => !returnedTickers.has(t));
+        if (missingTickers.length > 0) {
+          try {
+            const cache = getLocalSyncCache();
+            let changed = false;
+            for (const mt of missingTickers) {
+              syncedTickersRef.current.delete(mt);
+              if (cache[mt]) {
+                delete cache[mt];
+                changed = true;
+              }
+            }
+            if (changed) {
+              localStorage.setItem("custom_index_sync_cache_v2", JSON.stringify(cache));
+            }
+          } catch {
+            // ignore
+          }
+          setSyncWarnings((prev) => [
+            ...prev,
+            `一部銘柄の価格データが取得できませんでした: ${missingTickers.join(", ")}`,
+          ]);
+        }
+      }
+
       const updatedAt = Date.now();
       setLastUpdatedAt(updatedAt);
       clientCalcCache.set(basketKey, {

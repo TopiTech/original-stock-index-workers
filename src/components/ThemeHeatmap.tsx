@@ -119,6 +119,13 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
         onMouseEnter={(e) => handleMouseMove(e, stock)}
         onMouseMove={(e) => handleMouseMove(e, stock)}
         onMouseLeave={() => setHoveredStock(null)}
+        onFocus={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const x = Math.max(8, Math.min(rect.left + rect.width / 2, window.innerWidth - 248));
+          const y = Math.max(8, Math.min(rect.bottom + 8, window.innerHeight - 206));
+          setHoveredStock({ stock, x, y });
+        }}
+        onBlur={() => setHoveredStock(null)}
         style={{
           left: `${layout.x * 100}%`,
           top: `${layout.y * 100}%`,

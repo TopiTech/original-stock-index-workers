@@ -15,8 +15,13 @@ function getJstParts(date: Date): { day: number; minutes: number } {
 
 function secondsUntilNextMarketOpen(day: number, minutes: number): number {
   let minutesUntilOpen: number;
-  if (day === 5) {
-    // Friday evening through Monday 09:00 JST.
+  const isWeekday = day >= 1 && day <= 5;
+
+  if (isWeekday && minutes < MARKET_OPEN_JST) {
+    // Weekday morning before 09:00 JST (including Friday): opens today at 09:00 JST.
+    minutesUntilOpen = MARKET_OPEN_JST - minutes;
+  } else if (day === 5) {
+    // Friday after market close through Monday 09:00 JST.
     minutesUntilOpen = 3 * 24 * 60 + MARKET_OPEN_JST - minutes;
   } else if (day === 6) {
     // Saturday through Monday 09:00 JST.
@@ -24,8 +29,6 @@ function secondsUntilNextMarketOpen(day: number, minutes: number): number {
   } else if (day === 0) {
     // Sunday through Monday 09:00 JST.
     minutesUntilOpen = 24 * 60 + MARKET_OPEN_JST - minutes;
-  } else if (minutes < MARKET_OPEN_JST) {
-    minutesUntilOpen = MARKET_OPEN_JST - minutes;
   } else {
     // Weekday after market close through the following morning 09:00 JST.
     minutesUntilOpen = 24 * 60 + MARKET_OPEN_JST - minutes;

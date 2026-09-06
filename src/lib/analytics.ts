@@ -97,8 +97,15 @@ export function calculateRiskMetrics(
   const totalReturn = startVal > 0 ? (endVal - startVal) / startVal : 0;
   
   // 年率換算 (CAGR: Compound Annual Growth Rate, 250営業日基準)
+  // 短期間（250営業日未満）での幾何平均年率換算は (1+r)^(250/N) で指数爆発を引き起こすため、
+  // 250営業日未満の場合は線形年率換算（単利年率）を用いて極端な歪みを防止する。
   const annualFactor = 250 / customReturns.length;
-  const annualReturn = 1 + totalReturn > 0 ? (Math.pow(1 + totalReturn, annualFactor) - 1) * 100 : -100;
+  let annualReturn: number;
+  if (customReturns.length >= 250) {
+    annualReturn = 1 + totalReturn > 0 ? (Math.pow(1 + totalReturn, annualFactor) - 1) * 100 : -100;
+  } else {
+    annualReturn = totalReturn * annualFactor * 100;
+  }
 
   // 3. 年率ボラティリティ (標準偏差 * sqrt(250))
   const meanReturn = customReturns.reduce((sum, r) => sum + r, 0) / customReturns.length;
@@ -133,7 +140,25 @@ export function calculateRiskMetrics(
   // 6. ベータ値 (対ベンチマーク)
   let beta = 1.0;
   if (benchmarkSeries && benchmarkSeries.length >= 2) {
-    const benchMap = new Map(benchmarkSeries.map((p) => [p.date, p.close]));
+    const sortedBench = [...benchmarkSeries]
+      .filter((p) => typeof p.close === "number" && Number.isFinite(p.close) && p.close > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    // ベンチマーク市場（例: 米国S&P 500や為替）と日本市場の祝日差異によるデータ脱落を防ぐため、
+    // 自作指数の日付軸に沿ってベンチマーク価格をフォワードフィル（前営業日終値補完）する。
+    const benchMap = new Map<string, number>();
+    let lastBenchPrice: number | null = null;
+    let bIdx = 0;
+    for (const pt of customSeries) {
+      while (bIdx < sortedBench.length && sortedBench[bIdx].date <= pt.date) {
+        lastBenchPrice = sortedBench[bIdx].close;
+        bIdx++;
+      }
+      if (lastBenchPrice !== null) {
+        benchMap.set(pt.date, lastBenchPrice);
+      }
+    }
+
     const pairedReturns: { custom: number; bench: number }[] = [];
 
     for (let i = 1; i < customSeries.length; i++) {
@@ -173,8 +198,12 @@ export function calculateRiskMetrics(
   // 7. 勝率・ベスト/ワースト日
   const winDays = customReturns.filter((r) => r > 0).length;
   const winRate = Number(((winDays / customReturns.length) * 100).toFixed(1));
-  const bestDay = Number((Math.max(...customReturns) * 100).toFixed(2));
-  const worstDay = Number((Math.min(...customReturns) * 100).toFixed(2));
+  const bestDay = customReturns.length > 0
+    ? Number((customReturns.reduce((max, r) => (r > max ? r : max), -Infinity) * 100).toFixed(2))
+    : 0;
+  const worstDay = customReturns.length > 0
+    ? Number((customReturns.reduce((min, r) => (r < min ? r : min), Infinity) * 100).toFixed(2))
+    : 0;
 
   const safeNum = (n: number, fallback = 0) => (Number.isFinite(n) ? n : fallback);
 

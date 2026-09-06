@@ -83,50 +83,54 @@ export function createTreemapLayout(data: readonly TreemapDatum[]): TreemapLayou
 
     if (row.length === 0) break;
 
-    const isHorizontalRow = available.width >= available.height;
-    if (isHorizontalRow) {
-      const rowHeight = Math.min(available.height, rowValue / available.width);
+    // In squarified treemaps, the row is laid out along the shorter side (shortSide)
+    // to keep the sub-rectangles as close to square as possible and drive the remaining
+    // bounding box towards a 1:1 aspect ratio.
+    if (available.width >= available.height) {
+      // Shorter edge is height: lay out a vertical strip of width = rowValue / height
+      const stripWidth = available.height > 0 ? Math.min(available.width, rowValue / available.height) : 0;
       let offset = 0;
 
       for (const item of row) {
-        const itemWidth = rowHeight > 0 ? item.value / rowHeight : 0;
-        layouts.push({
-          ...item,
-          x: available.x + offset,
-          y: available.y,
-          width: itemWidth,
-          height: rowHeight,
-        });
-        offset += itemWidth;
-      }
-
-      available = {
-        x: available.x,
-        y: available.y + rowHeight,
-        width: available.width,
-        height: Math.max(0, available.height - rowHeight),
-      };
-    } else {
-      const rowWidth = Math.min(available.width, rowValue / available.height);
-      let offset = 0;
-
-      for (const item of row) {
-        const itemHeight = rowWidth > 0 ? item.value / rowWidth : 0;
+        const itemHeight = stripWidth > 0 ? item.value / stripWidth : 0;
         layouts.push({
           ...item,
           x: available.x,
           y: available.y + offset,
-          width: rowWidth,
+          width: stripWidth,
           height: itemHeight,
         });
         offset += itemHeight;
       }
 
       available = {
-        x: available.x + rowWidth,
+        x: available.x + stripWidth,
         y: available.y,
-        width: Math.max(0, available.width - rowWidth),
+        width: Math.max(0, available.width - stripWidth),
         height: available.height,
+      };
+    } else {
+      // Shorter edge is width: lay out a horizontal strip of height = rowValue / width
+      const stripHeight = available.width > 0 ? Math.min(available.height, rowValue / available.width) : 0;
+      let offset = 0;
+
+      for (const item of row) {
+        const itemWidth = stripHeight > 0 ? item.value / stripHeight : 0;
+        layouts.push({
+          ...item,
+          x: available.x + offset,
+          y: available.y,
+          width: itemWidth,
+          height: stripHeight,
+        });
+        offset += itemWidth;
+      }
+
+      available = {
+        x: available.x,
+        y: available.y + stripHeight,
+        width: available.width,
+        height: Math.max(0, available.height - stripHeight),
       };
     }
   }
