@@ -205,31 +205,45 @@ export function IndexSelector({
                 </div>
               </div>
 
-              <div className="muted tiny" style={{ lineHeight: 1.4, marginBottom: 8 }}>
+              <div className="muted tiny" style={{ lineHeight: 1.4, marginBottom: 8, fontSize: 11 }}>
                 {idx.description}
               </div>
 
-              <div className="row space-between flex-wrap" style={{ gap: 6 }}>
-                <div className="row" style={{ gap: 4 }}>
-                  <Tag variant="cyan" style={{ fontSize: 10 }}>
-                    {idx.basket.length} 銘柄
-                  </Tag>
-                  <Tag variant="muted" style={{ fontSize: 10 }}>
-                    BASE {idx.baseValue}
-                  </Tag>
-                </div>
+              <div className="column" style={{ gap: 6, marginTop: 4 }}>
+                <div className="row space-between" style={{ gap: 6, alignItems: "center" }}>
+                  <div className="row" style={{ gap: 4 }}>
+                    <Tag variant="cyan" style={{ fontSize: 10, padding: "1px 6px" }}>
+                      {idx.basket.length} 銘柄
+                    </Tag>
+                    <Tag variant="muted" style={{ fontSize: 10, padding: "1px 6px" }}>
+                      BASE {idx.baseValue}
+                    </Tag>
+                  </div>
 
-                <div className="row" style={{ gap: 4 }}>
-                  {idx.basket.slice(0, 2).map((b) => (
-                    <span key={b.ticker} className="tag tag-muted" style={{ fontSize: 9 }}>
-                      {b.name}
-                    </span>
-                  ))}
-                  {idx.basket.length > 2 && (
-                    <span className="tag tag-muted" style={{ fontSize: 9 }}>
-                      +{idx.basket.length - 2}
-                    </span>
-                  )}
+                  <div className="row" style={{ gap: 3, maxWidth: "55%", overflow: "hidden" }}>
+                    {idx.basket.slice(0, 2).map((b) => (
+                      <span
+                        key={b.ticker}
+                        className="tag tag-muted"
+                        style={{
+                          fontSize: 9,
+                          padding: "1px 4px",
+                          maxWidth: 60,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                        title={b.name}
+                      >
+                        {b.name}
+                      </span>
+                    ))}
+                    {idx.basket.length > 2 && (
+                      <span className="tag tag-muted" style={{ fontSize: 9, padding: "1px 4px" }}>
+                        +{idx.basket.length - 2}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             </motion.article>

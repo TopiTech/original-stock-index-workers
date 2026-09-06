@@ -28,27 +28,39 @@ export function Header({
 
   return (
     <motion.header
-      initial={{ opacity: 0, y: -15 }}
+      initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5 }}
+      transition={{ duration: 0.35 }}
       className="top-header"
     >
-      <div className="row space-between flex-wrap" style={{ gap: 16 }}>
-        <div className="header-brand">
-          <div className="row" style={{ gap: 10, marginBottom: 6 }}>
-            <div className="pulse-dot green" />
-            <span className="mono tiny uppercase" style={{ color: "var(--neon-cyan)", letterSpacing: 2 }}>
-              FINANCIAL TERMINAL // CLOUDFLARE EDGE
-            </span>
+      <div className="row space-between flex-wrap" style={{ gap: 12, alignItems: "center" }}>
+        <div className="header-brand row" style={{ gap: 10, alignItems: "center" }}>
+          <div
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: 6,
+              background: "linear-gradient(135deg, rgba(6, 182, 212, 0.2) 0%, rgba(139, 92, 246, 0.2) 100%)",
+              border: "1px solid var(--border-cyan)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "var(--neon-cyan)",
+            }}
+          >
+            <Clock3 size={16} />
           </div>
-          <h1>ORIGINAL INDEX TRACKER</h1>
-          <p className="muted header-desc" style={{ margin: "6px 0 0", fontSize: 13, maxWidth: 680, lineHeight: 1.5 }}>
-            独自投資戦略・テーマ別ポートフォリオの客観的株価指数化プラットフォーム。
-            日足終値を使った日経225とのパフォーマンス比較・銘柄配分分析。
-          </p>
+          <div>
+            <h1 style={{ fontSize: "clamp(1.1rem, 2vw, 1.35rem)", margin: 0 }}>
+              ORIGINAL INDEX TRACKER
+            </h1>
+            <p className="muted header-desc" style={{ margin: 0, fontSize: 11, lineHeight: 1.2 }}>
+              独自投資戦略・テーマ別ポートフォリオの客観的株価指数化プラットフォーム
+            </p>
+          </div>
         </div>
 
-          <div className="header-meta row flex-wrap" style={{ gap: 10, alignItems: "center" }}>
+        <div className="header-meta row flex-wrap" style={{ gap: 8, alignItems: "center" }}>
           <DataFreshness
             benchmarkUpdatedAt={benchmarkUpdatedAt}
             calculationUpdatedAt={calculationUpdatedAt}
@@ -92,26 +104,15 @@ export function Header({
               style={{
                 display: "inline-flex",
                 alignItems: "center",
-                gap: 6,
-                borderColor: "var(--border-cyan)",
-                color: "var(--neon-cyan)",
+                gap: 5,
+                padding: "4px 9px",
+                fontSize: 11,
               }}
             >
-              <Shield size={13} />
+              <Shield size={12} />
               管理者ページ
             </button>
           )}
-
-          <div className="header-badges row" style={{ gap: 6 }}>
-            <Badge variant="cyan">
-              <Database size={11} />
-              D1 ENGINE
-            </Badge>
-            <Badge variant="green">
-              <Clock3 size={11} />
-              DAILY CLOSE
-            </Badge>
-          </div>
         </div>
       </div>
     </motion.header>

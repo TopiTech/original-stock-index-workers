@@ -409,7 +409,7 @@ export function ConstituentsTable({
       </div>
 
       <div className="table-wrapper desktop-constituents-table">
-        <table className="custom-table">
+        <table className="custom-table" style={{ minWidth: 820 }}>
           <thead>
             <tr>
               <th
@@ -418,7 +418,7 @@ export function ConstituentsTable({
                 tabIndex={0}
                 onClick={() => toggleSort("ticker")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "ticker")}
-                style={{ width: "10%" }}
+                style={{ minWidth: 85, width: "10%" }}
               >
                 <span className="row" style={{ gap: 2 }}>
                   コード {renderSortIcon("ticker")}
@@ -430,7 +430,7 @@ export function ConstituentsTable({
                 tabIndex={0}
                 onClick={() => toggleSort("name")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "name")}
-                style={{ width: "22%" }}
+                style={{ minWidth: 140, width: "20%" }}
               >
                 <span className="row" style={{ gap: 2 }}>
                   銘柄名 {renderSortIcon("name")}
@@ -442,7 +442,7 @@ export function ConstituentsTable({
                 tabIndex={0}
                 onClick={() => toggleSort("theme")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "theme")}
-                style={{ width: "14%" }}
+                style={{ minWidth: 100, width: "14%" }}
               >
                 <span className="row" style={{ gap: 2 }}>
                   テーマ {renderSortIcon("theme")}
@@ -454,7 +454,7 @@ export function ConstituentsTable({
                 tabIndex={0}
                 onClick={() => toggleSort("currentPrice")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "currentPrice")}
-                style={{ width: "12%", textAlign: "right" }}
+                style={{ minWidth: 90, width: "11%", textAlign: "right" }}
               >
                 <span className="row" style={{ gap: 2, justifyContent: "flex-end" }}>
                   株価 {renderSortIcon("currentPrice")}
@@ -466,20 +466,20 @@ export function ConstituentsTable({
                 tabIndex={0}
                 onClick={() => toggleSort("changePct")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "changePct")}
-                style={{ width: "12%", textAlign: "right" }}
+                style={{ minWidth: 95, width: "11%", textAlign: "right" }}
               >
                 <span className="row" style={{ gap: 2, justifyContent: "flex-end" }}>
                   前日比 {renderSortIcon("changePct")}
                 </span>
               </th>
-              <th style={{ width: "10%", textAlign: "center" }}>トレンド</th>
+              <th style={{ minWidth: 80, width: "10%", textAlign: "center" }}>トレンド</th>
               <th
                 role="columnheader"
                 aria-sort={sortField === "contributionPt" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
                 tabIndex={0}
                 onClick={() => toggleSort("contributionPt")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "contributionPt")}
-                style={{ width: "10%", textAlign: "right" }}
+                style={{ minWidth: 90, width: "10%", textAlign: "right" }}
               >
                 <span className="row" style={{ gap: 2, justifyContent: "flex-end" }}>
                   寄与度 {renderSortIcon("contributionPt")}
@@ -491,14 +491,14 @@ export function ConstituentsTable({
                 tabIndex={0}
                 onClick={() => toggleSort("weight")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "weight")}
-                style={{ width: "10%", textAlign: "right" }}
+                style={{ minWidth: 110, width: "10%", textAlign: "right" }}
               >
                 <span className="row" style={{ gap: 2, justifyContent: "flex-end" }}>
                   比率 {renderSortIcon("weight")}
                 </span>
               </th>
               {onRemoveStock && (
-                <th style={{ width: "6%", textAlign: "center" }}>操作</th>
+                <th style={{ minWidth: 50, width: "4%", textAlign: "center" }}>操作</th>
               )}
             </tr>
           </thead>

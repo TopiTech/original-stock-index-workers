@@ -106,7 +106,15 @@ export function RiskMetricsCard({
               {item.icon}
             </div>
 
-            <div className="mono bold" style={{ fontSize: 20, color: item.color }}>
+            <div
+              className="mono bold"
+              style={{
+                fontSize: 20,
+                color: item.color,
+                fontVariantNumeric: "tabular-nums",
+                letterSpacing: "-0.5px",
+              }}
+            >
               {item.value}
             </div>
 

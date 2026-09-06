@@ -287,8 +287,9 @@ export function PerformanceChart({
             <ComposedChart data={displayData} margin={{ top: 12, right: 14, left: -10, bottom: 0 }}>
               <defs>
                 <linearGradient id="cyanGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#00e5ff" stopOpacity={0.25} style={{ stopColor: "var(--neon-cyan)" }} />
-                  <stop offset="95%" stopColor="#00e5ff" stopOpacity={0.0} style={{ stopColor: "var(--neon-cyan)" }} />
+                  <stop offset="0%" stopColor="var(--accent-color)" stopOpacity={0.18} />
+                  <stop offset="65%" stopColor="var(--accent-color)" stopOpacity={0.03} />
+                  <stop offset="100%" stopColor="var(--accent-color)" stopOpacity={0.0} />
                 </linearGradient>
               </defs>
 
@@ -454,12 +455,12 @@ export function PerformanceChart({
                 type="monotone"
                 dataKey="value"
                 stroke="var(--neon-cyan)"
-                strokeWidth={2.5}
+                strokeWidth={2}
                 fillOpacity={1}
                 fill="url(#cyanGradient)"
                 dot={{ r: 0 }}
                 activeDot={{
-                  r: 5,
+                  r: 4.5,
                   fill: "var(--neon-cyan)",
                   stroke: "var(--chart-active-dot)",
                   strokeWidth: 2,

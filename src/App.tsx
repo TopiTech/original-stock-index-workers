@@ -31,6 +31,7 @@ function getInitialMobileLayout() {
 export default function App() {
   const [isMobileLayout, setIsMobileLayout] = useState(getInitialMobileLayout);
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => !getInitialMobileLayout());
+  const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true);
   const [timeframe, setTimeframe] = useState<Timeframe>("1M");
   const sidebarToggleRef = useRef<HTMLButtonElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
@@ -334,7 +335,7 @@ export default function App() {
         />
       </motion.div>
 
-      <div className="layout">
+      <div className={`layout ${!isMobileLayout && !isDesktopSidebarOpen ? "sidebar-collapsed" : ""}`}>
         <AnimatePresence>
           {isMobileLayout && isSidebarOpen && (
             <motion.button
@@ -350,62 +351,78 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        <aside
-          id="index-sidebar"
-          ref={sidebarRef}
-          className={`index-sidebar ${isSidebarOpen ? "is-open" : ""}`}
-          aria-label="指数セレクター"
-          aria-hidden={isMobileLayout && !isSidebarOpen}
-          role={isMobileLayout ? "dialog" : undefined}
-          aria-modal={isMobileLayout ? isSidebarOpen : undefined}
-          tabIndex={isMobileLayout ? -1 : undefined}
-        >
-          <div className="sidebar-drawer-header">
-            <div className="row" style={{ gap: 8 }}>
-              <Menu size={16} style={{ color: "var(--neon-cyan)" }} />
-              <span className="mono tiny uppercase">指数メニュー</span>
+        {(!isMobileLayout ? isDesktopSidebarOpen : true) && (
+          <aside
+            id="index-sidebar"
+            ref={sidebarRef}
+            className={`index-sidebar ${isSidebarOpen ? "is-open" : ""}`}
+            aria-label="指数セレクター"
+            aria-hidden={isMobileLayout && !isSidebarOpen}
+            role={isMobileLayout ? "dialog" : undefined}
+            aria-modal={isMobileLayout ? isSidebarOpen : undefined}
+            tabIndex={isMobileLayout ? -1 : undefined}
+          >
+            <div className="sidebar-drawer-header">
+              <div className="row" style={{ gap: 8 }}>
+                <Menu size={16} style={{ color: "var(--neon-cyan)" }} />
+                <span className="mono tiny uppercase">指数メニュー</span>
+              </div>
+              <button
+                type="button"
+                className="sidebar-close-button"
+                onClick={() => setIsSidebarOpen(false)}
+                aria-label="指数メニューを閉じる"
+              >
+                <X size={18} />
+              </button>
             </div>
-            <button
-              type="button"
-              className="sidebar-close-button"
-              onClick={() => setIsSidebarOpen(false)}
-              aria-label="指数メニューを閉じる"
-            >
-              <X size={18} />
-            </button>
-          </div>
 
-          <AnimatePresence mode="wait">
-            <motion.div
-              key="sidebar"
-              initial={{ opacity: 0, x: -15 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.35, delay: 0.15 }}
-            >
-              <IndexSelector
-                indices={indices}
-                selectedIndex={selectedIndex}
-                onSelect={handleSelectIndex}
-                onCreateIndex={handleOpenBuilder}
-                onDeleteIndex={deleteCustomIndex}
-                isOwner={isOwner}
-              />
-            </motion.div>
-          </AnimatePresence>
-        </aside>
+            <AnimatePresence mode="wait">
+              <motion.div
+                key="sidebar"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.25 }}
+              >
+                <IndexSelector
+                  indices={indices}
+                  selectedIndex={selectedIndex}
+                  onSelect={handleSelectIndex}
+                  onCreateIndex={handleOpenBuilder}
+                  onDeleteIndex={deleteCustomIndex}
+                  isOwner={isOwner}
+                />
+              </motion.div>
+            </AnimatePresence>
+          </aside>
+        )}
 
         <main className="dashboard-main grid" style={{ gap: 20 }}>
-          {/* Benchmark Selector Bar */}
+          {/* Benchmark Selector Bar with Sidebar Toggle */}
           <div
             className="benchmark-toolbar row space-between flex-wrap"
             aria-busy={loadingBenchmark}
           >
-            <BenchmarkSelector
-              benchmarks={availableBenchmarks}
-              selectedBenchmark={selectedBenchmark}
-              onSelectBenchmark={setSelectedBenchmark}
-              loading={loadingBenchmark}
-            />
+            <div className="row flex-wrap" style={{ gap: 10, alignItems: "center" }}>
+              {!isMobileLayout && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-default"
+                  onClick={() => setIsDesktopSidebarOpen((prev) => !prev)}
+                  title={isDesktopSidebarOpen ? "サイドバーを折りたたむ" : "サイドバーを展開する"}
+                  style={{ padding: "6px 10px", fontSize: 11 }}
+                >
+                  <Menu size={13} />
+                  <span>{isDesktopSidebarOpen ? "サイドバー格納" : "指数一覧を開く"}</span>
+                </button>
+              )}
+              <BenchmarkSelector
+                benchmarks={availableBenchmarks}
+                selectedBenchmark={selectedBenchmark}
+                onSelectBenchmark={setSelectedBenchmark}
+                loading={loadingBenchmark}
+              />
+            </div>
           </div>
 
           <AnimatePresence mode="wait">

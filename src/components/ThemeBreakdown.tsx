@@ -6,16 +6,16 @@ import type { BasketItem } from "../types";
 import { normalizeWeights } from "../lib/indexEngine";
 
 const THEME_COLORS = [
-  "#00e5ff", // cyan
-  "#e040fb", // magenta
-  "#00e676", // green
-  "#ffd600", // yellow
-  "#ff3366", // red
-  "#ff9100", // orange
-  "#7c4dff", // purple
-  "#00b0ff", // light blue
-  "#1de9b6", // teal
-  "#ff4081", // pink
+  "#06b6d4", // cyan
+  "#8b5cf6", // violet
+  "#10b981", // emerald
+  "#f59e0b", // amber
+  "#f43f5e", // rose
+  "#3b82f6", // blue
+  "#ec4899", // pink
+  "#14b8a6", // teal
+  "#6366f1", // indigo
+  "#84cc16", // lime
 ];
 
 interface ThemeBreakdownProps {
