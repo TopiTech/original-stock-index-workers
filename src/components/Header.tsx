@@ -1,14 +1,25 @@
 import { motion } from "framer-motion";
-import { Database, Wifi, Shield, KeyRound, Lock, ShieldCheck } from "lucide-react";
+import { Clock3, Database, Shield, KeyRound, Lock, ShieldCheck } from "lucide-react";
 import { Badge } from "./ui";
 import { useAuth } from "../hooks/useAuth";
 import { ThemeControls } from "./ThemeControls";
+import { DataFreshness } from "./DataFreshness";
 
 interface HeaderProps {
   onNavigateToAdmin?: () => void;
+  benchmarkUpdatedAt?: number | null;
+  calculationUpdatedAt?: number | null;
+  dataLoading?: boolean;
+  syncing?: boolean;
 }
 
-export function Header({ onNavigateToAdmin }: HeaderProps) {
+export function Header({
+  onNavigateToAdmin,
+  benchmarkUpdatedAt,
+  calculationUpdatedAt,
+  dataLoading = false,
+  syncing = false,
+}: HeaderProps) {
   const { session, isAuthenticated, isAdmin, isUser, maxStocks, maxIndices, logout } = useAuth();
 
   const limitsText = isUser && (maxStocks || maxIndices)
@@ -33,11 +44,18 @@ export function Header({ onNavigateToAdmin }: HeaderProps) {
           <h1>ORIGINAL INDEX TRACKER</h1>
           <p className="muted header-desc" style={{ margin: "6px 0 0", fontSize: 13, maxWidth: 680, lineHeight: 1.5 }}>
             独自投資戦略・テーマ別ポートフォリオの客観的株価指数化プラットフォーム。
-            日経225とのリアルタイム・パフォーマンス比較・銘柄配分分析。
+            日足終値を使った日経225とのパフォーマンス比較・銘柄配分分析。
           </p>
         </div>
 
-        <div className="header-meta row flex-wrap" style={{ gap: 10, alignItems: "center" }}>
+          <div className="header-meta row flex-wrap" style={{ gap: 10, alignItems: "center" }}>
+          <DataFreshness
+            benchmarkUpdatedAt={benchmarkUpdatedAt}
+            calculationUpdatedAt={calculationUpdatedAt}
+            loading={dataLoading}
+            syncing={syncing}
+          />
+
           {/* Theme & Accent Controls */}
           <ThemeControls />
 
@@ -90,8 +108,8 @@ export function Header({ onNavigateToAdmin }: HeaderProps) {
               D1 ENGINE
             </Badge>
             <Badge variant="green">
-              <Wifi size={11} />
-              LIVE FEED
+              <Clock3 size={11} />
+              DAILY CLOSE
             </Badge>
           </div>
         </div>
@@ -99,4 +117,3 @@ export function Header({ onNavigateToAdmin }: HeaderProps) {
     </motion.header>
   );
 }
-

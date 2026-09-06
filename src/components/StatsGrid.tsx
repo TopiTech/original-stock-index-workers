@@ -2,7 +2,9 @@ import { motion } from "framer-motion";
 import { Gauge, TrendingUp, Layers, Activity } from "lucide-react";
 import { StatCard } from "./ui";
 import type { Snapshot } from "../types";
+import type { Timeframe } from "../types";
 import type { CustomIndex } from "../data/indices";
+import { TIMEFRAME_LABELS } from "../lib/timeframe";
 
 const fmt = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 2 });
 const pct = new Intl.NumberFormat("ja-JP", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -15,6 +17,10 @@ interface StatsGridProps {
   loading: boolean;
   benchmarkNormalizedValue?: number;
   benchmarkLabel?: string;
+  timeframe?: Timeframe;
+  periodCustomReturnPct?: number;
+  periodBenchmarkReturnPct?: number;
+  periodAlphaPct?: number;
 }
 
 export function StatsGrid({
@@ -25,22 +31,37 @@ export function StatsGrid({
   loading,
   benchmarkNormalizedValue,
   benchmarkLabel = "日経225",
+  timeframe = "1M",
+  periodCustomReturnPct,
+  periodBenchmarkReturnPct,
+  periodAlphaPct,
 }: StatsGridProps) {
   const baseValue = selectedIndex?.baseValue ?? 1000;
   const hasCustom = !loading && typeof latestCustomValue === "number" && latestCustomValue > 0 && selectedIndex !== null;
-  const customReturnPct = hasCustom && baseValue > 0 ? ((latestCustomValue - baseValue) / baseValue) * 100 : 0;
+  const fallbackCustomReturnPct = hasCustom && baseValue > 0 ? ((latestCustomValue - baseValue) / baseValue) * 100 : 0;
+  const customReturnPct = periodCustomReturnPct ?? fallbackCustomReturnPct;
 
-  const hasBenchmark = typeof benchmarkNormalizedValue === "number" && benchmarkNormalizedValue > 0 && !loading;
-  const benchmarkReturnPct = hasBenchmark && baseValue > 0 ? ((benchmarkNormalizedValue - baseValue) / baseValue) * 100 : 0;
-  const hasAlpha = hasBenchmark && hasCustom;
-  const benchmarkDiff = hasAlpha ? customReturnPct - benchmarkReturnPct : 0;
+  const hasBenchmark =
+    typeof periodBenchmarkReturnPct === "number"
+      ? !benchmarkLoading
+      : typeof benchmarkNormalizedValue === "number" && benchmarkNormalizedValue > 0 && !loading;
+  const fallbackBenchmarkReturnPct =
+    hasBenchmark && typeof benchmarkNormalizedValue === "number" && baseValue > 0
+      ? ((benchmarkNormalizedValue - baseValue) / baseValue) * 100
+      : 0;
+  const benchmarkReturnPct = periodBenchmarkReturnPct ?? fallbackBenchmarkReturnPct;
+  const hasPeriodMetrics =
+    typeof periodCustomReturnPct === "number" && typeof periodBenchmarkReturnPct === "number";
+  const hasAlpha = hasBenchmark && hasCustom && (hasPeriodMetrics || (periodCustomReturnPct === undefined && periodBenchmarkReturnPct === undefined));
+  const benchmarkDiff = hasAlpha ? periodAlphaPct ?? customReturnPct - benchmarkReturnPct : 0;
+  const periodLabel = TIMEFRAME_LABELS[timeframe];
 
   // Distinct themes
   const uniqueThemes = new Set(selectedIndex?.basket.map((b) => b.theme) || []);
 
   const items = [
     {
-      label: selectedIndex ? `${selectedIndex.name}` : "選択中指数",
+      label: selectedIndex ? `${selectedIndex.name}（${periodLabel}）` : "選択中指数",
       value: loading ? "計算中..." : latestCustomValue > 0 ? fmt.format(latestCustomValue) : "---",
       trend: !hasCustom
         ? undefined
@@ -53,19 +74,19 @@ export function StatsGrid({
       active: true,
     },
     {
-      label: `${benchmarkLabel} ベンチマーク`,
+      label: `${benchmarkLabel} ベンチマーク（${periodLabel}）`,
       value: benchmarkLoading ? "読込中..." : benchmarkData ? fmt.format(benchmarkData.snapshot.current) : "---",
-      trend: benchmarkData
+      trend: hasBenchmark
         ? {
-            text: `${benchmarkData.snapshot.changePct >= 0 ? "+" : ""}${pct.format(benchmarkData.snapshot.changePct)}%`,
-            type: (benchmarkData.snapshot.changePct > 0 ? "positive" : benchmarkData.snapshot.changePct < 0 ? "negative" : "neutral") as "positive" | "negative" | "neutral",
+            text: `${benchmarkReturnPct >= 0 ? "+" : ""}${pct.format(benchmarkReturnPct)}%`,
+            type: (benchmarkReturnPct > 0 ? "positive" : benchmarkReturnPct < 0 ? "negative" : "neutral") as "positive" | "negative" | "neutral",
           }
         : undefined,
       sub: benchmarkData ? `前日比 ${benchmarkData.snapshot.change >= 0 ? "+" : ""}${fmt.format(benchmarkData.snapshot.change)}` : undefined,
       icon: <Gauge size={16} />,
     },
     {
-      label: `対${benchmarkLabel} アルファ (超過収益)`,
+      label: `対${benchmarkLabel} アルファ（${periodLabel}）`,
       value: loading
         ? "計算中..."
         : benchmarkLoading
@@ -81,10 +102,10 @@ export function StatsGrid({
         : undefined,
       sub: hasAlpha
         ? benchmarkDiff > 0
-          ? `${benchmarkLabel}を上回る推移`
+          ? `${periodLabel}で${benchmarkLabel}を上回る推移`
           : benchmarkDiff < 0
-            ? `${benchmarkLabel}を下回る推移`
-            : `${benchmarkLabel}と同等の推移`
+            ? `${periodLabel}で${benchmarkLabel}を下回る推移`
+            : `${periodLabel}で${benchmarkLabel}と同等の推移`
         : undefined,
       icon: <TrendingUp size={16} />,
     },

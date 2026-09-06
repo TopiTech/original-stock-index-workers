@@ -49,6 +49,7 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
   const [syncing, setSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState(0);
   const [syncWarnings, setSyncWarnings] = useState<string[]>([]);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const syncedTickersRef = useRef<Set<string>>(new Set());
 
@@ -56,6 +57,7 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
     if (!selectedIndex || selectedIndex.basket.length === 0) {
       setCustomSeries([]);
       setStockUniverse([]);
+      setLastUpdatedAt(null);
       setLoading(false);
       setSyncing(false);
       setError(null);
@@ -71,6 +73,7 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
     if (cachedResult && !force) {
       setCustomSeries(cachedResult.series);
       setStockUniverse(cachedResult.stockUniverse);
+      setLastUpdatedAt(cachedResult.timestamp);
     }
 
     // Abort previous request to prevent race conditions
@@ -192,10 +195,12 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
       setCustomSeries(data.series);
       const universe = Array.isArray(data.stockUniverse) ? data.stockUniverse : [];
       setStockUniverse(universe);
+      const updatedAt = Date.now();
+      setLastUpdatedAt(updatedAt);
       clientCalcCache.set(basketKey, {
         series: data.series,
         stockUniverse: universe,
-        timestamp: Date.now(),
+        timestamp: updatedAt,
       });
     } catch (err: unknown) {
       if (controller.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) return;
@@ -237,6 +242,7 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
     syncing,
     syncProgress,
     syncWarnings,
+    lastUpdatedAt,
     recalculate: calculate,
   };
 }

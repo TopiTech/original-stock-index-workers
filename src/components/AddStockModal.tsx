@@ -101,11 +101,7 @@ export function AddStockModal({
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="add-stock-modal-title"
-      data-modal-dialog
-      ref={dialogRef}
+      className="modal-overlay"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -122,6 +118,13 @@ export function AddStockModal({
       }}
     >
       <motion.div
+        className="modal-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-stock-modal-title"
+        aria-describedby="add-stock-modal-description"
+        data-modal-dialog
+        ref={dialogRef}
         initial={{ opacity: 0, scale: 0.95, y: 15 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95 }}
@@ -151,7 +154,7 @@ export function AddStockModal({
             <Plus size={18} style={{ color: "var(--neon-cyan)" }} />
             <div>
               <h2 id="add-stock-modal-title" style={{ fontSize: 16, margin: 0, fontWeight: 700 }}>構成銘柄の追加</h2>
-              <div className="muted tiny">対象指数: {indexName}</div>
+              <div id="add-stock-modal-description" className="muted tiny">対象指数: {indexName}</div>
             </div>
           </div>
           <button
@@ -199,6 +202,9 @@ export function AddStockModal({
 
           {error && (
             <div
+              id="add-stock-modal-error"
+              role="alert"
+              aria-live="assertive"
               className="row"
               style={{
                 gap: 8,
@@ -264,6 +270,8 @@ export function AddStockModal({
                   onChange={(e) => setTicker(e.target.value.toUpperCase())}
                   placeholder="例: 7203, AAPL"
                   disabled={isLimitReached}
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={error ? "add-stock-modal-error" : undefined}
                   style={{
                     width: "100%",
                     padding: "8px 10px",

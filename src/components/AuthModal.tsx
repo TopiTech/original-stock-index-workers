@@ -49,11 +49,7 @@ export function AuthModal({
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="auth-modal-title"
-      data-modal-dialog
-      ref={dialogRef}
+      className="modal-overlay"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -70,6 +66,13 @@ export function AuthModal({
       }}
     >
       <motion.div
+        className="modal-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="auth-modal-title"
+        aria-describedby="auth-modal-description"
+        data-modal-dialog
+        ref={dialogRef}
         initial={{ opacity: 0, scale: 0.95, y: 15 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95 }}
@@ -114,12 +117,15 @@ export function AuthModal({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} style={{ padding: "20px 22px" }}>
-          <p className="muted" style={{ fontSize: 13, marginTop: 0, marginBottom: 16, lineHeight: 1.5 }}>
+          <p id="auth-modal-description" className="muted" style={{ fontSize: 13, marginTop: 0, marginBottom: 16, lineHeight: 1.5 }}>
             {description}
           </p>
 
           {error && (
             <div
+              id="auth-modal-error"
+              role="alert"
+              aria-live="assertive"
               className="row"
               style={{
                 gap: 8,
@@ -159,6 +165,8 @@ export function AuthModal({
                 placeholder="ユーザーパスワードまたは管理者パスワード"
                 ref={passwordInputRef}
                 autoComplete="current-password"
+                aria-invalid={Boolean(error)}
+                aria-describedby={error ? "auth-modal-error auth-modal-hint" : "auth-modal-hint"}
                 style={{
                   width: "100%",
                   padding: "10px 40px 10px 12px",
@@ -167,7 +175,6 @@ export function AuthModal({
                   borderRadius: 8,
                   color: "var(--text-primary)",
                   fontSize: 14,
-                  outline: "none",
                   boxSizing: "border-box",
                 }}
               />
@@ -192,7 +199,7 @@ export function AuthModal({
                 {showPassword ? "隠す" : "表示"}
               </button>
             </div>
-            <div className="muted tiny" style={{ marginTop: 6 }}>
+            <div id="auth-modal-hint" className="muted tiny" style={{ marginTop: 6 }}>
               ※ 管理者パスワードまたは管理者が作成したユーザーパスワードを入力してください
             </div>
           </div>

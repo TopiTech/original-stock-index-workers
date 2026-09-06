@@ -55,6 +55,7 @@ export function ThemeControls() {
             <button
               key={opt.key}
               type="button"
+              className="accent-option"
               role="radio"
               aria-checked={isSelected}
               title={`アクセント: ${opt.label}`}
@@ -71,7 +72,6 @@ export function ThemeControls() {
                 padding: 0,
                 transform: isSelected ? "scale(1.15)" : "scale(1)",
                 transition: "all 0.15s ease",
-                outline: "none",
               }}
             />
           );

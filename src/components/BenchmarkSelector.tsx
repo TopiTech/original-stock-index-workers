@@ -18,7 +18,7 @@ export function BenchmarkSelector({
       <span className="benchmark-selector-label mono tiny muted uppercase">
         比較ベンチマーク:
       </span>
-      <div className="btn-group benchmark-options">
+      <div className="btn-group benchmark-options" role="group" aria-label="比較ベンチマーク">
         {benchmarks.map((b) => {
           const isActive = selectedBenchmark === b.symbol;
           return (

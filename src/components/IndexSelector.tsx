@@ -126,7 +126,18 @@ export function IndexSelector({
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.98 }}
               className={`index-item ${isSelected ? "active" : ""}`}
+              role="button"
+              tabIndex={0}
+              aria-pressed={isSelected}
+              aria-label={`${idx.name}${isSelected ? "（選択中）" : ""}`}
               onClick={() => onSelect(idx)}
+              onKeyDown={(event) => {
+                if (event.target !== event.currentTarget) return;
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelect(idx);
+                }
+              }}
             >
               <div className="row space-between" style={{ marginBottom: 4 }}>
                 <button

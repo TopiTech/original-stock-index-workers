@@ -13,8 +13,10 @@ import {
 } from "recharts";
 import { Loader2, AlertTriangle, RefreshCw, BarChart2 } from "lucide-react";
 import { Card, ButtonGroup } from "./ui";
+import { EmptyState } from "./EmptyState";
 import type { Timeframe } from "../types";
 import { calculateSMA } from "../lib/analytics";
+import { filterByTimeframe } from "../lib/timeframe";
 
 const fmt = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 2 });
 const pct = new Intl.NumberFormat("ja-JP", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -33,8 +35,14 @@ interface PerformanceChartProps {
   syncWarnings?: string[];
   baseValue?: number;
   benchmarkLabel?: string;
+  timeframe: Timeframe;
+  onTimeframeChange: (timeframe: Timeframe) => void;
   error?: string | null;
   onRetry?: () => void;
+  emptyTitle?: string;
+  emptyDescription?: string;
+  emptyActionLabel?: string;
+  onEmptyAction?: () => void;
 }
 
 type ViewMode = "value" | "percent";
@@ -47,28 +55,21 @@ export function PerformanceChart({
   syncWarnings = [],
   baseValue = 1000,
   benchmarkLabel = "日経225",
+  timeframe,
+  onTimeframeChange,
   error,
   onRetry,
+  emptyTitle = "データがありません",
+  emptyDescription = "表示できるデータがまだありません。時間をおいて再取得してください。",
+  emptyActionLabel,
+  onEmptyAction,
 }: PerformanceChartProps) {
   const [viewMode, setViewMode] = useState<ViewMode>("value");
-  const [timeframe, setTimeframe] = useState<Timeframe>("1M");
   const [showSMA5, setShowSMA5] = useState(false);
   const [showSMA25, setShowSMA25] = useState(false);
 
   // Filter data by timeframe
-  const filteredData = useMemo(() => {
-    if (data.length === 0) return [];
-    if (timeframe === "1W") return data.slice(-5);
-    if (timeframe === "1M") return data.slice(-22);
-    if (timeframe === "3M") return data.slice(-65);
-    if (timeframe === "6M") return data.slice(-130);
-    if (timeframe === "YTD") {
-      const currentYear = new Date().getFullYear().toString();
-      const ytdData = data.filter((d) => d.date.startsWith(currentYear));
-      return ytdData.length > 0 ? ytdData : data.slice(-22);
-    }
-    return data; // 1Y
-  }, [data, timeframe]);
+  const filteredData = useMemo(() => filterByTimeframe(data, timeframe), [data, timeframe]);
 
   // Compute full-history SMA for custom index to maintain continuous moving averages across short timeframes
   const fullSma5Map = useMemo(() => {
@@ -158,6 +159,7 @@ export function PerformanceChart({
         <div className="chart-controls row flex-wrap" style={{ gap: 8 }}>
           <ButtonGroup<Timeframe>
             className="timeframe-group"
+            ariaLabel="チャートの表示期間"
             items={[
               { label: "1W", value: "1W" },
               { label: "1M", value: "1M" },
@@ -167,11 +169,12 @@ export function PerformanceChart({
               { label: "1Y (全期間)", value: "1Y" },
             ]}
             active={timeframe}
-            onChange={setTimeframe}
+            onChange={onTimeframeChange}
           />
 
           <ButtonGroup<ViewMode>
             className="view-mode-group"
+            ariaLabel="チャートの表示形式"
             items={[
               { label: "指数値", value: "value" },
               { label: "騰落率 (%)", value: "percent" },
@@ -181,7 +184,7 @@ export function PerformanceChart({
           />
 
           {/* Technical overlays */}
-          <div className="btn-group technical-group">
+          <div className="btn-group technical-group" role="group" aria-label="テクニカル指標">
             <button
               type="button"
               className={`btn-group-item ${showSMA5 ? "active" : ""}`}
@@ -481,7 +484,13 @@ export function PerformanceChart({
                 <Loader2 className="animate-spin" size={16} /> 指数データを計算中...
               </>
             ) : (
-              "データを受信中..."
+              <EmptyState
+                title={emptyTitle}
+                description={emptyDescription}
+                actionLabel={emptyActionLabel}
+                onAction={onEmptyAction}
+                compact
+              />
             )}
           </div>
         )}

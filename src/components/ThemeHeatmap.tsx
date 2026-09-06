@@ -40,7 +40,7 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
       <div className="row space-between" style={{ marginBottom: 14 }}>
         <div className="row" style={{ gap: 8 }}>
           <LayoutGrid size={16} style={{ color: "var(--neon-cyan)" }} />
-          <h2 style={{ fontSize: 15, margin: 0 }}>構成銘柄ヒートマップ (騰落 × ウェイト)</h2>
+          <h2 style={{ fontSize: 15, margin: 0 }}>構成銘柄ヒートマップ（騰落率 × 構成比）</h2>
         </div>
         <div className="row" style={{ gap: 6 }}>
           <Tag variant="cyan" className="mono tiny">
@@ -59,20 +59,22 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
         </div>
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))",
-          gap: 8,
-          maxHeight: 280,
-          overflowY: "auto",
-          paddingRight: 4,
-        }}
-      >
+      <div className="heatmap-legend" aria-label="ヒートマップの凡例">
+        <span className="heatmap-legend-item">
+          <span className="heatmap-swatch heatmap-swatch-positive" aria-hidden="true" />上昇
+        </span>
+        <span className="heatmap-legend-item">
+          <span className="heatmap-swatch heatmap-swatch-negative" aria-hidden="true" />下落
+        </span>
+        <span className="heatmap-legend-note">タイルの面積 = 構成比</span>
+      </div>
+
+      <div className="theme-heatmap-grid">
         {filteredStocks.map((stock) => {
           const isSelectedTheme = selectedTheme ? stock.theme === selectedTheme : true;
           const isUp = stock.changePct > 0;
           const isDown = stock.changePct < 0;
+          const tileSpan = Math.min(6, Math.max(1, Math.round(stock.weight / 5)));
 
           return (
             <motion.div
@@ -102,6 +104,7 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
                 flexDirection: "column",
                 justifyContent: "space-between",
                 position: "relative",
+                gridColumn: `span ${tileSpan}`,
               }}
               title={`${stock.name} (${stock.ticker}) [${stock.theme}]\n株価: ¥${stock.currentPrice.toLocaleString()} (${stock.changePct >= 0 ? "+" : ""}${stock.changePct}%)\n構成比: ${stock.weight.toFixed(1)}%\n指数寄与度: ${stock.contributionPt >= 0 ? "+" : ""}${stock.contributionPt}pt`}
             >

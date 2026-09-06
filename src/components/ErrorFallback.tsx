@@ -28,6 +28,7 @@ export function ErrorFallback({ error, onRetry }: ErrorFallbackProps) {
       >
         <Card
           className="section"
+          role="alert"
           style={{ textAlign: "center", borderColor: "var(--neon-red)" }}
         >
           <div
@@ -107,4 +108,3 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     return this.props.children;
   }
 }
-

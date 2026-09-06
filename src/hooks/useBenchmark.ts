@@ -28,6 +28,10 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225") {
     const cached = benchmarkSessionCache.get(initialSymbol);
     return cached && Date.now() - cached.timestamp < BENCHMARK_CACHE_TTL ? cached.data : null;
   });
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(() => {
+    const cached = benchmarkSessionCache.get(initialSymbol);
+    return cached && Date.now() - cached.timestamp < BENCHMARK_CACHE_TTL ? cached.timestamp : null;
+  });
   const [loading, setLoading] = useState<boolean>(() => {
     const cached = benchmarkSessionCache.get(initialSymbol);
     return !(cached && Date.now() - cached.timestamp < BENCHMARK_CACHE_TTL);
@@ -45,8 +49,13 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225") {
     const now = Date.now();
     if (cached && now - cached.timestamp < BENCHMARK_CACHE_TTL) {
       setBenchmarkData(cached.data);
+      setLastUpdatedAt(cached.timestamp);
       setLoading(false);
       return;
+    }
+
+    if (!cached) {
+      setLastUpdatedAt(null);
     }
 
     const controller = new AbortController();
@@ -68,6 +77,7 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225") {
         if (res.status === 304) {
           if (cached) {
             cached.timestamp = Date.now();
+            setLastUpdatedAt(cached.timestamp);
             return cached.data;
           }
           // If 304 received without memory cache, refetch fresh data
@@ -85,6 +95,7 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225") {
             timestamp: Date.now(),
             etag: freshEtag,
           });
+          setLastUpdatedAt(Date.now());
           return freshData;
         }
         if (!res.ok) {
@@ -98,6 +109,7 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225") {
           timestamp: Date.now(),
           etag,
         });
+        setLastUpdatedAt(Date.now());
         return data;
       })
       .then((data: BenchmarkData) => {
@@ -123,6 +135,7 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225") {
     selectedBenchmark,
     setSelectedBenchmark,
     benchmarkData,
+    lastUpdatedAt,
     loading,
     error,
     availableBenchmarks: AVAILABLE_BENCHMARKS,

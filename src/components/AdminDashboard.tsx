@@ -410,6 +410,28 @@ export function AdminDashboard({
     }
   };
 
+  const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"].includes(event.key)) {
+      return;
+    }
+
+    event.preventDefault();
+    const tabs = Array.from(
+      event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]') || [],
+    );
+    const currentIndex = tabs.indexOf(event.currentTarget);
+    if (currentIndex < 0) return;
+
+    let nextIndex = currentIndex;
+    if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = tabs.length - 1;
+    else if (event.key === "ArrowRight" || event.key === "ArrowDown") nextIndex = (currentIndex + 1) % tabs.length;
+    else if (event.key === "ArrowLeft" || event.key === "ArrowUp") nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+
+    tabs[nextIndex]?.focus();
+    tabs[nextIndex]?.click();
+  };
+
   // If not authenticated as Admin, show login screen
   if (!isAdmin) {
     return (
@@ -578,7 +600,9 @@ export function AdminDashboard({
 
       {/* Tabs */}
       <div
-        className="row"
+        className="row admin-tabs"
+        role="tablist"
+        aria-label="管理者コンソールの設定項目"
         style={{
           gap: 8,
           marginBottom: 20,
@@ -589,7 +613,13 @@ export function AdminDashboard({
         <button
           type="button"
           onClick={() => setActiveTab("passwords")}
-          className={`btn btn-sm ${activeTab === "passwords" ? "btn-default" : "btn-outline"}`}
+          id="admin-tab-passwords"
+          role="tab"
+          aria-selected={activeTab === "passwords"}
+          aria-controls="admin-panel-passwords"
+          tabIndex={activeTab === "passwords" ? 0 : -1}
+          onKeyDown={handleTabKeyDown}
+          className={`btn btn-sm admin-tab ${activeTab === "passwords" ? "btn-default" : "btn-outline"}`}
           style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
         >
           <KeyRound size={14} /> ユーザー用パスワード管理
@@ -597,7 +627,13 @@ export function AdminDashboard({
         <button
           type="button"
           onClick={() => setActiveTab("indices")}
-          className={`btn btn-sm ${activeTab === "indices" ? "btn-default" : "btn-outline"}`}
+          id="admin-tab-indices"
+          role="tab"
+          aria-selected={activeTab === "indices"}
+          aria-controls="admin-panel-indices"
+          tabIndex={activeTab === "indices" ? 0 : -1}
+          onKeyDown={handleTabKeyDown}
+          className={`btn btn-sm admin-tab ${activeTab === "indices" ? "btn-default" : "btn-outline"}`}
           style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
         >
           <Sliders size={14} /> 全指数 & 銘柄フル編集
@@ -605,7 +641,13 @@ export function AdminDashboard({
         <button
           type="button"
           onClick={() => setActiveTab("settings")}
-          className={`btn btn-sm ${activeTab === "settings" ? "btn-default" : "btn-outline"}`}
+          id="admin-tab-settings"
+          role="tab"
+          aria-selected={activeTab === "settings"}
+          aria-controls="admin-panel-settings"
+          tabIndex={activeTab === "settings" ? 0 : -1}
+          onKeyDown={handleTabKeyDown}
+          className={`btn btn-sm admin-tab ${activeTab === "settings" ? "btn-default" : "btn-outline"}`}
           style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
         >
           <Settings size={14} /> 管理者設定
@@ -614,7 +656,13 @@ export function AdminDashboard({
 
       {/* TAB 1: Passwords Management */}
       {activeTab === "passwords" && (
-        <div className="admin-passwords-layout">
+        <div
+          id="admin-panel-passwords"
+          role="tabpanel"
+          aria-labelledby="admin-tab-passwords"
+          tabIndex={0}
+          className="admin-passwords-layout admin-tabpanel"
+        >
           {/* Create Password Form */}
           <Card className="section">
             <div className="row" style={{ gap: 8, marginBottom: 14 }}>
@@ -1055,7 +1103,14 @@ export function AdminDashboard({
 
       {/* TAB 2: Full Edit of Indices & Constituents */}
       {activeTab === "indices" && (
-        <div className="grid" style={{ gap: 20 }}>
+        <div
+          id="admin-panel-indices"
+          role="tabpanel"
+          aria-labelledby="admin-tab-indices"
+          tabIndex={0}
+          className="grid admin-tabpanel"
+          style={{ gap: 20 }}
+        >
           <Card className="section">
             <div className="row space-between flex-wrap" style={{ gap: 12, marginBottom: 16 }}>
               <div className="row" style={{ gap: 8 }}>
@@ -1402,7 +1457,14 @@ export function AdminDashboard({
 
       {/* TAB 3: Settings */}
       {activeTab === "settings" && (
-        <div style={{ maxWidth: 500 }}>
+        <div
+          id="admin-panel-settings"
+          role="tabpanel"
+          aria-labelledby="admin-tab-settings"
+          tabIndex={0}
+          className="admin-tabpanel"
+          style={{ maxWidth: 500 }}
+        >
           <Card className="section">
             <div className="row" style={{ gap: 8, marginBottom: 14 }}>
               <Lock size={16} style={{ color: "var(--neon-cyan)" }} />

@@ -37,6 +37,8 @@ export function useModalFocus<T extends HTMLElement>(
 
     const dialog = dialogRef.current;
     const previousActiveElement = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     const initialTarget = initialFocusRef?.current;
     const isTargetFocusable =
       initialTarget &&
@@ -75,6 +77,7 @@ export function useModalFocus<T extends HTMLElement>(
     document.addEventListener("keydown", handleKeyDown, true);
     return () => {
       document.removeEventListener("keydown", handleKeyDown, true);
+      document.body.style.overflow = previousOverflow;
       if (previousActiveElement?.isConnected) previousActiveElement.focus();
     };
   }, [dialogRef, initialFocusRef, isOpen]);

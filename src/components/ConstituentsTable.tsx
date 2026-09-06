@@ -408,7 +408,7 @@ export function ConstituentsTable({
         </div>
       </div>
 
-      <div className="table-wrapper">
+      <div className="table-wrapper desktop-constituents-table">
         <table className="custom-table">
           <thead>
             <tr>
@@ -615,15 +615,8 @@ export function ConstituentsTable({
                         <td style={{ textAlign: "center" }}>
                           <button
                             type="button"
+                            className="icon-button danger"
                             onClick={() => handleDeleteStockClick(item.ticker, item.name)}
-                            style={{
-                              background: "transparent",
-                              border: "none",
-                              color: "var(--neon-red)",
-                              cursor: "pointer",
-                              padding: 4,
-                              opacity: 0.8,
-                            }}
                             title={isAuthenticated ? `銘柄「${item.name}」を削除` : "削除するにはパスワード認証が必要です"}
                             aria-label={isAuthenticated ? `銘柄「${item.name}」を削除` : "削除するにはパスワード認証が必要です"}
                           >
@@ -644,6 +637,84 @@ export function ConstituentsTable({
             </AnimatePresence>
           </tbody>
         </table>
+      </div>
+
+      <div className="constituents-mobile-list" aria-label="構成銘柄一覧">
+        {filteredAndSorted.length > 0 ? (
+          filteredAndSorted.map((item) => {
+            const isUp = item.changePct > 0;
+            const isDown = item.changePct < 0;
+            return (
+              <article key={item.ticker} className="constituent-mobile-card">
+                <div className="constituent-mobile-heading">
+                  <div className="constituent-mobile-identity">
+                    <a
+                      href={getYahooFinanceUrl(item.ticker)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="tag mono"
+                      title="Yahoo!ファイナンスで開く（新規タブ）"
+                    >
+                      {item.ticker}
+                      <ExternalLink size={10} aria-hidden="true" />
+                    </a>
+                    <strong>{item.name}</strong>
+                    <Tag variant="theme">{item.theme}</Tag>
+                  </div>
+                  {onRemoveStock && (
+                    <button
+                      type="button"
+                      className="icon-button danger"
+                      onClick={() => handleDeleteStockClick(item.ticker, item.name)}
+                      title={isAuthenticated ? `銘柄「${item.name}」を削除` : "削除するにはパスワード認証が必要です"}
+                      aria-label={isAuthenticated ? `銘柄「${item.name}」を削除` : "削除するにはパスワード認証が必要です"}
+                    >
+                      <Trash2 size={15} aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="constituent-mobile-metrics">
+                  <div>
+                    <span>前日比</span>
+                    <strong className={isUp ? "positive" : isDown ? "negative" : ""}>
+                      {isUp && <TrendingUp size={12} aria-hidden="true" />}
+                      {isDown && <TrendingDown size={12} aria-hidden="true" />}
+                      {item.changePct >= 0 ? "+" : ""}{item.changePct.toFixed(2)}%
+                    </strong>
+                  </div>
+                  <div>
+                    <span>寄与度</span>
+                    <strong className={item.contributionPt > 0 ? "positive" : item.contributionPt < 0 ? "negative" : ""}>
+                      {item.contributionPt >= 0 ? "+" : ""}{item.contributionPt.toFixed(2)}pt
+                    </strong>
+                  </div>
+                  <div>
+                    <span>株価</span>
+                    <strong>{item.currentPrice > 0 ? `¥${item.currentPrice.toLocaleString()}` : "---"}</strong>
+                  </div>
+                </div>
+
+                <div className="constituent-mobile-footer">
+                  <div className="constituent-mobile-weight">
+                    <span>構成比 {item.weight.toFixed(2)}%</span>
+                    <div className="weight-progress-bg" aria-hidden="true">
+                      <motion.div
+                        className="weight-progress-bar"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${Math.min(item.weight * 2.5, 100)}%` }}
+                        transition={{ duration: 0.5 }}
+                      />
+                    </div>
+                  </div>
+                  <Sparkline data={item.sparkline} isPositive={item.changePct >= 0} />
+                </div>
+              </article>
+            );
+          })
+        ) : (
+          <div className="constituents-mobile-empty muted mono tiny">該当する銘柄が見つかりません</div>
+        )}
       </div>
 
       {/* Auth Modal */}

@@ -5,9 +5,10 @@ export function Card({
   children,
   className = "",
   style = {},
-}: PropsWithChildren<{ className?: string; style?: React.CSSProperties }>) {
+  role,
+}: PropsWithChildren<{ className?: string; style?: React.CSSProperties; role?: React.AriaRole }>) {
   return (
-    <div className={`card ${className}`} style={style}>
+    <div className={`card ${className}`} style={style} role={role}>
       {children}
     </div>
   );
@@ -74,14 +75,16 @@ export function ButtonGroup<T extends string>({
   active,
   onChange,
   className = "",
+  ariaLabel,
 }: {
   items: { label: string; value: T }[];
   active: T;
   onChange: (val: T) => void;
   className?: string;
+  ariaLabel?: string;
 }) {
   return (
-    <div className={`btn-group ${className}`} role="group">
+    <div className={`btn-group ${className}`} role="group" aria-label={ariaLabel}>
       {items.map((item) => (
         <button
           key={item.value}
@@ -132,5 +135,3 @@ export function StatCard({
     </div>
   );
 }
-
-

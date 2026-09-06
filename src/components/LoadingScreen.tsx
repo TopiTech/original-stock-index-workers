@@ -4,6 +4,9 @@ export function LoadingScreen({ message = "INITIALIZING..." }: { message?: strin
   return (
     <div
       className="app"
+      role="status"
+      aria-live="polite"
+      aria-label={message}
       style={{
         display: "flex",
         alignItems: "center",

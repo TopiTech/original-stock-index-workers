@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronRight, Menu, X } from "lucide-react";
 import { useIndices } from "./hooks/useIndices";
@@ -18,6 +18,8 @@ import { AdminDashboard } from "./components/AdminDashboard";
 import { ErrorFallback } from "./components/ErrorFallback";
 import { LoadingScreen } from "./components/LoadingScreen";
 import { buildChartData } from "./lib/chartData";
+import { filterByTimeframe } from "./lib/timeframe";
+import type { Timeframe } from "./types";
 import type { CustomIndex } from "./data/indices";
 
 const MOBILE_LAYOUT_QUERY = "(max-width: 1080px)";
@@ -29,6 +31,10 @@ function getInitialMobileLayout() {
 export default function App() {
   const [isMobileLayout, setIsMobileLayout] = useState(getInitialMobileLayout);
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => !getInitialMobileLayout());
+  const [timeframe, setTimeframe] = useState<Timeframe>("1M");
+  const sidebarToggleRef = useRef<HTMLButtonElement>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const sidebarWasOpenRef = useRef(false);
   const [currentView, setCurrentView] = useState<"dashboard" | "admin">(() => {
     if (typeof window !== "undefined") {
       const path = window.location.pathname;
@@ -85,6 +91,66 @@ export default function App() {
     };
   }, [isMobileLayout, isSidebarOpen]);
 
+  useEffect(() => {
+    if (!isMobileLayout) {
+      sidebarWasOpenRef.current = false;
+      return;
+    }
+
+    if (!isSidebarOpen) {
+      if (sidebarWasOpenRef.current) {
+        sidebarWasOpenRef.current = false;
+        sidebarToggleRef.current?.focus();
+      }
+      return;
+    }
+
+    const drawer = sidebarRef.current;
+    if (!drawer) return;
+
+    sidebarWasOpenRef.current = true;
+    const focusableSelector = [
+      "button:not([disabled])",
+      "input:not([disabled])",
+      "select:not([disabled])",
+      "textarea:not([disabled])",
+      "[tabindex]:not([tabindex=\"-1\"])",
+    ].join(",");
+    const focusable = () =>
+      Array.from(drawer.querySelectorAll<HTMLElement>(focusableSelector)).filter(
+        (element) => element.getClientRects().length > 0,
+      );
+    const initialTarget = drawer.querySelector<HTMLElement>(".sidebar-close-button, input, button");
+    const frame = window.requestAnimationFrame(() => initialTarget?.focus());
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setIsSidebarOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const items = focusable();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !drawer.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !drawer.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [isMobileLayout, isSidebarOpen]);
+
   const {
     indices,
     selectedIndex,
@@ -107,6 +173,7 @@ export default function App() {
     error: benchmarkError,
     availableBenchmarks,
     refetch: refetchBenchmark,
+    lastUpdatedAt: benchmarkUpdatedAt,
   } = useBenchmark("^N225");
 
   const {
@@ -118,6 +185,7 @@ export default function App() {
     syncWarnings,
     error: calcError,
     recalculate,
+    lastUpdatedAt: calculationUpdatedAt,
   } = useCalculation(selectedIndex);
 
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
@@ -162,6 +230,32 @@ export default function App() {
     return buildChartData(benchmarkData.series, customSeries, selectedIndex.baseValue);
   }, [benchmarkData, customSeries, selectedIndex]);
 
+  const periodData = useMemo(() => filterByTimeframe(chartData, timeframe), [chartData, timeframe]);
+
+  const periodMetrics = useMemo(() => {
+    if (periodData.length < 2) {
+      return {
+        customReturnPct: undefined,
+        benchmarkReturnPct: undefined,
+        alphaPct: undefined,
+      };
+    }
+
+    const first = periodData[0];
+    const last = periodData[periodData.length - 1];
+    const customReturnPct = first.value > 0 ? ((last.value - first.value) / first.value) * 100 : undefined;
+    const benchmarkReturnPct = first.nikkei > 0 ? ((last.nikkei - first.nikkei) / first.nikkei) * 100 : undefined;
+
+    return {
+      customReturnPct,
+      benchmarkReturnPct,
+      alphaPct:
+        customReturnPct !== undefined && benchmarkReturnPct !== undefined
+          ? customReturnPct - benchmarkReturnPct
+          : undefined,
+    };
+  }, [periodData]);
+
   const latestBenchmarkNormalized = useMemo(() => {
     if (chartData.length === 0) return undefined;
     return chartData[chartData.length - 1]?.nikkei;
@@ -189,7 +283,13 @@ export default function App() {
 
   return (
     <div className="app">
-      <Header onNavigateToAdmin={() => navigateTo("admin")} />
+      <Header
+        onNavigateToAdmin={() => navigateTo("admin")}
+        benchmarkUpdatedAt={benchmarkUpdatedAt}
+        calculationUpdatedAt={calculationUpdatedAt}
+        dataLoading={loadingBenchmark || loadingCalc}
+        syncing={syncing}
+      />
 
       <div className="mobile-dashboard-toolbar" aria-label="ダッシュボード操作">
         <div className="mobile-current-index">
@@ -201,6 +301,7 @@ export default function App() {
         <button
           type="button"
           className="btn btn-default mobile-sidebar-toggle"
+          ref={sidebarToggleRef}
           onClick={() => setIsSidebarOpen(true)}
           aria-controls="index-sidebar"
           aria-expanded={isMobileLayout && isSidebarOpen}
@@ -226,6 +327,10 @@ export default function App() {
           loading={loadingCalc}
           benchmarkNormalizedValue={latestBenchmarkNormalized}
           benchmarkLabel={currentBenchmarkOption.shortLabel}
+          timeframe={timeframe}
+          periodCustomReturnPct={periodMetrics.customReturnPct}
+          periodBenchmarkReturnPct={periodMetrics.benchmarkReturnPct}
+          periodAlphaPct={periodMetrics.alphaPct}
         />
       </motion.div>
 
@@ -247,9 +352,13 @@ export default function App() {
 
         <aside
           id="index-sidebar"
+          ref={sidebarRef}
           className={`index-sidebar ${isSidebarOpen ? "is-open" : ""}`}
           aria-label="指数セレクター"
           aria-hidden={isMobileLayout && !isSidebarOpen}
+          role={isMobileLayout ? "dialog" : undefined}
+          aria-modal={isMobileLayout ? isSidebarOpen : undefined}
+          tabIndex={isMobileLayout ? -1 : undefined}
         >
           <div className="sidebar-drawer-header">
             <div className="row" style={{ gap: 8 }}>
@@ -289,6 +398,7 @@ export default function App() {
           {/* Benchmark Selector Bar */}
           <div
             className="benchmark-toolbar row space-between flex-wrap"
+            aria-busy={loadingBenchmark}
           >
             <BenchmarkSelector
               benchmarks={availableBenchmarks}
@@ -308,7 +418,7 @@ export default function App() {
               style={{ gap: 20 }}
             >
               {/* Main Performance Chart */}
-              <PerformanceChart
+            <PerformanceChart
                 data={chartData}
                 loading={loadingCalc || loadingBenchmark}
                 syncing={syncing}
@@ -316,8 +426,20 @@ export default function App() {
                 syncWarnings={syncWarnings}
                 baseValue={selectedIndex?.baseValue}
                 benchmarkLabel={currentBenchmarkOption.shortLabel}
+                timeframe={timeframe}
+                onTimeframeChange={setTimeframe}
                 error={unifiedError}
                 onRetry={handleRetry}
+                emptyTitle={
+                  selectedIndex?.basket.length === 0 ? "構成銘柄がありません" : "表示できるデータがありません"
+                }
+                emptyDescription={
+                  selectedIndex?.basket.length === 0
+                    ? "別の指数を選択するか、独自指数を作成して構成銘柄を追加してください。"
+                    : "データがまだ取得できていません。再取得すると最新状態を確認できます。"
+                }
+                emptyActionLabel={selectedIndex?.basket.length === 0 ? "独自指数を作成" : "データを再取得"}
+                onEmptyAction={selectedIndex?.basket.length === 0 ? handleOpenBuilder : handleRetry}
               />
 
               {/* Quantitative Risk Metrics Card */}

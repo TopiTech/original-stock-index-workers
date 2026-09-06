@@ -187,11 +187,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="modal-builder-title"
-      data-modal-dialog
-      ref={dialogRef}
+      className="modal-overlay"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -208,6 +204,13 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
       }}
     >
       <motion.div
+        className="modal-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-builder-title"
+        aria-describedby="modal-builder-description"
+        data-modal-dialog
+        ref={dialogRef}
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95 }}
@@ -235,7 +238,10 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
         >
           <div className="row" style={{ gap: 8 }}>
             <Sliders size={18} style={{ color: "var(--neon-cyan)" }} />
-            <h2 id="modal-builder-title" style={{ fontSize: 16, margin: 0 }}>独自指数ビルダー & シミュレーター</h2>
+              <div>
+                <h2 id="modal-builder-title" style={{ fontSize: 16, margin: 0 }}>独自指数ビルダー & シミュレーター</h2>
+                <p id="modal-builder-description" className="modal-subtitle">構成銘柄とウェイトを設定して、独自指数を作成します。</p>
+              </div>
           </div>
           <button
             type="button"
@@ -257,6 +263,9 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
         <div style={{ padding: "20px 24px", overflowY: "auto", flex: 1 }}>
           {error && (
             <div
+              id="modal-builder-error"
+              role="alert"
+              aria-live="assertive"
               style={{
                 padding: "8px 12px",
                 background: "rgba(255, 51, 102, 0.15)",
@@ -331,6 +340,8 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
                 placeholder="例: 次世代AIフロンティア指数"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                aria-invalid={Boolean(error)}
+                aria-describedby={error ? "modal-builder-error" : undefined}
               />
             </div>
 
