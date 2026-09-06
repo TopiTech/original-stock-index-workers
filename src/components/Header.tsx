@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Clock3, Shield, KeyRound, Lock, ShieldCheck } from "lucide-react";
+import { TrendingUp, Shield, KeyRound, Lock, ShieldCheck } from "lucide-react";
 import { Badge } from "./ui";
 import { useAuth } from "../hooks/useAuth";
 import { ThemeControls } from "./ThemeControls";
@@ -47,8 +47,9 @@ export function Header({
               justifyContent: "center",
               color: "var(--neon-cyan)",
             }}
+            aria-hidden="true"
           >
-            <Clock3 size={16} />
+            <TrendingUp size={16} strokeWidth={2.2} />
           </div>
           <div>
             <h1 style={{ fontSize: "clamp(1.1rem, 2vw, 1.35rem)", margin: 0 }}>
