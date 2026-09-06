@@ -143,7 +143,7 @@ export function PerformanceChart({
   }, [filteredData]);
 
   return (
-    <Card className="section">
+    <Card className="section" role="region" aria-label="パフォーマンス分析チャート">
       {/* Header Controls */}
       <div className="chart-header row space-between flex-wrap" style={{ marginBottom: 16, gap: 12 }}>
         <div className="chart-heading">

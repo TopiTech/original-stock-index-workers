@@ -14,4 +14,5 @@ UPDATE access_passwords SET plain_password = NULL;
 -- Migration: Add max_indices to access_passwords and creator_id to indices table
 ALTER TABLE access_passwords ADD COLUMN max_indices INTEGER DEFAULT NULL;
 ALTER TABLE indices ADD COLUMN creator_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_indices_creator_id ON indices(creator_id);
 

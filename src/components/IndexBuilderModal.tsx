@@ -384,18 +384,19 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
               {SAMPLE_STOCKS.map((s) => {
                 const isAdded = basket.some((b) => b.ticker === s.ticker);
+                const isDisabled = isAdded || isLimitReached;
                 return (
                   <button
                     key={s.ticker}
                     type="button"
-                    disabled={isAdded}
+                    disabled={isDisabled}
                     onClick={() => handleAddStock(s)}
                     className="tag"
                     style={{
-                      cursor: isAdded ? "default" : "pointer",
-                      opacity: isAdded ? 0.4 : 1,
-                      border: isAdded ? "1px solid var(--border-subtle)" : "1px solid var(--border-cyan)",
-                      background: isAdded ? "transparent" : "rgba(0,229,255,0.08)",
+                      cursor: isDisabled ? "default" : "pointer",
+                      opacity: isDisabled ? 0.4 : 1,
+                      border: isDisabled ? "1px solid var(--border-subtle)" : "1px solid var(--border-cyan)",
+                      background: isDisabled ? "transparent" : "rgba(0,229,255,0.08)",
                     }}
                   >
                     <Plus size={10} style={{ marginRight: 3 }} />
@@ -417,6 +418,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
               border: "1px dashed var(--border-subtle)",
               borderRadius: 8,
               marginBottom: 20,
+              opacity: isLimitReached ? 0.6 : 1,
             }}
           >
             <input
@@ -424,6 +426,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
               placeholder="コード (例: 6701)"
               aria-label="新規追加 銘柄コード"
               className="input-search"
+              disabled={isLimitReached}
               style={{ flex: "1 1 90px", height: 32, paddingLeft: 8, fontSize: 12 }}
               value={customTicker}
               onChange={(e) => setCustomTicker(e.target.value)}
@@ -433,6 +436,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
               placeholder="銘柄名 (例: NEC)"
               aria-label="新規追加 銘柄名"
               className="input-search"
+              disabled={isLimitReached}
               style={{ flex: "2 1 120px", height: 32, paddingLeft: 8, fontSize: 12 }}
               value={customName}
               onChange={(e) => setCustomName(e.target.value)}
@@ -442,11 +446,12 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
               placeholder="テーマ (例: 通信)"
               aria-label="新規追加 テーマ"
               className="input-search"
+              disabled={isLimitReached}
               style={{ flex: "1 1 90px", height: 32, paddingLeft: 8, fontSize: 12 }}
               value={customTheme}
               onChange={(e) => setCustomTheme(e.target.value)}
             />
-            <button type="submit" className="btn btn-sm btn-default" style={{ height: 32 }}>
+            <button type="submit" disabled={isLimitReached} className="btn btn-sm btn-default" style={{ height: 32 }}>
               <Plus size={12} /> 自由追加
             </button>
           </form>

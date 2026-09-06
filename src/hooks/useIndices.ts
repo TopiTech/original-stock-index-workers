@@ -84,7 +84,11 @@ export function useIndices() {
         });
       } else {
         setIndices(DEFAULT_INDICES);
-        setSelectedIndex((prev) => prev || DEFAULT_INDICES[0]);
+        setSelectedIndex((prev) => {
+          if (!prev) return DEFAULT_INDICES[0];
+          const found = DEFAULT_INDICES.find((d) => d.id === prev.id);
+          return found || DEFAULT_INDICES[0];
+        });
       }
     } catch (err) {
       console.warn("API server unavailable, using cached/default indices:", err);
@@ -92,7 +96,11 @@ export function useIndices() {
       const cached = getLocalIndicesCache();
       if (!cached) {
         setIndices(DEFAULT_INDICES);
-        setSelectedIndex((prev) => prev || DEFAULT_INDICES[0]);
+        setSelectedIndex((prev) => {
+          if (!prev) return DEFAULT_INDICES[0];
+          const found = DEFAULT_INDICES.find((d) => d.id === prev.id);
+          return found || DEFAULT_INDICES[0];
+        });
       }
     } finally {
       setLoading(false);

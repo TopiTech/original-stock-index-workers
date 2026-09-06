@@ -351,6 +351,12 @@ export async function ensurePasswordTable(env: Env): Promise<void> {
     } catch {
       // The table may already exist on an upgraded database.
     }
+    // Ensure creator_id index on indices
+    try {
+      await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_indices_creator_id ON indices(creator_id)").run();
+    } catch {
+      // The index may already exist or column not yet added
+    }
     isPasswordTableEnsured = true;
   } catch {
     // ignore
@@ -647,6 +653,44 @@ export function getMarketAwareCacheDuration(now: Date = new Date()): number {
   // Regular trading hours: standard 12 hours
   return 12 * 3600;
 }
+
+/**
+ * Determines whether a cached stock price sync is still considered fresh.
+ * Evaluates TTL dynamically from the sync timestamp (lastSyncedSec).
+ * Furthermore, if data was synced during trading hours (09:00-15:30 JST on a weekday),
+ * but the current time (nowSec) is after market close (>= 15:30 JST) on the same or subsequent day,
+ * it is considered stale so that the definitive daily closing price will be captured.
+ */
+export function isPriceCacheFresh(nowSec: number, lastSyncedSec: number): boolean {
+  if (nowSec < lastSyncedSec) return true; // Clock skew protection
+  const syncDate = new Date(lastSyncedSec * 1000);
+  const cacheDuration = getMarketAwareCacheDuration(syncDate);
+  if (nowSec - lastSyncedSec >= cacheDuration) {
+    return false;
+  }
+
+  // Check if synced during trading hours but market has since closed
+  const syncJst = new Date(syncDate.getTime() + 9 * 3600 * 1000);
+  const nowJst = new Date(nowSec * 1000 + 9 * 3600 * 1000);
+  const syncDay = syncJst.getUTCDay();
+  const syncMins = syncJst.getUTCHours() * 60 + syncJst.getUTCMinutes();
+  const nowMins = nowJst.getUTCHours() * 60 + nowJst.getUTCMinutes();
+  const MARKET_OPEN_JST = 9 * 60; // 09:00 JST
+  const MARKET_CLOSE_JST = 15 * 60 + 30; // 15:30 JST
+
+  if (syncDay >= 1 && syncDay <= 5 && syncMins >= MARKET_OPEN_JST && syncMins < MARKET_CLOSE_JST) {
+    const isSameDay =
+      syncJst.getUTCFullYear() === nowJst.getUTCFullYear() &&
+      syncJst.getUTCMonth() === nowJst.getUTCMonth() &&
+      syncJst.getUTCDate() === nowJst.getUTCDate();
+    if (isSameDay && nowMins >= MARKET_CLOSE_JST) {
+      return false; // Intraday price needs refresh after market close
+    }
+  }
+
+  return true;
+}
+
 
 // Generate an ETag from arbitrary string or JSON data
 export async function generateETag(content: string): Promise<string> {
@@ -1547,7 +1591,24 @@ export default {
               .bind(symbol, JSON.stringify(responseData), now)
               .run();
           } catch (cacheErr: unknown) {
-            if (!isMissingTableError(cacheErr, "benchmark_cache")) {
+            if (isMissingTableError(cacheErr, "benchmark_cache")) {
+              try {
+                await env.DB.prepare(`
+                  CREATE TABLE IF NOT EXISTS benchmark_cache (
+                    symbol TEXT PRIMARY KEY,
+                    data TEXT NOT NULL,
+                    cached_at INTEGER NOT NULL
+                  )
+                `).run();
+                await env.DB.prepare(
+                  "INSERT OR REPLACE INTO benchmark_cache (symbol, data, cached_at) VALUES (?, ?, ?)",
+                )
+                  .bind(symbol, JSON.stringify(responseData), now)
+                  .run();
+              } catch (createErr) {
+                console.error("Failed to auto-create benchmark_cache table:", createErr);
+              }
+            } else {
               console.error("Failed to persist benchmark cache:", cacheErr);
             }
           }
@@ -1896,7 +1957,7 @@ export default {
         const buildIndexStatements = (columns: IndexWriteColumns): D1PreparedStatement[] => {
           const quotaGuarded = userIndexLimit !== null && columns.creatorId;
           const basketWriteGuard = quotaGuarded
-            ? " WHERE EXISTS (SELECT 1 FROM indices WHERE id = ? AND creator_id = ?)"
+            ? " AND EXISTS (SELECT 1 FROM indices WHERE id = ? AND creator_id = ?)"
             : "";
           const basketWriteGuardParams = quotaGuarded ? [id, auth.id as string] : [];
           const indexUpsert = prepareIndexUpsert(env, {
@@ -2123,7 +2184,6 @@ export default {
         const results: { ticker: string; status: string; count?: number; lastSynced?: number }[] =
           [];
         const now = Math.floor(Date.now() / 1000);
-        const CACHE_DURATION = getMarketAwareCacheDuration(new Date(now * 1000));
 
         // すでに同期済みの銘柄を確認
         const { results: syncLogs } = await env.DB.prepare(
@@ -2143,7 +2203,7 @@ export default {
         const toFetch: string[] = [];
         for (const ticker of tickers) {
           const lastSynced = lastSyncedMap.get(ticker);
-          if (!force && lastSynced && now - lastSynced < CACHE_DURATION) {
+          if (!force && lastSynced && isPriceCacheFresh(now, lastSynced)) {
             results.push({ ticker, status: "cached", lastSynced });
           } else {
             toFetch.push(ticker);
@@ -2440,7 +2500,9 @@ export default {
           },
         };
 
-        setMemoryCache(calcCacheKey, responseData, 300); // 5 minutes cache
+        if (series.length > 0) {
+          setMemoryCache(calcCacheKey, responseData, 300); // 5 minutes cache
+        }
 
         return json(responseData, 200, request);
       } catch (err) {

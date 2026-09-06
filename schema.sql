@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 
 CREATE INDEX IF NOT EXISTS idx_stock_prices_ticker ON stock_prices(ticker);
 CREATE INDEX IF NOT EXISTS idx_basket_items_index_id ON basket_items(index_id);
+CREATE INDEX IF NOT EXISTS idx_indices_creator_id ON indices(creator_id);
 
 CREATE TABLE IF NOT EXISTS access_passwords (
     id TEXT PRIMARY KEY,

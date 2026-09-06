@@ -15,12 +15,14 @@ import {
   Lock,
   AlertCircle,
   Sparkles,
+  Edit2,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { storeAuth } from "../lib/auth";
 import { SYSTEM_INDICES, type CustomIndex } from "../data/indices";
 import type { BasketItem, UserPasswordItem } from "../types";
 import { Card, Tag, Badge } from "./ui";
+import { EditPasswordModal } from "./EditPasswordModal";
 
 interface AdminDashboardProps {
   indices: CustomIndex[];
@@ -63,6 +65,7 @@ export function AdminDashboard({
   const [passwords, setPasswords] = useState<UserPasswordItem[]>([]);
   const [loadingPasswords, setLoadingPasswords] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [editingPasswordItem, setEditingPasswordItem] = useState<UserPasswordItem | null>(null);
 
   // New password form
   const [newUserName, setNewUserName] = useState("");
@@ -1076,20 +1079,38 @@ export function AdminDashboard({
                           </button>
                         </td>
                          <td style={{ textAlign: "center" }}>
-                          <button
-                            type="button"
-                            onClick={() => handleDeletePassword(item.id, item.name)}
-                            aria-label={`${item.name}のパスワードを削除`}
-                            style={{
-                              background: "transparent",
-                              border: "none",
-                              color: "var(--neon-red)",
-                              cursor: "pointer",
-                              padding: 4,
-                            }}
-                          >
-                            <Trash2 size={13} />
-                          </button>
+                          <div className="row" style={{ gap: 4, justifyContent: "center" }}>
+                            <button
+                              type="button"
+                              onClick={() => setEditingPasswordItem(item)}
+                              aria-label={`${item.name}のパスワード設定を編集`}
+                              title="設定編集"
+                              style={{
+                                background: "transparent",
+                                border: "none",
+                                color: "var(--neon-cyan)",
+                                cursor: "pointer",
+                                padding: 4,
+                              }}
+                            >
+                              <Edit2 size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeletePassword(item.id, item.name)}
+                              aria-label={`${item.name}のパスワードを削除`}
+                              title="削除"
+                              style={{
+                                background: "transparent",
+                                border: "none",
+                                color: "var(--neon-red)",
+                                cursor: "pointer",
+                                padding: 4,
+                              }}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1562,6 +1583,15 @@ export function AdminDashboard({
           </Card>
         </div>
       )}
+
+      {/* Edit Password Modal */}
+      <EditPasswordModal
+        isOpen={editingPasswordItem !== null}
+        onClose={() => setEditingPasswordItem(null)}
+        item={editingPasswordItem}
+        onSuccess={fetchPasswords}
+        getHeaders={getHeaders}
+      />
     </div>
   );
 }

@@ -1,8 +1,26 @@
+import React, { useRef } from "react";
 import { Sun, Moon } from "lucide-react";
 import { useTheme, ACCENT_OPTIONS } from "../lib/theme";
 
 export function ThemeControls() {
   const { theme, accent, toggleTheme, setAccent } = useTheme();
+  const radioRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  const handleKeyDown = (e: React.KeyboardEvent, currentIndex: number) => {
+    let nextIndex = -1;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      e.preventDefault();
+      nextIndex = (currentIndex + 1) % ACCENT_OPTIONS.length;
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      e.preventDefault();
+      nextIndex = (currentIndex - 1 + ACCENT_OPTIONS.length) % ACCENT_OPTIONS.length;
+    }
+    if (nextIndex >= 0) {
+      const nextOpt = ACCENT_OPTIONS[nextIndex];
+      setAccent(nextOpt.key);
+      radioRefs.current[nextIndex]?.focus();
+    }
+  };
 
   return (
     <div className="theme-controls row" style={{ gap: 8, alignItems: "center" }}>
@@ -49,15 +67,20 @@ export function ThemeControls() {
         role="radiogroup"
         aria-label="アクセントカラーの選択"
       >
-        {ACCENT_OPTIONS.map((opt) => {
+        {ACCENT_OPTIONS.map((opt, idx) => {
           const isSelected = accent === opt.key;
           return (
             <button
               key={opt.key}
+              ref={(el) => {
+                radioRefs.current[idx] = el;
+              }}
               type="button"
               className="accent-option"
               role="radio"
               aria-checked={isSelected}
+              tabIndex={isSelected ? 0 : -1}
+              onKeyDown={(e) => handleKeyDown(e, idx)}
               title={`アクセント: ${opt.label}`}
               aria-label={`アクセントカラーを${opt.label}に変更`}
               onClick={() => setAccent(opt.key)}
