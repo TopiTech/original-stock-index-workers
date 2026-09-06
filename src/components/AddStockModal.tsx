@@ -1,6 +1,6 @@
 import React, { useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Plus, X, AlertCircle, Sparkles, Building2 } from "lucide-react";
+import { Plus, X, AlertCircle, Sparkles } from "lucide-react";
 import type { BasketItem } from "../types";
 import { useModalFocus } from "../hooks/useModalFocus";
 
@@ -73,7 +73,7 @@ export function AddStockModal({
       return;
     }
 
-    if (!/^[A-Za-z0-9.\-]+$/.test(cleanTicker) || cleanTicker.length > 20) {
+    if (!/^[A-Za-z0-9.-]+$/.test(cleanTicker) || cleanTicker.length > 20) {
       setError("銘柄コードは英数字、ハイフン、ピリオド（最大20文字）で入力してください (例: 7203, AAPL)");
       return;
     }

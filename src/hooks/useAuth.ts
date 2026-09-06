@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import type { AuthSession } from "../types";
-import { getStoredAuth, storeAuth, clearAuth, verifyPassword, getAuthHeaders } from "../lib/auth";
+import { getStoredAuth, clearAuth, verifyPassword, getAuthHeaders } from "../lib/auth";
 
 export function useAuth() {
   const [session, setSession] = useState<AuthSession | null>(() => getStoredAuth());
@@ -64,7 +64,7 @@ export function useAuth() {
 
   const getHeaders = useCallback((): Record<string, string> => {
     return getAuthHeaders(session);
-  }, [session?.password, session?.role]);
+  }, [session]);
 
   return {
     session,

@@ -13,7 +13,6 @@ import {
   Plus,
   Trash2,
   Lock,
-  Unlock,
   KeyRound,
   ShieldCheck,
   AlertCircle,
@@ -29,7 +28,6 @@ interface ConstituentsTableProps {
   stockDetails?: StockDetail[];
   selectedTheme: string | null;
   indexName?: string;
-  indexId?: string;
   onAddStock?: (stock: BasketItem) => Promise<{ ok: boolean; error?: string }>;
   onRemoveStock?: (ticker: string) => Promise<{ ok: boolean; error?: string }>;
 }
@@ -92,7 +90,6 @@ export function ConstituentsTable({
   stockDetails = [],
   selectedTheme,
   indexName = "カスタム指数",
-  indexId,
   onAddStock,
   onRemoveStock,
 }: ConstituentsTableProps) {

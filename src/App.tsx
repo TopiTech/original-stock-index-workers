@@ -314,7 +314,6 @@ export default function App() {
                 syncing={syncing}
                 syncProgress={syncProgress}
                 syncWarnings={syncWarnings}
-                latestValue={customSeries[customSeries.length - 1]?.value}
                 baseValue={selectedIndex?.baseValue}
                 benchmarkLabel={currentBenchmarkOption.shortLabel}
                 error={unifiedError}
@@ -356,7 +355,6 @@ export default function App() {
                   stockDetails={stockDetails}
                   selectedTheme={selectedTheme}
                   indexName={selectedIndex.name}
-                  indexId={selectedIndex.id}
                   onAddStock={async (stock) => {
                     if (!selectedIndex) return { ok: false, error: "指数が選択されていません" };
                     return addStockToIndex(selectedIndex.id, stock);

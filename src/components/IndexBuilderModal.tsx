@@ -1,6 +1,6 @@
 import React, { useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { X, Plus, Trash2, Sliders, Check, RefreshCw, KeyRound, Lock, ShieldCheck } from "lucide-react";
+import { X, Plus, Trash2, Sliders, Check, RefreshCw, KeyRound, Lock } from "lucide-react";
 import type { BasketItem } from "../types";
 import type { CustomIndex } from "../data/indices";
 import { useAuth } from "../hooks/useAuth";
@@ -32,7 +32,7 @@ const SAMPLE_STOCKS: { ticker: string; name: string; theme: string }[] = [
 ];
 
 export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModalProps) {
-  const { session, isAuthenticated, isAdmin, isUser, maxStocks, maxIndices } = useAuth();
+  const { session, isAuthenticated, isUser, maxStocks, maxIndices } = useAuth();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -81,7 +81,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
       return;
     }
     const cleanTicker = customTicker.trim().toUpperCase();
-    if (!/^[A-Za-z0-9.\-]+$/.test(cleanTicker) || cleanTicker.length > 20) {
+    if (!/^[A-Za-z0-9.-]+$/.test(cleanTicker) || cleanTicker.length > 20) {
       setError("銘柄コードは半角英数字、ハイフン、ピリオド（最大20文字）のみ使用可能です (例: 7203, AAPL)");
       return;
     }

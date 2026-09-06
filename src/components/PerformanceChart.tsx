@@ -31,7 +31,6 @@ interface PerformanceChartProps {
   syncing: boolean;
   syncProgress: number;
   syncWarnings?: string[];
-  latestValue?: number;
   baseValue?: number;
   benchmarkLabel?: string;
   error?: string | null;
@@ -46,7 +45,6 @@ export function PerformanceChart({
   syncing,
   syncProgress,
   syncWarnings = [],
-  latestValue,
   baseValue = 1000,
   benchmarkLabel = "日経225",
   error,
@@ -565,7 +563,7 @@ export function PerformanceChart({
 
       <div className="chart-legend-footer row space-between flex-wrap" style={{ marginTop: 14, gap: 8 }}>
         <div className="chart-legend muted tiny mono">
-          <span style={{ color: "var(--neon-cyan)" }}>―</span> 独自指数　
+          <span style={{ color: "var(--neon-cyan)" }}>―</span> 独自指数{" "}
           <span style={{ color: "var(--text-muted)" }}>---</span> {benchmarkLabel} (Base {baseValue}正規化)
           {showSMA5 && <span style={{ color: "var(--neon-yellow)" }}> ― SMA5</span>}
           {showSMA25 && <span style={{ color: "var(--neon-magenta)" }}> ― SMA25</span>}

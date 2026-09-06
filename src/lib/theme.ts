@@ -4,6 +4,17 @@ import type { ThemeMode, AccentColor } from "../types";
 const THEME_STORAGE_KEY = "custom_stock_index_theme";
 const ACCENT_STORAGE_KEY = "custom_stock_index_accent";
 
+interface StorageLike {
+  getItem: (key: string) => string | null;
+  setItem: (key: string, value: string) => void;
+}
+
+interface DocumentLike {
+  documentElement?: {
+    setAttribute: (name: string, value: string) => void;
+  };
+}
+
 export interface AccentOption {
   key: AccentColor;
   label: string;
@@ -44,18 +55,18 @@ export const ACCENT_OPTIONS: AccentOption[] = [
   },
 ];
 
-function getLocalStorage(): { getItem: (k: string) => string | null; setItem: (k: string, v: string) => void } | null {
+function getLocalStorage(): StorageLike | null {
   try {
-    const storage = (globalThis as Record<string, any>)?.localStorage;
+    const storage = (globalThis as unknown as { localStorage?: StorageLike }).localStorage;
     return storage && typeof storage.getItem === "function" ? storage : null;
   } catch {
     return null;
   }
 }
 
-function getDocument(): { documentElement?: { setAttribute: (name: string, value: string) => void } } | null {
+function getDocument(): DocumentLike | null {
   try {
-    return (globalThis as Record<string, any>)?.document ?? null;
+    return (globalThis as unknown as { document?: DocumentLike }).document ?? null;
   } catch {
     return null;
   }
@@ -66,7 +77,9 @@ export function getStoredTheme(): ThemeMode {
     const store = getLocalStorage();
     const saved = store?.getItem(THEME_STORAGE_KEY);
     if (saved === "light" || saved === "dark") return saved;
-  } catch {}
+  } catch {
+    // Storage may be unavailable or contain an invalid value.
+  }
   return "dark";
 }
 
@@ -75,7 +88,9 @@ export function getStoredAccent(): AccentColor {
     const store = getLocalStorage();
     const saved = store?.getItem(ACCENT_STORAGE_KEY) as AccentColor;
     if (ACCENT_OPTIONS.some((opt) => opt.key === saved)) return saved;
-  } catch {}
+  } catch {
+    // Storage may be unavailable or contain an invalid value.
+  }
   return "cyan";
 }
 
@@ -98,7 +113,9 @@ export function useTheme() {
     setThemeState(newTheme);
     try {
       localStorage.setItem(THEME_STORAGE_KEY, newTheme);
-    } catch {}
+    } catch {
+      // Storage may be unavailable or read-only.
+    }
     applyTheme(newTheme, accent);
   }, [accent]);
 
@@ -111,7 +128,9 @@ export function useTheme() {
     setAccentState(newAccent);
     try {
       localStorage.setItem(ACCENT_STORAGE_KEY, newAccent);
-    } catch {}
+    } catch {
+      // Storage may be unavailable or read-only.
+    }
     applyTheme(theme, newAccent);
   }, [theme]);
 

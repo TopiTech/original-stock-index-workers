@@ -13,17 +13,14 @@ import {
   RefreshCw,
   ArrowLeft,
   Lock,
-  Unlock,
   AlertCircle,
-  Database,
   Sparkles,
-  ExternalLink,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { storeAuth } from "../lib/auth";
 import { SYSTEM_INDICES, type CustomIndex } from "../data/indices";
 import type { BasketItem, UserPasswordItem } from "../types";
-import { Card, Tag, Badge, SearchInput } from "./ui";
+import { Card, Tag, Badge } from "./ui";
 
 interface AdminDashboardProps {
   indices: CustomIndex[];
@@ -132,8 +129,8 @@ export function AdminDashboard({
         console.error("Failed to fetch passwords:", errText);
         setPasswordFetchError(errText);
       }
-    } catch (err: any) {
-      if (err?.name === "AbortError") return;
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === "AbortError") return;
       const msg = err instanceof Error ? err.message : "パスワード一覧の取得に失敗しました";
       console.error("Failed to fetch passwords:", err);
       setPasswordFetchError(msg);
@@ -305,7 +302,7 @@ export function AdminDashboard({
     e.preventDefault();
     if (!addTicker.trim() || !addName.trim()) return;
     const cleanTicker = addTicker.trim().toUpperCase();
-    if (!/^[A-Za-z0-9.\-]+$/.test(cleanTicker) || cleanTicker.length > 20) {
+    if (!/^[A-Za-z0-9.-]+$/.test(cleanTicker) || cleanTicker.length > 20) {
       setIndexEditMessage({ type: "error", text: "有効な銘柄コードを入力してください（英数字・ドット・ハイフンのみ、20文字以内）" });
       return;
     }

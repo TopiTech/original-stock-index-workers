@@ -44,11 +44,14 @@ export function getStoredAuth(): AuthSession | null {
 
 function notifyAuthChanged(): void {
   if (typeof globalThis !== "undefined") {
-    const target = (globalThis as unknown as { window?: { dispatchEvent: (e: Event) => boolean } }).window || globalThis;
-    if (typeof (target as any)?.dispatchEvent === "function" && typeof Event !== "undefined") {
+    type AuthEventTarget = { dispatchEvent?: (event: Event) => boolean };
+    const target = ((globalThis as unknown as { window?: AuthEventTarget }).window || globalThis) as unknown as AuthEventTarget;
+    if (typeof target.dispatchEvent === "function" && typeof Event !== "undefined") {
       try {
-        (target as any).dispatchEvent(new Event("auth-changed"));
-      } catch {}
+        target.dispatchEvent(new Event("auth-changed"));
+      } catch {
+        // Event dispatch is best effort in non-browser environments.
+      }
     }
   }
 }
@@ -82,7 +85,9 @@ export function clearAuth(): void {
     getSessionStorage()?.removeItem(AUTH_STORAGE_KEY);
     getLocalStorage()?.removeItem(AUTH_STORAGE_KEY);
     notifyAuthChanged();
-  } catch {}
+  } catch {
+    // Storage may be unavailable or read-only.
+  }
 }
 
 /**
@@ -115,18 +120,26 @@ export async function verifyPassword(
       body: JSON.stringify({ password: trimmed }),
     });
 
-    const data = (await res.json().catch(() => ({}))) as Record<string, any>;
-    if (!res.ok || !data.ok) {
-      return { ok: false, error: data.error || "パスワードが正しくありません" };
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok || data.ok !== true) {
+      return {
+        ok: false,
+        error: typeof data.error === "string" ? data.error : "パスワードが正しくありません",
+      };
+    }
+
+    const role = data.role === "admin" || data.role === "user" ? data.role : null;
+    if (!role) {
+      return { ok: false, error: "認証応答が不正です" };
     }
 
     const session: AuthSession = {
-      role: data.role,
-      name: data.name || (data.role === "admin" ? "管理者" : "ユーザー"),
+      role,
+      name: typeof data.name === "string" ? data.name : role === "admin" ? "管理者" : "ユーザー",
       password: trimmed,
-      maxStocks: data.maxStocks ?? null,
-      maxIndices: data.maxIndices ?? null,
-      id: data.id,
+      maxStocks: typeof data.maxStocks === "number" ? data.maxStocks : null,
+      maxIndices: typeof data.maxIndices === "number" ? data.maxIndices : null,
+      id: typeof data.id === "string" ? data.id : undefined,
     };
 
     storeAuth(session);

@@ -64,14 +64,18 @@ export function useIndices() {
       if (newEtag) {
         try {
           localStorage.setItem(INDICES_ETAG_KEY, newEtag);
-        } catch {}
+        } catch {
+          // Ignore storage failures; the in-memory state remains usable.
+        }
       }
 
       const data: CustomIndex[] = await res.json();
       if (Array.isArray(data) && data.length > 0) {
         try {
           localStorage.setItem(INDICES_CACHE_KEY, JSON.stringify(data));
-        } catch {}
+        } catch {
+          // Ignore storage failures; the in-memory state remains usable.
+        }
         setIndices(data);
         setSelectedIndex((prev) => {
           if (!prev) return data[0];
@@ -132,7 +136,9 @@ export function useIndices() {
         saveIndexOwnerToken(newIndex.id, finalToken);
         try {
           localStorage.removeItem(INDICES_ETAG_KEY);
-        } catch {}
+        } catch {
+          // Ignore storage failures; the in-memory state remains usable.
+        }
 
         await fetchIndices();
         setSelectedIndex(newIndex);
@@ -169,7 +175,9 @@ export function useIndices() {
         removeIndexOwnerToken(id);
         try {
           localStorage.removeItem(INDICES_ETAG_KEY);
-        } catch {}
+        } catch {
+          // Ignore storage failures; the in-memory state remains usable.
+        }
         await fetchIndices();
         return { ok: true };
       } catch (err) {
@@ -207,7 +215,9 @@ export function useIndices() {
         }
         try {
           localStorage.removeItem(INDICES_ETAG_KEY);
-        } catch {}
+        } catch {
+          // Ignore storage failures; the in-memory state remains usable.
+        }
         await fetchIndices();
         return { ok: true };
       } catch (err) {
@@ -247,7 +257,9 @@ export function useIndices() {
         }
         try {
           localStorage.removeItem(INDICES_ETAG_KEY);
-        } catch {}
+        } catch {
+          // Ignore storage failures; the in-memory state remains usable.
+        }
         await fetchIndices();
         return { ok: true };
       } catch (err) {

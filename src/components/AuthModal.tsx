@@ -1,6 +1,6 @@
 import React, { useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Lock, KeyRound, X, AlertCircle, CheckCircle2, ShieldAlert } from "lucide-react";
+import { KeyRound, X, AlertCircle } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { useModalFocus } from "../hooks/useModalFocus";
 

@@ -1050,7 +1050,7 @@ describe("worker fetch handlers", () => {
       const env = createMockEnv({
         DB: {
           prepare: vi.fn().mockImplementation((query: string) => {
-            const exec = async (params: any[] = []) => {
+            const exec = async (_params: any[] = []) => {
               if (query.includes("owner_token_hash")) {
                 throw new Error("D1_ERROR: table indices has no column named owner_token_hash: SQLITE_ERROR");
               }
@@ -1087,7 +1087,7 @@ describe("worker fetch handlers", () => {
               }),
             };
           }),
-          batch: vi.fn().mockImplementation(async (stmts: any[]) => {
+          batch: vi.fn().mockImplementation(async (_stmts: any[]) => {
             deleted = true;
             return [];
           }),

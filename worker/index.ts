@@ -32,6 +32,12 @@ interface D1Row {
   [key: string]: unknown;
 }
 
+function isPricePoint(value: unknown): value is PricePoint {
+  if (!value || typeof value !== "object") return false;
+  const point = value as Record<string, unknown>;
+  return typeof point.date === "string" && typeof point.close === "number";
+}
+
 interface BasketItemInput {
   ticker: string;
   name: string;
@@ -200,17 +206,25 @@ export async function ensurePasswordTable(env: Env): Promise<void> {
     // Add max_indices column to access_passwords if not exists
     try {
       await env.DB.prepare("ALTER TABLE access_passwords ADD COLUMN max_indices INTEGER DEFAULT NULL").run();
-    } catch {}
+    } catch {
+      // The column may already exist on an upgraded database.
+    }
     // Ensure all columns on indices exist for unmigrated databases
     try {
       await env.DB.prepare("ALTER TABLE indices ADD COLUMN owner_token_hash TEXT").run();
-    } catch {}
+    } catch {
+      // The column may already exist on an upgraded database.
+    }
     try {
       await env.DB.prepare("ALTER TABLE indices ADD COLUMN created_at INTEGER").run();
-    } catch {}
+    } catch {
+      // The column may already exist on an upgraded database.
+    }
     try {
       await env.DB.prepare("ALTER TABLE indices ADD COLUMN creator_id TEXT").run();
-    } catch {}
+    } catch {
+      // The column may already exist on an upgraded database.
+    }
     // Ensure benchmark_cache table if not exists
     try {
       await env.DB.prepare(`
@@ -220,7 +234,9 @@ export async function ensurePasswordTable(env: Env): Promise<void> {
           cached_at INTEGER NOT NULL
         )
       `).run();
-    } catch {}
+    } catch {
+      // The table may already exist on an upgraded database.
+    }
     isPasswordTableEnsured = true;
   } catch {
     // ignore
@@ -315,7 +331,7 @@ export async function authenticatePassword(
     ).all();
 
     const masterRow = (adminMasterRows || []).find(
-      (r: any) => r && r.id === "admin-master"
+      (r: D1Row) => r.id === "admin-master"
     ) as {
       id: string;
       name: string;
@@ -987,7 +1003,7 @@ export default {
             typeof indexId !== "string" ||
             indexId.trim().length === 0 ||
             indexId.trim().length > 100 ||
-            !/^[A-Za-z0-9.\-_]+$/.test(indexId.trim())
+            !/^[A-Za-z0-9._-]+$/.test(indexId.trim())
           ) {
             return json({ error: "indexId is required (1-100 alphanumeric, dot, hyphen, underscore)" }, 400, request);
           }
@@ -1019,7 +1035,7 @@ export default {
           }
           const weight = rawWeight;
 
-          if (!ticker || !/^[A-Za-z0-9.\-]+$/.test(ticker) || ticker.length > 20) {
+          if (!ticker || !/^[A-Za-z0-9.-]+$/.test(ticker) || ticker.length > 20) {
             return json({ error: "無効な銘柄コードです" }, 400, request);
           }
           if (!name || name.length > 100) {
@@ -1046,7 +1062,9 @@ export default {
             try {
               const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(cleanIndexId).all();
               if (results && results.length > 0) hasCheckedIndex = true;
-            } catch {}
+            } catch {
+              // Older schemas may not support the fallback lookup either.
+            }
           }
 
           if (!hasCheckedIndex) {
@@ -1058,7 +1076,7 @@ export default {
               const providedToken =
                 request.headers.get("x-owner-token")?.trim() ||
                 (typeof rawStock.ownerToken === "string" ? rawStock.ownerToken.trim() : "") ||
-                (typeof (parsed.body as any).ownerToken === "string" ? (parsed.body as any).ownerToken.trim() : "");
+                (typeof parsed.body.ownerToken === "string" ? parsed.body.ownerToken.trim() : "");
 
               if (!providedToken) {
                 return json({ error: "この指数を更新する権限がありません（作成者トークンが必要です）" }, 403, request);
@@ -1110,11 +1128,11 @@ export default {
             !rawIndexId ||
             rawIndexId.trim().length === 0 ||
             rawIndexId.trim().length > 100 ||
-            !/^[A-Za-z0-9.\-_]+$/.test(rawIndexId.trim()) ||
+            !/^[A-Za-z0-9._-]+$/.test(rawIndexId.trim()) ||
             !rawTicker ||
             rawTicker.trim().length === 0 ||
             rawTicker.trim().length > 20 ||
-            !/^[A-Za-z0-9.\-]+$/.test(rawTicker.trim())
+            !/^[A-Za-z0-9.-]+$/.test(rawTicker.trim())
           ) {
             return json({ error: "Valid indexId and ticker parameters are required" }, 400, request);
           }
@@ -1145,7 +1163,9 @@ export default {
             try {
               const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(indexId).all();
               if (results && results.length > 0) hasCheckedIndex = true;
-            } catch {}
+            } catch {
+              // Older schemas may not support the fallback lookup either.
+            }
           }
 
           if (!hasCheckedIndex) {
@@ -1205,7 +1225,7 @@ export default {
         const rawSymbol = url.searchParams.get("symbol") || "^N225";
         const symbol = rawSymbol.trim();
 
-        if (symbol.length === 0 || symbol.length > 20 || !/^[A-Za-z0-9.^=\-_]+$/.test(symbol)) {
+        if (symbol.length === 0 || symbol.length > 20 || !/^[A-Za-z0-9.^=_-]+$/.test(symbol)) {
           return json({ error: "Invalid symbol parameter" }, 400, request);
         }
 
@@ -1450,7 +1470,7 @@ export default {
         }
         const name = typeof body.name === "string" && body.name.trim().length > 0 ? body.name.trim() : "マイカスタム指数";
 
-        if (body.id !== undefined && (typeof body.id !== "string" || body.id.trim().length === 0 || body.id.trim().length > 100 || !/^[A-Za-z0-9.\-_]+$/.test(body.id.trim()))) {
+        if (body.id !== undefined && (typeof body.id !== "string" || body.id.trim().length === 0 || body.id.trim().length > 100 || !/^[A-Za-z0-9._-]+$/.test(body.id.trim()))) {
           return json({ error: "Invalid id" }, 400, request);
         }
         const id = typeof body.id === "string" && body.id.trim().length > 0 ? body.id.trim() : `custom-${Date.now()}`;
@@ -1482,7 +1502,7 @@ export default {
           sortOrder = Math.floor(body.sortOrder);
         }
 
-        const basket = Array.isArray(body.basket) ? body.basket : [];
+        const basket: unknown[] = Array.isArray(body.basket) ? body.basket : [];
         if (basket.length === 0) {
           return json({ error: "Basket must contain at least 1 item" }, 400, request);
         }
@@ -1491,12 +1511,13 @@ export default {
         }
 
         const seenTickers = new Set<string>();
+        const validatedBasket: BasketItemInput[] = [];
         for (const item of basket) {
           if (!item || typeof item !== "object") {
             return json({ error: "Invalid basket item" }, 400, request);
           }
           const r = item as Record<string, unknown>;
-          if (typeof r.ticker !== "string" || r.ticker.trim().length === 0 || r.ticker.trim().length > 20 || !/^[A-Za-z0-9.\-]+$/.test(r.ticker.trim())) {
+          if (typeof r.ticker !== "string" || r.ticker.trim().length === 0 || r.ticker.trim().length > 20 || !/^[A-Za-z0-9.-]+$/.test(r.ticker.trim())) {
             return json({ error: "Invalid basket item: ticker" }, 400, request);
           }
           const ticker = r.ticker.trim().toUpperCase();
@@ -1514,6 +1535,12 @@ export default {
           if (typeof r.weight !== "number" || !Number.isFinite(r.weight) || r.weight <= 0 || r.weight > 100) {
             return json({ error: "Invalid basket item: weight must be > 0 and <= 100" }, 400, request);
           }
+          validatedBasket.push({
+            ticker,
+            name: r.name.trim(),
+            theme: typeof r.theme === "string" ? r.theme.trim() : "カスタム",
+            weight: r.weight,
+          });
         }
 
         // Stock limit check for non-admin users
@@ -1551,7 +1578,9 @@ export default {
           try {
             const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(id).all();
             if (results && results.length > 0) isExisting = true;
-          } catch {}
+          } catch {
+            // Older schemas may not support the fallback lookup either.
+          }
         }
 
         // Index limit check for user role when creating a new index
@@ -1640,7 +1669,7 @@ export default {
         const statements = [
           insertIndexStmt,
           env.DB.prepare("DELETE FROM basket_items WHERE index_id = ?").bind(id),
-          ...basket.map((b: any) =>
+          ...validatedBasket.map((b) =>
             env.DB.prepare(
               "INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES (?, ?, ?, ?, ?)",
             ).bind(id, String(b.ticker).trim().toUpperCase(), String(b.name).trim(), Number(b.weight), String(b.theme || "カスタム").trim()),
@@ -1649,12 +1678,13 @@ export default {
 
         try {
           await env.DB.batch(statements);
-        } catch (batchErr: any) {
+        } catch (batchErr: unknown) {
+          const batchErrorMessage = batchErr instanceof Error ? batchErr.message : "";
           if (
             hasOwnerTokenHashColumn &&
-            batchErr &&
-            typeof batchErr.message === "string" &&
-            (batchErr.message.includes("owner_token_hash") || batchErr.message.includes("created_at") || batchErr.message.includes("creator_id"))
+            (batchErrorMessage.includes("owner_token_hash") ||
+              batchErrorMessage.includes("created_at") ||
+              batchErrorMessage.includes("creator_id"))
           ) {
             const fallbackStmt = env.DB.prepare(
               "INSERT OR REPLACE INTO indices (id, name, description, base_value, sort_order) VALUES (?, ?, ?, ?, COALESCE(?, (SELECT sort_order FROM indices WHERE id = ?), 50))",
@@ -1689,7 +1719,7 @@ export default {
         }
 
         const rawId = url.searchParams.get("id");
-        if (!rawId || typeof rawId !== "string" || rawId.trim().length === 0 || rawId.trim().length > 100 || !/^[A-Za-z0-9.\-_]+$/.test(rawId.trim())) {
+        if (!rawId || typeof rawId !== "string" || rawId.trim().length === 0 || rawId.trim().length > 100 || !/^[A-Za-z0-9._-]+$/.test(rawId.trim())) {
           return json({ error: "Invalid or missing index id parameter" }, 400, request);
         }
         const id = rawId.trim();
@@ -1713,7 +1743,9 @@ export default {
           try {
             const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(id).all();
             if (results && results.length > 0) isExisting = true;
-          } catch {}
+          } catch {
+            // Older schemas may not support the fallback lookup either.
+          }
         }
 
         if (!isExisting) {
@@ -1776,7 +1808,7 @@ export default {
         }
         const rawTickers = body.tickers as unknown[];
         for (const t of rawTickers) {
-          if (typeof t !== "string" || t.trim().length === 0 || t.trim().length > 20 || !/^[A-Za-z0-9.\-]+$/.test(t.trim())) {
+          if (typeof t !== "string" || t.trim().length === 0 || t.trim().length > 20 || !/^[A-Za-z0-9.-]+$/.test(t.trim())) {
             return json({ error: "Invalid ticker value" }, 400, request);
           }
         }
@@ -1829,13 +1861,14 @@ export default {
                     const { results: existingRows } = await env.DB.prepare(
                       "SELECT prices FROM stock_series WHERE ticker = ?",
                     ).bind(ticker).all();
-                    if (existingRows && existingRows.length > 0 && (existingRows[0] as any).prices) {
-                      const existingPrices = JSON.parse((existingRows[0] as any).prices);
+                    const existingPricesValue = (existingRows?.[0] as D1Row | undefined)?.prices;
+                    if (typeof existingPricesValue === "string") {
+                      const existingPrices: unknown = JSON.parse(existingPricesValue);
                       if (Array.isArray(existingPrices) && existingPrices.length > 0) {
                         const lastExisting = existingPrices[existingPrices.length - 1];
                         const lastFresh = series[series.length - 1];
                         if (
-                          lastExisting &&
+                          isPricePoint(lastExisting) &&
                           lastFresh &&
                           lastExisting.date === lastFresh.date &&
                           lastExisting.close === lastFresh.close
@@ -1874,7 +1907,7 @@ export default {
                 } catch {
                   // Fallback for unmigrated database: use legacy chunked stock_prices
                   const CHUNK_SIZE = 25;
-                  const insertStatements: any[] = [];
+                  const insertStatements: D1PreparedStatement[] = [];
                   for (let c = 0; c < series.length; c += CHUNK_SIZE) {
                     const slice = series.slice(c, c + CHUNK_SIZE);
                     const placeholders = slice.map(() => "(?, ?, ?)").join(", ");
@@ -1958,7 +1991,7 @@ export default {
             return json({ error: "Invalid basket item" }, 400, request);
           }
           const r = item as Record<string, unknown>;
-          if (typeof r.ticker !== "string" || r.ticker.trim().length === 0 || r.ticker.trim().length > 20 || !/^[A-Za-z0-9.\-]+$/.test(r.ticker.trim())) {
+          if (typeof r.ticker !== "string" || r.ticker.trim().length === 0 || r.ticker.trim().length > 20 || !/^[A-Za-z0-9.-]+$/.test(r.ticker.trim())) {
             return json({ error: "Invalid basket item: ticker" }, 400, request);
           }
           const ticker = r.ticker.trim().toUpperCase();

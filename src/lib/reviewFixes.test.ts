@@ -1,7 +1,5 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
 import worker, {
-  hashPassword,
-  hashToken,
   clearAuthCache,
   resetPasswordTableEnsured,
 } from "../../worker/index";
