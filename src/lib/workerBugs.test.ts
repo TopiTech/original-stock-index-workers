@@ -29,42 +29,28 @@ function createStatefulEnv(): StatefulEnv {
     batch: vi.fn(),
   } as StatefulEnv;
 
-  const execute = (query: string, params: unknown[]): { results: unknown[] } => {
-    if (query.includes("FROM rate_limits") && query.includes("SELECT request_count")) {
-      const [ip, endpoint] = params as [string, string];
-      const r = env._rateLimits.get(`${ip}::${endpoint}`);
-      return { results: r ? [r] : [] };
-    }
-    if (query.includes("UPDATE rate_limits")) {
-      const [ip, endpoint] = params as [string, string];
-      const k = `${ip}::${endpoint}`;
-      const r = env._rateLimits.get(k);
-      if (r) r.request_count += 1;
-      return { results: [] };
-    }
+  const execute = (query: string, params: unknown[]): { results: unknown[]; changes?: number } => {
     if (query.includes("INSERT INTO rate_limits")) {
-      // INSERT INTO ... ON CONFLICT DO UPDATE SET request_count = CASE WHEN ...
-      // Params: [ip, endpoint, now, now, RATE_LIMIT_WINDOW, now, RATE_LIMIT_WINDOW]
-      const [ip, endpoint, , now, rateLimitWindow] = params as [string, string, number, number, number];
+      // Params: [ip, endpoint, now, expiryThreshold, expiryThreshold,
+      // expiryThreshold, maxRequests]
+      const [ip, endpoint, now, expiryThreshold, , , maxRequests] = params as [string, string, number, number, number, number, number];
       const k = `${ip}::${endpoint}`;
       const existing = env._rateLimits.get(k);
       if (existing) {
-        if (existing.window_start < now - rateLimitWindow) {
+        if (existing.window_start <= expiryThreshold) {
           existing.request_count = 1;
           existing.window_start = now;
-        } else {
-          existing.request_count += 1;
+          return { results: [], changes: 1 };
         }
+        if (existing.request_count < maxRequests) {
+          existing.request_count += 1;
+          return { results: [], changes: 1 };
+        }
+        return { results: [], changes: 0 };
       } else {
         env._rateLimits.set(k, { ip, endpoint, request_count: 1, window_start: now });
+        return { results: [], changes: 1 };
       }
-      return { results: [] };
-    }
-    if (query.includes("INSERT OR REPLACE INTO rate_limits")) {
-      // INSERT OR REPLACE: delete+insert, hard-coded count=1 (the buggy form).
-      const [ip, endpoint, , now] = params as [string, string, number, number];
-      env._rateLimits.set(`${ip}::${endpoint}`, { ip, endpoint, request_count: 1, window_start: now });
-      return { results: [] };
     }
     if (query.includes("FROM sync_logs") && query.includes("SELECT")) {
       const tickers = params as string[];
@@ -117,10 +103,16 @@ function createStatefulEnv(): StatefulEnv {
     return {
       bind: (...params: unknown[]) => ({
         all: () => Promise.resolve(execute(query, params)),
-        run: () => Promise.resolve(execute(query, params)),
+        run: () => {
+          const result = execute(query, params);
+          return Promise.resolve({ ...result, meta: { changes: result.changes ?? 1 } });
+        },
       }),
       all: () => Promise.resolve(execute(query, [])),
-      run: () => Promise.resolve(execute(query, [])),
+      run: () => {
+        const result = execute(query, []);
+        return Promise.resolve({ ...result, meta: { changes: result.changes ?? 1 } });
+      },
     };
   });
 
@@ -296,6 +288,35 @@ describe("worker: R5 rate limit counter resets after window expires", () => {
   });
 });
 
+describe("worker: R6 atomic rate-limit reservation", () => {
+  it("admits only one of two concurrent requests when a window has one slot remaining", async () => {
+    const env = createStatefulEnv();
+    const now = Math.floor(Date.now() / 1000);
+    env._rateLimits.set("10.0.0.2::sync-prices", {
+      ip: "10.0.0.2",
+      endpoint: "sync-prices",
+      request_count: 59,
+      window_start: now,
+    });
+
+    const makeRequest = () => worker.fetch(
+      new Request("http://localhost/api/sync-prices", {
+        method: "POST",
+        headers: { "cf-connecting-ip": "10.0.0.2" },
+        // An empty array avoids Yahoo calls; a 400 proves the rate-limit slot
+        // was reserved before payload validation.
+        body: JSON.stringify({ tickers: [] }),
+      }),
+      env as any,
+    );
+
+    const responses = await Promise.all([makeRequest(), makeRequest()]);
+    const statuses = responses.map((response) => response.status).sort();
+    expect(statuses).toEqual([400, 429]);
+    expect(env._rateLimits.get("10.0.0.2::sync-prices")?.request_count).toBe(60);
+  });
+});
+
 describe("worker: R4 sync-prices replaces stale stock_prices", () => {
   let originalFetch: typeof globalThis.fetch;
 
@@ -309,6 +330,7 @@ describe("worker: R4 sync-prices replaces stale stock_prices", () => {
   it("deletes older cached stock_prices for a ticker when fresh 1-month data is synced", async () => {
     // Old price from 5 months ago
     const env = createStatefulEnv();
+    (env as StatefulEnv & { ADMIN_PASSWORD: string }).ADMIN_PASSWORD = "test-admin-password";
     env._stockPrices.set("7203::2026-04-01", { ticker: "7203", date: "2026-04-01", price: 2000 });
 
     // Yahoo returns fresh 1-month series (August 2026)
@@ -330,7 +352,7 @@ describe("worker: R4 sync-prices replaces stale stock_prices", () => {
 
     const req = new Request("http://localhost/api/sync-prices", {
       method: "POST",
-      headers: { "cf-connecting-ip": "1.2.3.4" },
+      headers: { "cf-connecting-ip": "1.2.3.4", "x-auth-password": "test-admin-password" },
       body: JSON.stringify({ tickers: ["7203"], force: true }),
     });
 
@@ -347,5 +369,40 @@ describe("worker: R4 sync-prices replaces stale stock_prices", () => {
     const parsedPrices = JSON.parse(seriesRow!.prices);
     expect(parsedPrices[0].date).toBe("2026-08-01");
     expect(parsedPrices[0].close).toBe(2500);
+  });
+});
+
+describe("worker: sync-prices request guardrails", () => {
+  it("rejects more than 30 tickers instead of silently dropping the excess", async () => {
+    const env = createStatefulEnv();
+    const tickers = Array.from({ length: 31 }, (_, index) => `T${index}`);
+    const res = await worker.fetch(
+      new Request("http://localhost/api/sync-prices", {
+        method: "POST",
+        headers: { "cf-connecting-ip": "11.11.11.11" },
+        body: JSON.stringify({ tickers }),
+      }),
+      env as any,
+    );
+
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toContain("30");
+  });
+
+  it("requires authentication before a caller can bypass the market-aware cache", async () => {
+    const env = createStatefulEnv();
+    const res = await worker.fetch(
+      new Request("http://localhost/api/sync-prices", {
+        method: "POST",
+        headers: { "cf-connecting-ip": "12.12.12.12" },
+        body: JSON.stringify({ tickers: ["7203"], force: true }),
+      }),
+      env as any,
+    );
+
+    expect(res.status).toBe(401);
+    const data = await res.json();
+    expect(data.error).toContain("強制同期");
   });
 });

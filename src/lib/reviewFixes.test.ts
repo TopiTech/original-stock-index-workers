@@ -289,6 +289,42 @@ describe("Code review fixes: basket size cap", () => {
     expect(res.status).toBe(200);
   });
 
+  it("rejects adding a 501st stock through the individual-stock endpoint", async () => {
+    const { env } = createReviewEnv();
+    const originalPrepare = env.DB.prepare;
+    env.DB.prepare = vi.fn().mockImplementation((query: string) => {
+      if (query.includes("SELECT ticker FROM basket_items WHERE index_id = ?")) {
+        return {
+          bind: () => ({
+            all: async () => ({
+              results: Array.from({ length: 500 }, (_, index) => ({ ticker: `T${index}` })),
+            }),
+          }),
+        };
+      }
+      return originalPrepare(query);
+    });
+
+    const res = await worker.fetch(
+      new Request("http://localhost/api/indices/stock", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": TEST_ADMIN_PASSWORD,
+        },
+        body: JSON.stringify({
+          indexId: "ai-semi",
+          stock: { ticker: "NEW500", name: "New Stock", weight: 1, theme: "Test" },
+        }),
+      }),
+      env,
+    );
+
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toContain("500");
+  });
+
   it("rejects POST /api/calculate baskets larger than 500 items", async () => {
     const { env } = createReviewEnv();
     const items = Array.from({ length: 501 }, (_, i) => ({
@@ -404,18 +440,18 @@ describe("Code review fixes: Security headers, rate limiting, and password schem
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(res.headers.get("x-frame-options")).toBe("SAMEORIGIN");
     expect(res.headers.get("referrer-policy")).toBe("strict-origin-when-cross-origin");
+    expect(res.headers.get("content-security-policy")).toContain("script-src 'self'");
+    expect(res.headers.get("permissions-policy")).toContain("camera=()");
   });
 
   it("enforces rate limiting on POST /api/indices/stock", async () => {
     const { env } = createReviewEnv();
     const origPrepare = env.DB.prepare;
     env.DB.prepare = vi.fn().mockImplementation((query: string) => {
-      if (query.includes("rate_limits") && query.includes("SELECT")) {
+      if (query.includes("rate_limits")) {
         return {
           bind: () => ({
-            all: async () => ({
-              results: [{ request_count: 60, window_start: Math.floor(Date.now() / 1000) }],
-            }),
+            run: async () => ({ meta: { changes: 0 } }),
           }),
         };
       }
@@ -439,12 +475,10 @@ describe("Code review fixes: Security headers, rate limiting, and password schem
     const { env } = createReviewEnv();
     const origPrepare = env.DB.prepare;
     env.DB.prepare = vi.fn().mockImplementation((query: string) => {
-      if (query.includes("rate_limits") && query.includes("SELECT")) {
+      if (query.includes("rate_limits")) {
         return {
           bind: () => ({
-            all: async () => ({
-              results: [{ request_count: 60, window_start: Math.floor(Date.now() / 1000) }],
-            }),
+            run: async () => ({ meta: { changes: 0 } }),
           }),
         };
       }
@@ -462,7 +496,7 @@ describe("Code review fixes: Security headers, rate limiting, and password schem
     expect(data.error).toContain("Rate limit");
   });
 
-  it("ensures initial access_passwords table DDL includes max_indices column", async () => {
+  it("ensures max_indices exists for both fresh and already-created password tables", async () => {
     resetPasswordTableEnsured();
     const executedDdl: string[] = [];
     const { env } = createReviewEnv();
@@ -471,11 +505,15 @@ describe("Code review fixes: Security headers, rate limiting, and password schem
       if (query.includes("CREATE TABLE IF NOT EXISTS access_passwords")) {
         executedDdl.push(query);
       }
+      if (query.includes("ALTER TABLE access_passwords ADD COLUMN max_indices")) {
+        executedDdl.push(query);
+      }
       return origPrepare(query);
     });
 
     await ensurePasswordTable(env as any);
     expect(executedDdl.length).toBeGreaterThan(0);
     expect(executedDdl[0]).toContain("max_indices INTEGER DEFAULT NULL");
+    expect(executedDdl).toContain("ALTER TABLE access_passwords ADD COLUMN max_indices INTEGER DEFAULT NULL");
   });
 });

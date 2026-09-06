@@ -159,7 +159,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
 
     const ownerToken = crypto.randomUUID();
     const newIndex: CustomIndex = {
-      id: `idx-${Date.now()}`,
+      id: `idx-${crypto.randomUUID()}`,
       name: name.trim(),
       description: description.trim().slice(0, 500) || `${basket.length}銘柄で構成されたカスタム指数`,
       baseValue: safeBase,

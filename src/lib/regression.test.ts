@@ -37,8 +37,9 @@ describe("regression: worker API contract", () => {
     expect(calcUsesHelper).toBe(true);
   });
 
-  it("R4: /api/sync-prices caps tickers batch to <= 30 to comply with Cloudflare 50 subrequest limit", () => {
-    expect(workerSrc).toMatch(/tickers\s*=\s*Array\.from[\s\S]+?\.slice\(0,\s*30\)/);
+  it("R4: /api/sync-prices rejects batches larger than 30 instead of silently truncating them", () => {
+    expect(workerSrc).toContain("rawTickers.length > 30");
+    expect(workerSrc).toContain("At most 30 tickers may be synced per request");
   });
 
   it("R5: POST and DELETE /api/indices enforce rate limiting via checkRateLimit", () => {

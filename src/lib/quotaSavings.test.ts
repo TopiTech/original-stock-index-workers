@@ -321,6 +321,41 @@ describe("Cloudflare Quota Savings: In-Memory Calculation Cache", () => {
     // Exactly zero additional D1 reads for the second calculate call!
     expect(d1CallsAfterSecond).toBe(d1CallsAfterFirst);
   });
+
+  it("does not reuse a calculation payload when only display metadata changes", async () => {
+    const env = createSavingsTestEnv();
+    env._stockSeries.set("9984", {
+      ticker: "9984",
+      prices: JSON.stringify([{ date: "2026-09-01", close: 8000 }]),
+      updated_at: Math.floor(Date.now() / 1000),
+    });
+
+    const originalBasket = [{ ticker: "9984", name: "SoftBank", theme: "AI", weight: 100 }];
+    const renamedBasket = [{ ticker: "9984", name: "SoftBank Group", theme: "Telecom", weight: 100 }];
+
+    const first = await worker.fetch(
+      new Request("http://localhost/api/calculate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ basket: originalBasket, baseValue: 1000 }),
+      }),
+      env as any,
+    );
+    expect(first.status).toBe(200);
+
+    const second = await worker.fetch(
+      new Request("http://localhost/api/calculate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ basket: renamedBasket, baseValue: 1000 }),
+      }),
+      env as any,
+    );
+    expect(second.status).toBe(200);
+    expect(second.headers.get("x-cache")).toBeNull();
+    const data = await second.json();
+    expect(data.stockUniverse[0]).toMatchObject({ name: "SoftBank Group", theme: "Telecom" });
+  });
 });
 
 describe("Cloudflare Quota Savings: ETag and 304 Not Modified Support", () => {

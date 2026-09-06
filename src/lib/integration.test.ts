@@ -191,12 +191,13 @@ describe("integration: worker indices query edge cases", () => {
         prepare: mockPrepare,
         batch: mockBatch,
       },
+      ADMIN_PASSWORD: "test-admin-password",
     };
 
     // POST /api/indices
     const postReq = new Request("http://localhost/api/indices", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-auth-password": "test-admin-password" },
       body: JSON.stringify({
         id: "custom-test-1",
         name: "My Tech Index",
@@ -229,4 +230,3 @@ describe("integration: worker indices query edge cases", () => {
     expect(delData.ok).toBe(true);
   });
 });
-

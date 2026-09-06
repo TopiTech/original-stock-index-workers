@@ -207,7 +207,7 @@ describe("Comprehensive Review & Hardening Audit", () => {
       const userToken = "user-secret-uuid-1234";
       const createReq = new Request("http://localhost/api/indices", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-auth-password": TEST_ADMIN_PASSWORD },
         body: JSON.stringify({
           id: "custom-my-portfolio",
           name: "My Portfolio",

@@ -486,11 +486,11 @@ describe("worker fetch handlers", () => {
     expect(hash1).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it("POST /api/indices generates and returns an ownerToken for new indices", async () => {
+  it("POST /api/indices generates and returns an ownerToken for authenticated new indices", async () => {
     const env = createMockEnv();
     const req = new Request("http://localhost/api/indices", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-auth-password": TEST_ADMIN_PASSWORD },
       body: JSON.stringify({
         name: "Protected Tech Index",
         basket: [{ ticker: "9984", name: "SBG", weight: 100, theme: "AI" }],
@@ -503,6 +503,25 @@ describe("worker fetch handlers", () => {
     expect(data.ok).toBe(true);
     expect(typeof data.ownerToken).toBe("string");
     expect(data.ownerToken.length).toBeGreaterThan(10);
+    expect(data.id).toMatch(/^custom-/);
+  });
+
+  it("POST /api/indices rejects unauthenticated creation even when an owner token is supplied", async () => {
+    const env = createMockEnv();
+    const req = new Request("http://localhost/api/indices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-owner-token": "attacker-token" },
+      body: JSON.stringify({
+        id: "unauthenticated-index",
+        name: "Unauthorized Index",
+        basket: [{ ticker: "9984", name: "SBG", weight: 100, theme: "AI" }],
+      }),
+    });
+
+    const res = await worker.fetch(req, env as any);
+    expect(res.status).toBe(401);
+    const data = await res.json();
+    expect(data.error).toContain("パスワード認証");
   });
 
   it("DELETE /api/indices rejects deletion with 403 when owner token is missing or invalid", async () => {
@@ -649,16 +668,11 @@ describe("worker fetch handlers", () => {
   it("POST /api/indices returns 429 when rate limit is exceeded", async () => {
     const env = createMockEnv({
       DB: {
-        prepare: vi.fn().mockImplementation((query: string) => ({
-          bind: vi.fn().mockReturnThis(),
-          all: vi.fn().mockImplementation(() => {
-            if (query.includes("rate_limits")) {
-              return { results: [{ request_count: 61, window_start: Math.floor(Date.now() / 1000) }] };
-            }
-            return { results: [] };
+        prepare: vi.fn().mockReturnValue({
+          bind: vi.fn().mockReturnValue({
+            run: vi.fn().mockResolvedValue({ meta: { changes: 0 } }),
           }),
-          run: vi.fn().mockResolvedValue({ success: true }),
-        })),
+        }),
         batch: vi.fn().mockResolvedValue([]),
       },
     });
@@ -681,16 +695,11 @@ describe("worker fetch handlers", () => {
   it("DELETE /api/indices returns 429 when rate limit is exceeded", async () => {
     const env = createMockEnv({
       DB: {
-        prepare: vi.fn().mockImplementation((query: string) => ({
-          bind: vi.fn().mockReturnThis(),
-          all: vi.fn().mockImplementation(() => {
-            if (query.includes("rate_limits")) {
-              return { results: [{ request_count: 61, window_start: Math.floor(Date.now() / 1000) }] };
-            }
-            return { results: [] };
+        prepare: vi.fn().mockReturnValue({
+          bind: vi.fn().mockReturnValue({
+            run: vi.fn().mockResolvedValue({ meta: { changes: 0 } }),
           }),
-          run: vi.fn().mockResolvedValue({ success: true }),
-        })),
+        }),
         batch: vi.fn().mockResolvedValue([]),
       },
     });
@@ -777,7 +786,7 @@ describe("worker fetch handlers", () => {
       const env = createMockEnv();
       const defaultPrepare = env.DB.prepare;
       env.DB.prepare = vi.fn().mockImplementation((query: string) => {
-        if (query.includes("FROM rate_limits")) {
+        if (query.includes("rate_limits")) {
           throw new Error("rate-limit table unavailable");
         }
         return defaultPrepare(query);
@@ -990,6 +999,7 @@ describe("worker fetch handlers", () => {
       let executedQueryWithLegacyColumns = false;
       const env = {
         ASSETS: { fetch: vi.fn().mockResolvedValue(new Response("Asset")) },
+        ADMIN_PASSWORD: "admin-password",
         DB: {
           prepare: vi.fn().mockImplementation((query: string) => ({
             bind: vi.fn().mockImplementation((...params: unknown[]) => ({
@@ -1011,6 +1021,8 @@ describe("worker fetch handlers", () => {
               query,
               params,
             })),
+            all: vi.fn().mockResolvedValue({ results: [] }),
+            run: vi.fn().mockResolvedValue({ success: true }),
           })),
           batch: vi.fn().mockImplementation(async (stmts: any[]) => {
             for (const s of stmts) {
@@ -1028,7 +1040,7 @@ describe("worker fetch handlers", () => {
 
       const req = new Request("http://localhost/api/indices", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-auth-password": "admin-password" },
         body: JSON.stringify({
           id: "unmigrated-index-1",
           name: "Unmigrated Index",

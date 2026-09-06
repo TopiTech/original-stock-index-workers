@@ -64,9 +64,16 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
       return;
     }
 
-    const basketKey = `${selectedIndex.id}:${selectedIndex.baseValue}:${selectedIndex.basket
-      .map((b) => `${b.ticker}:${b.weight}`)
-      .join(",")}`;
+    const basketKey = JSON.stringify({
+      id: selectedIndex.id,
+      baseValue: selectedIndex.baseValue,
+      basket: selectedIndex.basket.map(({ ticker, name, theme, weight }) => ({
+        ticker,
+        name,
+        theme,
+        weight,
+      })),
+    });
 
     // SWR pattern: immediately populate from client memory cache if available
     const cachedResult = clientCalcCache.get(basketKey);
@@ -123,7 +130,10 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
             try {
               const syncRes = await fetch(`${API_BASE}/sync-prices`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: {
+                  "Content-Type": "application/json",
+                  ...getAuthHeaders(session),
+                },
                 body: JSON.stringify({ tickers: chunk, force }),
                 signal: controller.signal,
               });

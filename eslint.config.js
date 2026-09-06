@@ -21,6 +21,14 @@ export default tseslint.config(
     },
   },
   {
+    files: ["public/**/*.js"],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+      },
+    },
+  },
+  {
     files: ["**/*.{jsx,tsx}"],
     ...react.configs.flat.recommended,
     settings: {

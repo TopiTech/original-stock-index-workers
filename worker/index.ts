@@ -208,6 +208,11 @@ export async function ensurePasswordTable(env: Env): Promise<void> {
         updated_at INTEGER
       )
     `).run();
+    try {
+      await env.DB.prepare("ALTER TABLE access_passwords ADD COLUMN max_indices INTEGER DEFAULT NULL").run();
+    } catch {
+      // The column already exists on current schemas.
+    }
     // Ensure all columns on indices exist for unmigrated databases
     try {
       await env.DB.prepare("ALTER TABLE indices ADD COLUMN owner_token_hash TEXT").run();
@@ -647,10 +652,36 @@ async function parseJsonBody(request: Request): Promise<{ ok: true; body: Record
   try {
     // Check Content-Length header to reject oversized payloads early
     const contentLength = request.headers.get("content-length");
-    if (contentLength && Number(contentLength) > MAX_REQUEST_BODY_SIZE) {
+    if (contentLength && (!/^\d+$/.test(contentLength) || Number(contentLength) > MAX_REQUEST_BODY_SIZE)) {
       return { ok: false, response: json({ error: "Request body too large" }, 413, request) };
     }
-    const body = (await request.json()) as Record<string, unknown>;
+
+    // Content-Length is optional for streamed/chunked requests. Read the
+    // stream with a hard cap as well so those requests cannot bypass the
+    // limit by omitting the header.
+    const reader = request.body?.getReader();
+    if (!reader) {
+      return { ok: false, response: json({ error: "Invalid JSON body" }, 400, request) };
+    }
+    const chunks: Uint8Array[] = [];
+    let totalSize = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalSize += value.byteLength;
+      if (totalSize > MAX_REQUEST_BODY_SIZE) {
+        await reader.cancel();
+        return { ok: false, response: json({ error: "Request body too large" }, 413, request) };
+      }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(totalSize);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    const body = JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       return { ok: false, response: json({ error: "Invalid JSON body" }, 400, request) };
     }
@@ -673,33 +704,20 @@ async function checkRateLimit(
 ): Promise<boolean> {
   const now = Math.floor(Date.now() / 1000);
   try {
-    const { results } = await env.DB.prepare(
-      "SELECT request_count, window_start FROM rate_limits WHERE ip = ? AND endpoint = ?",
+    // Reserve a request slot atomically. The former SELECT-then-UPDATE flow
+    // allowed concurrent calls that all observed the same count just below the
+    // limit, so each was admitted. The WHERE clause makes a saturated active
+    // window a no-op (meta.changes = 0); an expired window is reset to one.
+    const result = await env.DB.prepare(
+      "INSERT INTO rate_limits (ip, endpoint, request_count, window_start) VALUES (?, ?, 1, ?) ON CONFLICT(ip, endpoint) DO UPDATE SET request_count = CASE WHEN rate_limits.window_start <= ? THEN 1 ELSE rate_limits.request_count + 1 END, window_start = CASE WHEN rate_limits.window_start <= ? THEN excluded.window_start ELSE rate_limits.window_start END WHERE rate_limits.window_start <= ? OR rate_limits.request_count < ?",
     )
-      .bind(ip, endpoint)
-      .all();
-
-    const row = (results as { request_count: number; window_start: number }[])[0];
-    if (row && now - row.window_start < RATE_LIMIT_WINDOW) {
-      if (row.request_count >= maxRequests) return false;
-      await env.DB.prepare(
-        "UPDATE rate_limits SET request_count = request_count + 1 WHERE ip = ? AND endpoint = ?",
-      )
-        .bind(ip, endpoint)
-        .run();
-    } else {
-      // Use ON CONFLICT DO UPDATE so concurrent first-window requests for the
-      // same (ip, endpoint) atomically increment the counter instead of having
-      // the second write overwrite the first (which INSERT OR REPLACE does,
-      // because it deletes + reinserts with the hard-coded count=1).
-      // CASE resets the counter to 1 when the previous window has expired.
-      await env.DB.prepare(
-        "INSERT INTO rate_limits (ip, endpoint, request_count, window_start) VALUES (?, ?, 1, ?) ON CONFLICT(ip, endpoint) DO UPDATE SET request_count = CASE WHEN rate_limits.window_start < ? - ? THEN 1 ELSE rate_limits.request_count + 1 END, window_start = CASE WHEN rate_limits.window_start < ? - ? THEN excluded.window_start ELSE rate_limits.window_start END",
-      )
-        .bind(ip, endpoint, now, now, RATE_LIMIT_WINDOW, now, RATE_LIMIT_WINDOW)
-        .run();
-    }
-    return true;
+      .bind(ip, endpoint, now, now - RATE_LIMIT_WINDOW, now - RATE_LIMIT_WINDOW, now - RATE_LIMIT_WINDOW, maxRequests)
+      .run();
+    const changes = (result as { meta?: { changes?: number } }).meta?.changes;
+    // D1 always reports meta.changes. Retain compatibility with the project's
+    // lightweight D1 adapters, which model a successful write without this
+    // optional metadata field.
+    return changes === undefined || changes === 1;
   } catch (err) {
     if (failClosed) {
       console.error(`Rate limit check failed for ${endpoint}:`, err);
@@ -1095,6 +1113,13 @@ export default {
           const currentCount = existingStocks ? existingStocks.length : 0;
 
           if (!isAlreadyPresent) {
+            if (currentCount >= MAX_BASKET_ITEMS) {
+              return json(
+                { error: `この指数には最大${MAX_BASKET_ITEMS}銘柄までしか追加できません` },
+                400,
+                request,
+              );
+            }
             // 新規追加の場合、ユーザー権限なら上限銘柄数をチェック
             if (auth.role === "user" && auth.maxStocks && auth.maxStocks > 0) {
               if (currentCount >= auth.maxStocks) {
@@ -1480,7 +1505,7 @@ export default {
         if (body.id !== undefined && (typeof body.id !== "string" || body.id.trim().length === 0 || body.id.trim().length > 100 || !/^[A-Za-z0-9._-]+$/.test(body.id.trim()))) {
           return json({ error: "Invalid id" }, 400, request);
         }
-        const id = typeof body.id === "string" && body.id.trim().length > 0 ? body.id.trim() : `custom-${Date.now()}`;
+        const id = typeof body.id === "string" && body.id.trim().length > 0 ? body.id.trim() : `custom-${crypto.randomUUID()}`;
 
         // Password authentication and role check
         const explicitPwd = typeof body.password === "string" ? body.password : null;
@@ -1588,6 +1613,14 @@ export default {
           } catch {
             // Older schemas may not support the fallback lookup either.
           }
+        }
+
+        // The client UI requires a password before saving. Enforce that
+        // boundary on the API as well: otherwise callers can create new
+        // indices directly and bypass per-user stock/index quotas. Existing
+        // owner-token protected indices remain editable for compatibility.
+        if (!isExisting && !auth.authenticated) {
+          return json({ error: "指数の新規作成にはパスワード認証が必要です" }, 401, request);
         }
 
         // Index limit check for user role when creating a new index
@@ -1819,9 +1852,19 @@ export default {
             return json({ error: "Invalid ticker value" }, 400, request);
           }
         }
-        // Deduplicate tickers and limit to max 30 per request to respect Cloudflare subrequest limits
-        const tickers = Array.from(new Set((rawTickers as string[]).map((t) => t.trim().toUpperCase()))).slice(0, 30);
+        // Keep the request within Cloudflare's subrequest limits. Silently
+        // truncating used to make callers believe every ticker was refreshed.
+        if (rawTickers.length > 30) {
+          return json({ error: "At most 30 tickers may be synced per request" }, 400, request);
+        }
+        const tickers = Array.from(new Set((rawTickers as string[]).map((t) => t.trim().toUpperCase())));
         const force = body.force === true;
+        if (force) {
+          const auth = await authenticatePassword(request, env);
+          if (!auth.authenticated) {
+            return json({ error: "強制同期にはパスワード認証が必要です" }, 401, request);
+          }
+        }
         const results: { ticker: string; status: string; count?: number; lastSynced?: number }[] =
           [];
         const now = Math.floor(Date.now() / 1000);
@@ -2026,11 +2069,15 @@ export default {
 
         // In-memory cache check: identical basket and baseValue returns immediately,
         // saving both expensive D1 reads and calculation CPU time.
-        const calcCacheKey = `calc:${baseValue}:${validatedBasket
-          .slice()
-          .sort((a, b) => a.ticker.localeCompare(b.ticker))
-          .map((b) => `${b.ticker}:${b.weight}`)
-          .join(",")}`;
+        // The response contains the full basket and stock metadata, not only
+        // numerical values. Include every response-affecting basket field in
+        // the cache fingerprint so a renamed ticker/theme never receives a
+        // stale payload from a previous calculation.
+        const calcCacheFingerprint = await generateETag(JSON.stringify({
+          baseValue,
+          basket: validatedBasket,
+        }));
+        const calcCacheKey = `calc:${calcCacheFingerprint}`;
 
         const cachedCalc = getMemoryCache<unknown>(calcCacheKey);
         if (cachedCalc) {
@@ -2155,6 +2202,11 @@ export default {
         headers.set("X-Content-Type-Options", "nosniff");
         headers.set("X-Frame-Options", "SAMEORIGIN");
         headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+        headers.set(
+          "Content-Security-Policy",
+          "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'",
+        );
+        headers.set("Permissions-Policy", "camera=(), geolocation=(), microphone=()");
 
         return new Response(assetRes.body, {
           status: assetRes.status,
