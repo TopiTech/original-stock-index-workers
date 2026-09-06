@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Clock3, Database, Shield, KeyRound, Lock, ShieldCheck } from "lucide-react";
+import { Clock3, Shield, KeyRound, Lock, ShieldCheck } from "lucide-react";
 import { Badge } from "./ui";
 import { useAuth } from "../hooks/useAuth";
 import { ThemeControls } from "./ThemeControls";

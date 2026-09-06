@@ -1,6 +1,35 @@
 import type { BasketItem, PricePoint, RiskMetrics, StockDetail, StockSeries } from "../types";
 import { normalizeWeights } from "./indexEngine";
 
+const CANONICAL_PRICE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function normalizeAnalyticsSeries(
+  series: PricePoint[] | undefined,
+  useValue: boolean,
+): PricePoint[] {
+  if (!Array.isArray(series)) return [];
+  const byDate = new Map<string, PricePoint>();
+
+  for (const point of series) {
+    if (!point || typeof point.date !== "string") {
+      continue;
+    }
+    const value = useValue ? point.value ?? point.close : point.close;
+    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+      continue;
+    }
+    byDate.set(point.date, point);
+  }
+
+  const normalized = Array.from(byDate.values());
+  // API data uses canonical ISO dates, for which lexical ordering is safe.
+  // Keep the original order for legacy callers that use a looser date label
+  // format; this preserves the existing time-series contract for those inputs.
+  return normalized.every((point) => CANONICAL_PRICE_DATE_PATTERN.test(point.date))
+    ? normalized.sort((a, b) => a.date.localeCompare(b.date))
+    : normalized;
+}
+
 /**
  * 単純移動平均線 (SMA) を計算
  */
@@ -28,8 +57,8 @@ export function calculateSMA(data: number[], window: number): (number | null)[] 
  * 指数系列とベンチマーク系列からクオンツ・リスク指標を算出
  */
 export function calculateRiskMetrics(
-  customSeries: PricePoint[],
-  benchmarkSeries: PricePoint[],
+  rawCustomSeries: PricePoint[],
+  rawBenchmarkSeries: PricePoint[],
   riskFreeRate = 0.005, // 0.5% (日本国債等想定)
 ): RiskMetrics {
   const defaultMetrics: RiskMetrics = {
@@ -42,6 +71,9 @@ export function calculateRiskMetrics(
     bestDay: 0,
     worstDay: 0,
   };
+
+  const customSeries = normalizeAnalyticsSeries(rawCustomSeries, true);
+  const benchmarkSeries = normalizeAnalyticsSeries(rawBenchmarkSeries, false);
 
   if (!customSeries || customSeries.length < 2) {
     return defaultMetrics;
@@ -169,17 +201,26 @@ export function calculateStockDetails(
 ): StockDetail[] {
   const normalized = normalizeWeights(basket);
   const stockMap = new Map(stockUniverse.map((s) => [s.ticker, s]));
+  const normalizedCustomSeries = normalizeAnalyticsSeries(customSeries, true);
+  const safeBaseValue = typeof baseValue === "number" && Number.isFinite(baseValue) && baseValue > 0 ? baseValue : 1000;
 
   // 直近の前日・当日の指数値
-  const latestIndexVal = customSeries.length > 0 ? (customSeries[customSeries.length - 1].value ?? baseValue) : baseValue;
-  const prevIndexVal = customSeries.length > 1 ? (customSeries[customSeries.length - 2].value ?? latestIndexVal) : latestIndexVal;
+  const latestIndexVal = normalizedCustomSeries.length > 0
+    ? (normalizedCustomSeries[normalizedCustomSeries.length - 1].value ?? normalizedCustomSeries[normalizedCustomSeries.length - 1].close)
+    : safeBaseValue;
+  const prevIndexVal = normalizedCustomSeries.length > 1
+    ? (normalizedCustomSeries[normalizedCustomSeries.length - 2].value ?? normalizedCustomSeries[normalizedCustomSeries.length - 2].close)
+    : latestIndexVal;
 
   return normalized.map((item) => {
     const stock = stockMap.get(item.ticker);
-    const series = stock?.series || [];
+    const series = normalizeAnalyticsSeries(stock?.series, false);
     const len = series.length;
 
-    const currentPrice = len > 0 ? series[len - 1].close : (stock?.latestPrice || 0);
+    const fallbackPrice = typeof stock?.latestPrice === "number" && Number.isFinite(stock.latestPrice) && stock.latestPrice > 0
+      ? stock.latestPrice
+      : 0;
+    const currentPrice = len > 0 ? series[len - 1].close : fallbackPrice;
     const previousPrice = len > 1 ? series[len - 2].close : currentPrice;
     
     const change = Number((currentPrice - previousPrice).toFixed(2));

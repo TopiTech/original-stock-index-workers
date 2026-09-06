@@ -36,10 +36,38 @@ interface D1Row {
   [key: string]: unknown;
 }
 
+const PRICE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
 function isPricePoint(value: unknown): value is PricePoint {
   if (!value || typeof value !== "object") return false;
   const point = value as Record<string, unknown>;
-  return typeof point.date === "string" && typeof point.close === "number";
+  return (
+    typeof point.date === "string" &&
+    PRICE_DATE_PATTERN.test(point.date) &&
+    typeof point.close === "number" &&
+    Number.isFinite(point.close) &&
+    point.close > 0
+  );
+}
+
+function sanitizePriceSeries(value: unknown): PricePoint[] {
+  if (!Array.isArray(value)) return [];
+  const byDate = new Map<string, PricePoint>();
+  for (const point of value) {
+    if (!isPricePoint(point)) continue;
+    byDate.set(point.date, { date: point.date, close: point.close });
+  }
+  return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function isMissingColumnError(error: unknown, column: string): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return message.toLowerCase().includes(column.toLowerCase()) && /no column|no such column|does not exist|sqlite_error/i.test(message);
+}
+
+function isMissingTableError(error: unknown, table: string): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return message.toLowerCase().includes(table.toLowerCase()) && /no such table|no table|does not exist|sqlite_error/i.test(message);
 }
 
 interface BasketItemInput {
@@ -47,6 +75,82 @@ interface BasketItemInput {
   name: string;
   theme: string;
   weight: number;
+}
+
+interface IndexWriteColumns {
+  ownerTokenHash: boolean;
+  creatorId: boolean;
+  createdAt: boolean;
+}
+
+interface IndexWriteValues {
+  id: string;
+  name: string;
+  description: string;
+  baseValue: number;
+  ownerTokenHash: string | null;
+  creatorId: string | null;
+  createdAt: number;
+  sortOrder: number | null;
+  /** Use REPLACE only for an existing row or a legacy schema without ownership metadata. */
+  useReplace: boolean;
+  /** When set, insert only while this creator is below the quota. */
+  creationLimit?: number;
+}
+
+/**
+ * Build the index upsert for the columns available on the deployed schema.
+ *
+ * D1 deployments can briefly be on different migration revisions. Keeping
+ * optional columns out of the statement is safe only when the columns are
+ * explicitly known to be unavailable; when they are present, the subqueries
+ * preserve existing ownership/creation metadata during an admin edit.
+ */
+function prepareIndexUpsert(
+  env: Env,
+  values: IndexWriteValues,
+  columns: IndexWriteColumns,
+): D1PreparedStatement {
+  const columnNames = ["id", "name", "description", "base_value"];
+  const valueExpressions = ["?", "?", "?", "?"];
+  const params: (string | number | null)[] = [
+    values.id,
+    values.name,
+    values.description,
+    values.baseValue,
+  ];
+
+  if (columns.ownerTokenHash) {
+    columnNames.push("owner_token_hash");
+    valueExpressions.push("?");
+    params.push(values.ownerTokenHash);
+  }
+  if (columns.creatorId) {
+    columnNames.push("creator_id");
+    valueExpressions.push("COALESCE((SELECT creator_id FROM indices WHERE id = ?), ?)");
+    params.push(values.id, values.creatorId);
+  }
+  if (columns.createdAt) {
+    columnNames.push("created_at");
+    valueExpressions.push("COALESCE((SELECT created_at FROM indices WHERE id = ?), ?)");
+    params.push(values.id, values.createdAt);
+  }
+
+  columnNames.push("sort_order");
+  valueExpressions.push("COALESCE(?, (SELECT sort_order FROM indices WHERE id = ?), 50)");
+  params.push(values.sortOrder, values.id);
+
+  const insertPrefix = values.useReplace ? "INSERT OR REPLACE" : "INSERT";
+  const insertSource = values.creationLimit !== undefined
+    ? `SELECT ${valueExpressions.join(", ")} WHERE (SELECT COUNT(*) FROM indices WHERE creator_id = ?) < ?`
+    : `VALUES (${valueExpressions.join(", ")})`;
+  if (values.creationLimit !== undefined) {
+    params.push(values.creatorId, values.creationLimit);
+  }
+
+  return env.DB.prepare(
+    `${insertPrefix} INTO indices (${columnNames.join(", ")}) ${insertSource}`,
+  ).bind(...params);
 }
 
 // Built-in system index IDs that cannot be deleted
@@ -57,6 +161,12 @@ export const SYSTEM_INDICES = new Set([
   "infra-tech",
   "jp-core",
 ]);
+
+const BENCHMARK_MAP: Record<string, { label: string; desc: string }> = {
+  "^N225": { label: "日経225", desc: "日経平均株価 (日足)" },
+  "^GSPC": { label: "S&P 500", desc: "S&P 500 米国株価指数" },
+  "USDJPY=X": { label: "米ドル/円", desc: "USD/JPY 為替レート" },
+};
 
 // Upper bound for a single index basket. Must stay below D1 batch/query
 // limits (each basket item becomes one INSERT statement in the save batch)
@@ -403,7 +513,8 @@ export async function authenticatePassword(
         "SELECT id, name, role, max_stocks, max_indices, is_active, password_hash FROM access_passwords WHERE is_active = 1 AND id != 'admin-master' ORDER BY created_at ASC"
       ).all();
       passwordRows = dbRes.results;
-    } catch {
+    } catch (lookupErr: unknown) {
+      if (!isMissingColumnError(lookupErr, "max_indices")) throw lookupErr;
       const dbRes = await env.DB.prepare(
         "SELECT id, name, role, max_stocks, is_active, password_hash FROM access_passwords WHERE is_active = 1 AND id != 'admin-master' ORDER BY created_at ASC"
       ).all();
@@ -626,7 +737,11 @@ function json(data: unknown, status = 200, request?: Request, customHeaders?: Re
     }
 
     const pathname = new URL(request.url).pathname;
-    if (pathname.startsWith("/api/auth/") || pathname.startsWith("/api/admin/")) {
+    if (
+      pathname.startsWith("/api/auth/") ||
+      pathname.startsWith("/api/admin/") ||
+      (pathname === "/api/indices" && request.method === "POST")
+    ) {
       headers["cache-control"] = "no-store";
     }
   }
@@ -794,7 +909,8 @@ export default {
               "SELECT id, name, role, max_stocks, max_indices, is_active, created_at, updated_at FROM access_passwords WHERE id != 'admin-master' ORDER BY created_at DESC"
             ).all();
             results = dbRes.results;
-          } catch {
+          } catch (lookupErr: unknown) {
+            if (!isMissingColumnError(lookupErr, "max_indices")) throw lookupErr;
             const dbRes = await env.DB.prepare(
               "SELECT id, name, role, max_stocks, is_active, created_at, updated_at FROM access_passwords WHERE id != 'admin-master' ORDER BY created_at DESC"
             ).all();
@@ -850,7 +966,20 @@ export default {
             await env.DB.prepare(
               "INSERT INTO access_passwords (id, name, password_hash, role, max_stocks, max_indices, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)"
             ).bind(id, name.trim(), hash, assignedRole, maxStockLimit, maxIndexLimit, now, now).run();
-          } catch {
+          } catch (insertErr: unknown) {
+            // Never silently discard a requested index quota on an unmigrated
+            // database. An administrator must apply the migration first.
+            if (maxIndexLimit !== null) {
+              if (isMissingColumnError(insertErr, "max_indices")) {
+                return json({ error: "指数上限を保存するにはデータベースのマイグレーションが必要です" }, 503, request);
+              }
+              throw insertErr;
+            }
+            // Unlimited accounts remain compatible with the pre-max_indices
+            // schema, but unrelated insert failures must still surface.
+            if (!isMissingColumnError(insertErr, "max_indices")) {
+              throw insertErr;
+            }
             await env.DB.prepare(
               "INSERT INTO access_passwords (id, name, password_hash, role, max_stocks, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)"
             ).bind(id, name.trim(), hash, assignedRole, maxStockLimit, now, now).run();
@@ -1054,6 +1183,14 @@ export default {
             return json({ error: "銘柄情報 (stock) は必須です" }, 400, request);
           }
           const rawStock = stock as Record<string, unknown>;
+          const ownerTokenCandidates = [
+            request.headers.get("x-owner-token"),
+            typeof rawStock.ownerToken === "string" ? rawStock.ownerToken : null,
+            typeof parsed.body.ownerToken === "string" ? parsed.body.ownerToken : null,
+          ];
+          if (ownerTokenCandidates.some((token) => token !== null && token.trim().length > 256)) {
+            return json({ error: "作成者トークンは256文字以内で指定してください" }, 400, request);
+          }
           const ticker = typeof rawStock.ticker === "string" ? rawStock.ticker.trim().toUpperCase() : "";
           const name = typeof rawStock.name === "string" ? rawStock.name.trim() : "";
           const theme = typeof rawStock.theme === "string" ? rawStock.theme.trim() : "カスタム";
@@ -1072,6 +1209,9 @@ export default {
           if (!name || name.length > 100) {
             return json({ error: "銘柄名は1〜100文字で入力してください" }, 400, request);
           }
+          if (theme.length > 100) {
+            return json({ error: "テーマは100文字以内で入力してください" }, 400, request);
+          }
 
           // 現在の銘柄数チェック
           const { results: existingStocks } = await env.DB.prepare(
@@ -1089,13 +1229,10 @@ export default {
               hasCheckedIndex = true;
               existingHash = (results[0] as { owner_token_hash?: string }).owner_token_hash || null;
             }
-          } catch {
-            try {
-              const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(cleanIndexId).all();
-              if (results && results.length > 0) hasCheckedIndex = true;
-            } catch {
-              // Older schemas may not support the fallback lookup either.
-            }
+          } catch (lookupErr: unknown) {
+            if (!isMissingColumnError(lookupErr, "owner_token_hash")) throw lookupErr;
+            const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(cleanIndexId).all();
+            if (results && results.length > 0) hasCheckedIndex = true;
           }
 
           if (!hasCheckedIndex) {
@@ -1121,8 +1258,11 @@ export default {
             }
           }
 
-          const isAlreadyPresent = (existingStocks as { ticker: string }[] || []).some((s) => s.ticker === ticker);
-          const currentCount = existingStocks ? existingStocks.length : 0;
+          const existingTicker = (existingStocks as { ticker?: unknown }[] || []).find(
+            (s) => typeof s.ticker === "string" && s.ticker.trim().toUpperCase() === ticker,
+          )?.ticker;
+          const isAlreadyPresent = typeof existingTicker === "string";
+          const currentCount = existingStocks?.length ?? 0;
 
           if (!isAlreadyPresent) {
             if (currentCount >= MAX_BASKET_ITEMS) {
@@ -1144,9 +1284,22 @@ export default {
             }
           }
 
-          await env.DB.prepare(
+          const saveStockStmt = env.DB.prepare(
             "INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES (?, ?, ?, ?, ?)"
-          ).bind(cleanIndexId, ticker, name, weight, theme).run();
+          ).bind(cleanIndexId, ticker, name, weight, theme);
+          if (typeof existingTicker === "string" && existingTicker.trim() !== ticker) {
+            // Normalize legacy lower-case tickers before writing. SQLite's
+            // UNIQUE constraint is case-sensitive, so a plain INSERT OR
+            // REPLACE would otherwise create a duplicate logical constituent.
+            await env.DB.batch([
+              env.DB.prepare(
+                "DELETE FROM basket_items WHERE index_id = ? AND UPPER(ticker) = ?",
+              ).bind(cleanIndexId, ticker),
+              saveStockStmt,
+            ]);
+          } else {
+            await saveStockStmt.run();
+          }
 
           clearMemoryCache("api:indices");
           clearMemoryCache("calc:");
@@ -1182,6 +1335,10 @@ export default {
           }
           const indexId = rawIndexId.trim();
           const ticker = rawTicker.trim().toUpperCase();
+          const providedToken = request.headers.get("x-owner-token")?.trim() || "";
+          if (providedToken.length > 256) {
+            return json({ error: "作成者トークンは256文字以内で指定してください" }, 400, request);
+          }
 
           const auth = await authenticatePassword(request, env);
           if (!auth.authenticated) {
@@ -1203,13 +1360,10 @@ export default {
               hasCheckedIndex = true;
               existingHash = (results[0] as { owner_token_hash?: string }).owner_token_hash || null;
             }
-          } catch {
-            try {
-              const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(indexId).all();
-              if (results && results.length > 0) hasCheckedIndex = true;
-            } catch {
-              // Older schemas may not support the fallback lookup either.
-            }
+          } catch (lookupErr: unknown) {
+            if (!isMissingColumnError(lookupErr, "owner_token_hash")) throw lookupErr;
+            const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(indexId).all();
+            if (results && results.length > 0) hasCheckedIndex = true;
           }
 
           if (!hasCheckedIndex) {
@@ -1242,9 +1396,22 @@ export default {
             return json({ error: "構成銘柄が1件のみのため削除できません（指数には最低1銘柄必要です）" }, 400, request);
           }
 
-          await env.DB.prepare(
+          let deleteResult = await env.DB.prepare(
             "DELETE FROM basket_items WHERE index_id = ? AND ticker = ?"
-          ).bind(indexId, ticker.trim().toUpperCase()).run();
+          ).bind(indexId, ticker).run();
+          let deletedChanges = (deleteResult as { meta?: { changes?: number } }).meta?.changes;
+          if (deletedChanges === 0) {
+            // Handle legacy rows written before ticker normalization. The
+            // second query is only needed when the exact-case delete was a
+            // confirmed no-op.
+            deleteResult = await env.DB.prepare(
+              "DELETE FROM basket_items WHERE index_id = ? AND UPPER(ticker) = ?"
+            ).bind(indexId, ticker).run();
+            deletedChanges = (deleteResult as { meta?: { changes?: number } }).meta?.changes;
+          }
+          if (deletedChanges === 0) {
+            return json({ error: "指定された銘柄が見つかりません" }, 404, request);
+          }
 
           clearMemoryCache("api:indices");
           clearMemoryCache("calc:");
@@ -1272,6 +1439,9 @@ export default {
         if (symbol.length === 0 || symbol.length > 20 || !/^[A-Za-z0-9.^=_-]+$/.test(symbol)) {
           return json({ error: "Invalid symbol parameter" }, 400, request);
         }
+        if (!Object.prototype.hasOwnProperty.call(BENCHMARK_MAP, symbol)) {
+          return json({ error: "Unsupported symbol parameter" }, 400, request);
+        }
 
         const memKey = `snapshot:${symbol}`;
         const memCached = getMemoryCache<unknown>(memKey);
@@ -1290,12 +1460,7 @@ export default {
           });
         }
 
-        const BENCHMARK_MAP: Record<string, { label: string; desc: string }> = {
-          "^N225": { label: "日経225", desc: "日経平均株価 (日足)" },
-          "^GSPC": { label: "S&P 500", desc: "S&P 500 米国株価指数" },
-          "USDJPY=X": { label: "米ドル/円", desc: "USD/JPY 為替レート" },
-        };
-        const benchInfo = BENCHMARK_MAP[symbol] || { label: symbol, desc: `${symbol} 市場データ` };
+        const benchInfo = BENCHMARK_MAP[symbol];
 
         // For ^N225, check snapshot_cache (id = 1) for backward compatibility
         let cacheRow: { data: string; cached_at: number } | undefined;
@@ -1310,7 +1475,8 @@ export default {
               "SELECT data, cached_at FROM benchmark_cache WHERE symbol = ?",
             ).bind(symbol).all();
             cacheRow = (cached as { data: string; cached_at: number }[])[0];
-          } catch {
+          } catch (cacheErr: unknown) {
+            if (!isMissingTableError(cacheErr, "benchmark_cache")) throw cacheErr;
             // benchmark_cache table might not exist yet
           }
         }
@@ -1380,8 +1546,10 @@ export default {
             )
               .bind(symbol, JSON.stringify(responseData), now)
               .run();
-          } catch {
-            // ignore if table not created
+          } catch (cacheErr: unknown) {
+            if (!isMissingTableError(cacheErr, "benchmark_cache")) {
+              console.error("Failed to persist benchmark cache:", cacheErr);
+            }
           }
         }
 
@@ -1504,8 +1672,12 @@ export default {
         const parsed = await parseJsonBody(request);
         if (!parsed.ok) return parsed.response;
         const body = parsed.body;
+        const headerOwnerToken = request.headers.get("x-owner-token")?.trim() || "";
 
         if (body.ownerToken !== undefined && (typeof body.ownerToken !== "string" || body.ownerToken.length > 256)) {
+          return json({ error: "Invalid ownerToken: must be a string up to 256 characters" }, 400, request);
+        }
+        if (headerOwnerToken.length > 256) {
           return json({ error: "Invalid ownerToken: must be a string up to 256 characters" }, 400, request);
         }
 
@@ -1601,7 +1773,7 @@ export default {
         // Owner token verification
         let providedToken =
           (typeof body.ownerToken === "string" && body.ownerToken.trim().length > 0 ? body.ownerToken.trim() : null) ||
-          request.headers.get("x-owner-token")?.trim() ||
+          headerOwnerToken ||
           "";
 
         // Check if index already exists in D1
@@ -1616,15 +1788,14 @@ export default {
             isExisting = true;
             existingHash = (results[0] as { owner_token_hash?: string }).owner_token_hash || null;
           }
-        } catch {
-          // In case owner_token_hash column doesn't exist yet on unmigrated db
+        } catch (lookupErr: unknown) {
+          // Only a confirmed missing column is a migration compatibility case.
+          // Treat transient/unknown D1 failures as errors so an admin edit
+          // cannot accidentally clear an existing owner hash.
+          if (!isMissingColumnError(lookupErr, "owner_token_hash")) throw lookupErr;
           hasOwnerTokenHashColumn = false;
-          try {
-            const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(id).all();
-            if (results && results.length > 0) isExisting = true;
-          } catch {
-            // Older schemas may not support the fallback lookup either.
-          }
+          const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(id).all();
+          if (results && results.length > 0) isExisting = true;
         }
 
         // The client UI requires a password before saving. Enforce that
@@ -1635,23 +1806,45 @@ export default {
           return json({ error: "指数の新規作成にはパスワード認証が必要です" }, 401, request);
         }
 
-        // Index limit check for user role when creating a new index
-        if (!isExisting && auth.authenticated && auth.role === "user" && auth.maxIndices && auth.maxIndices > 0 && auth.id) {
+        const isUserCreatingIndex = !isExisting && auth.authenticated && auth.role === "user";
+        const userIndexLimit =
+          isUserCreatingIndex && typeof auth.maxIndices === "number" && Number.isSafeInteger(auth.maxIndices) && auth.maxIndices > 0
+            ? auth.maxIndices
+            : null;
+
+        // A newly-created user index must retain its ownership metadata. The
+        // legacy fallback is still available to administrators, but allowing
+        // a regular user to create an unowned index would either lock them out
+        // on the next edit or weaken the ownership boundary.
+        if (isUserCreatingIndex && !hasOwnerTokenHashColumn) {
+          return json({ error: "指数を安全に作成するにはデータベースのマイグレーションが必要です" }, 503, request);
+        }
+
+        // Index limit check for user role when creating a new index. A
+        // missing creator_id column must fail closed: ignoring the query
+        // error would turn a schema migration gap into a quota bypass.
+        if (userIndexLimit !== null) {
+          if (!auth.id) {
+            return json({ error: "指数作成数制限を適用するにはユーザー情報のマイグレーションが必要です" }, 503, request);
+          }
           try {
             const countRes = await env.DB.prepare(
               "SELECT COUNT(*) as count FROM indices WHERE creator_id = ?"
             ).bind(auth.id).all();
-            const countRow = countRes.results?.[0] as { count?: number } | undefined;
-            const currentIndicesCount = countRow?.count ?? 0;
-            if (currentIndicesCount >= auth.maxIndices) {
+            const rawCount = (countRes.results?.[0] as { count?: unknown } | undefined)?.count;
+            const currentIndicesCount = Number(rawCount);
+            if (!Number.isSafeInteger(currentIndicesCount) || currentIndicesCount < 0) {
+              return json({ error: "指数作成数制限を確認できないため、データベースのマイグレーションが必要です" }, 503, request);
+            }
+            if (currentIndicesCount >= userIndexLimit) {
               return json(
-                { error: `このユーザー用パスワードでは指数作成数を最大${auth.maxIndices}件までに制限されています（現在${currentIndicesCount}件登録済み）` },
+                { error: `このユーザー用パスワードでは指数作成数を最大${userIndexLimit}件までに制限されています（現在${currentIndicesCount}件登録済み）` },
                 403,
                 request
               );
             }
           } catch {
-            // Ignore if creator_id column is not yet present
+            return json({ error: "指数作成数制限を確認するにはデータベースのマイグレーションが必要です" }, 503, request);
           }
         }
 
@@ -1700,50 +1893,103 @@ export default {
         const nowMs = Math.floor(Date.now() / 1000);
         const creatorId = auth.authenticated && auth.id ? auth.id : null;
 
-        let insertIndexStmt;
-        if (hasOwnerTokenHashColumn) {
+        const buildIndexStatements = (columns: IndexWriteColumns): D1PreparedStatement[] => {
+          const quotaGuarded = userIndexLimit !== null && columns.creatorId;
+          const basketWriteGuard = quotaGuarded
+            ? " WHERE EXISTS (SELECT 1 FROM indices WHERE id = ? AND creator_id = ?)"
+            : "";
+          const basketWriteGuardParams = quotaGuarded ? [id, auth.id as string] : [];
+          const indexUpsert = prepareIndexUpsert(env, {
+            id,
+            name,
+            description,
+            baseValue,
+            ownerTokenHash: targetHash,
+            creatorId,
+            createdAt: nowMs,
+            sortOrder,
+            useReplace: isExisting || !hasOwnerTokenHashColumn,
+            creationLimit: quotaGuarded ? userIndexLimit : undefined,
+          }, columns);
+          const deleteBasket = env.DB.prepare(
+            `DELETE FROM basket_items WHERE index_id = ?${basketWriteGuard}`,
+          ).bind(id, ...basketWriteGuardParams);
+          const saveBasketItems = validatedBasket.map((b) => {
+            const ticker = String(b.ticker).trim().toUpperCase();
+            const stockName = String(b.name).trim();
+            const stockTheme = String(b.theme || "カスタム").trim();
+            if (!quotaGuarded) {
+              return env.DB.prepare(
+                "INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES (?, ?, ?, ?, ?)",
+              ).bind(id, ticker, stockName, Number(b.weight), stockTheme);
+            }
+            return env.DB.prepare(
+              "INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM indices WHERE id = ? AND creator_id = ?)",
+            ).bind(id, ticker, stockName, Number(b.weight), stockTheme, ...basketWriteGuardParams);
+          });
+          return [indexUpsert, deleteBasket, ...saveBasketItems];
+        };
+
+        // Start with the current schema. If D1 reports a missing migration
+        // column, retry only after removing the named column. When the owner
+        // column itself is absent, omit all optional metadata rather than
+        // pretending that ownership/quota metadata was persisted.
+        let indexWriteColumns: IndexWriteColumns = {
+          ownerTokenHash: hasOwnerTokenHashColumn,
+          creatorId: hasOwnerTokenHashColumn,
+          createdAt: hasOwnerTokenHashColumn,
+        };
+        for (;;) {
           try {
-            insertIndexStmt = env.DB.prepare(
-              "INSERT OR REPLACE INTO indices (id, name, description, base_value, owner_token_hash, creator_id, created_at, sort_order) VALUES (?, ?, ?, ?, ?, COALESCE((SELECT creator_id FROM indices WHERE id = ?), ?), COALESCE((SELECT created_at FROM indices WHERE id = ?), ?), COALESCE(?, (SELECT sort_order FROM indices WHERE id = ?), 50))",
-            ).bind(id, name, description, baseValue, targetHash, id, creatorId, id, nowMs, sortOrder, id);
-          } catch {
-            insertIndexStmt = env.DB.prepare(
-              "INSERT OR REPLACE INTO indices (id, name, description, base_value, owner_token_hash, created_at, sort_order) VALUES (?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM indices WHERE id = ?), ?), COALESCE(?, (SELECT sort_order FROM indices WHERE id = ?), 50))",
-            ).bind(id, name, description, baseValue, targetHash, id, nowMs, sortOrder, id);
-          }
-        } else {
-          // Fallback if columns not migrated yet
-          insertIndexStmt = env.DB.prepare(
-            "INSERT OR REPLACE INTO indices (id, name, description, base_value, sort_order) VALUES (?, ?, ?, ?, COALESCE(?, (SELECT sort_order FROM indices WHERE id = ?), 50))",
-          ).bind(id, name, description, baseValue, sortOrder, id);
-        }
+            const batchResults = await env.DB.batch(buildIndexStatements(indexWriteColumns));
+            if (userIndexLimit !== null) {
+              const firstResult = (batchResults as Array<{ meta?: { changes?: number } }> | undefined)?.[0];
+              // D1 reports zero changes when another request consumed the
+              // final quota slot after the preliminary count check. The
+              // guarded basket statements then become no-ops as well.
+              if (firstResult?.meta?.changes === 0) {
+                return json(
+                  { error: `このユーザー用パスワードでは指数作成数を最大${userIndexLimit}件までに制限されています` },
+                  403,
+                  request,
+                );
+              }
+            }
+            break;
+          } catch (batchErr: unknown) {
+            const mentionsMissingColumn =
+              isMissingColumnError(batchErr, "owner_token_hash") ||
+              isMissingColumnError(batchErr, "created_at") ||
+              isMissingColumnError(batchErr, "creator_id");
+            if (!hasOwnerTokenHashColumn || !mentionsMissingColumn) {
+              throw batchErr;
+            }
 
-        const statements = [
-          insertIndexStmt,
-          env.DB.prepare("DELETE FROM basket_items WHERE index_id = ?").bind(id),
-          ...validatedBasket.map((b) =>
-            env.DB.prepare(
-              "INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES (?, ?, ?, ?, ?)",
-            ).bind(id, String(b.ticker).trim().toUpperCase(), String(b.name).trim(), Number(b.weight), String(b.theme || "カスタム").trim()),
-          ),
-        ];
+            if (
+              isUserCreatingIndex &&
+              (isMissingColumnError(batchErr, "owner_token_hash") ||
+                isMissingColumnError(batchErr, "creator_id"))
+            ) {
+              return json({ error: "指数を安全に保存するにはデータベースのマイグレーションが必要です" }, 503, request);
+            }
 
-        try {
-          await env.DB.batch(statements);
-        } catch (batchErr: unknown) {
-          const batchErrorMessage = batchErr instanceof Error ? batchErr.message : "";
-          if (
-            hasOwnerTokenHashColumn &&
-            (batchErrorMessage.includes("owner_token_hash") ||
-              batchErrorMessage.includes("created_at") ||
-              batchErrorMessage.includes("creator_id"))
-          ) {
-            const fallbackStmt = env.DB.prepare(
-              "INSERT OR REPLACE INTO indices (id, name, description, base_value, sort_order) VALUES (?, ?, ?, ?, COALESCE(?, (SELECT sort_order FROM indices WHERE id = ?), 50))",
-            ).bind(id, name, description, baseValue, sortOrder, id);
-            await env.DB.batch([fallbackStmt, ...statements.slice(1)]);
-          } else {
-            throw batchErr;
+            const nextColumns: IndexWriteColumns = {
+              ownerTokenHash: indexWriteColumns.ownerTokenHash && !isMissingColumnError(batchErr, "owner_token_hash"),
+              creatorId: indexWriteColumns.creatorId && !isMissingColumnError(batchErr, "creator_id"),
+              createdAt: indexWriteColumns.createdAt && !isMissingColumnError(batchErr, "created_at"),
+            };
+            if (nextColumns.ownerTokenHash !== indexWriteColumns.ownerTokenHash && !nextColumns.ownerTokenHash) {
+              nextColumns.creatorId = false;
+              nextColumns.createdAt = false;
+            }
+            if (
+              nextColumns.ownerTokenHash === indexWriteColumns.ownerTokenHash &&
+              nextColumns.creatorId === indexWriteColumns.creatorId &&
+              nextColumns.createdAt === indexWriteColumns.createdAt
+            ) {
+              throw batchErr;
+            }
+            indexWriteColumns = nextColumns;
           }
         }
         clearMemoryCache("api:indices");
@@ -1775,6 +2021,10 @@ export default {
           return json({ error: "Invalid or missing index id parameter" }, 400, request);
         }
         const id = rawId.trim();
+        const providedToken = request.headers.get("x-owner-token")?.trim() || "";
+        if (providedToken.length > 256) {
+          return json({ error: "Invalid ownerToken: must be a string up to 256 characters" }, 400, request);
+        }
 
         if (SYSTEM_INDICES.has(id)) {
           return json({ error: "Cannot delete built-in system index" }, 403, request);
@@ -1790,14 +2040,10 @@ export default {
             isExisting = true;
             existingHash = (results[0] as { owner_token_hash?: string }).owner_token_hash || null;
           }
-        } catch {
-          // Fallback if owner_token_hash column doesn't exist yet on unmigrated db
-          try {
-            const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(id).all();
-            if (results && results.length > 0) isExisting = true;
-          } catch {
-            // Older schemas may not support the fallback lookup either.
-          }
+        } catch (lookupErr: unknown) {
+          if (!isMissingColumnError(lookupErr, "owner_token_hash")) throw lookupErr;
+          const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?").bind(id).all();
+          if (results && results.length > 0) isExisting = true;
         }
 
         if (!isExisting) {
@@ -1806,9 +2052,6 @@ export default {
 
         const auth = await authenticatePassword(request, env);
         const isAdmin = auth.authenticated && auth.role === "admin";
-
-        const providedToken =
-          request.headers.get("x-owner-token")?.trim() || "";
 
         if (!isAdmin) {
           if (existingHash) {
@@ -1966,7 +2209,8 @@ export default {
                 ];
                 try {
                   await env.DB.batch(statements);
-                } catch {
+                } catch (batchErr: unknown) {
+                  if (!isMissingTableError(batchErr, "stock_series")) throw batchErr;
                   // Fallback for unmigrated database: use legacy chunked stock_prices
                   const CHUNK_SIZE = 25;
                   const insertStatements: D1PreparedStatement[] = [];
@@ -2118,16 +2362,17 @@ export default {
             for (const row of seriesRows as { ticker: string; prices: string }[]) {
               if (row.ticker && row.prices) {
                 try {
-                  const parsed = JSON.parse(row.prices);
-                  if (Array.isArray(parsed) && parsed.length > 0) {
-                    pricesByTicker.set(row.ticker, parsed);
+                  const parsedSeries = sanitizePriceSeries(JSON.parse(row.prices));
+                  if (parsedSeries.length > 0) {
+                    pricesByTicker.set(row.ticker.trim().toUpperCase(), parsedSeries);
                   }
                 } catch {
                   // malformed json
                 }
               }
             }
-          } catch {
+          } catch (seriesErr: unknown) {
+            if (!isMissingTableError(seriesErr, "stock_series")) throw seriesErr;
             // stock_series table might not exist yet
           }
 
@@ -2146,12 +2391,24 @@ export default {
                 .all();
 
               (dbPrices as { ticker: string; date: string; price: number }[]).forEach((row) => {
-                if (!pricesByTicker.has(row.ticker)) pricesByTicker.set(row.ticker, []);
-                pricesByTicker.get(row.ticker)!.push({ date: row.date, close: row.price });
+                const ticker = typeof row.ticker === "string" ? row.ticker.trim().toUpperCase() : "";
+                if (!ticker) return;
+                if (!pricesByTicker.has(ticker)) pricesByTicker.set(ticker, []);
+                pricesByTicker.get(ticker)!.push({ date: row.date, close: row.price });
               });
-            } catch {
-              // legacy table query error
+            } catch (legacyErr: unknown) {
+              if (!isMissingTableError(legacyErr, "stock_prices")) throw legacyErr;
+              // legacy table might not exist yet
             }
+          }
+        }
+
+        for (const [ticker, rawSeries] of pricesByTicker) {
+          const series = sanitizePriceSeries(rawSeries);
+          if (series.length > 0) {
+            pricesByTicker.set(ticker, series);
+          } else {
+            pricesByTicker.delete(ticker);
           }
         }
 

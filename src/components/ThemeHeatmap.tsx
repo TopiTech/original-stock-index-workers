@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, Tag } from "./ui";
 import { LayoutGrid, TrendingUp, TrendingDown, Layers, Grid } from "lucide-react";
@@ -251,7 +251,7 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
             }}
           >
             <div className="row space-between" style={{ marginBottom: 4, gap: 8 }}>
-              <strong style={{ color: "#ffffff", fontSize: 13 }}>
+              <strong style={{ color: "var(--text-heading)", fontSize: 13 }}>
                 {hoveredStock.stock.name}
               </strong>
               <span className="mono bold" style={{ color: "var(--neon-cyan)", fontSize: 12 }}>

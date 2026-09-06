@@ -125,6 +125,26 @@ describe("analytics library", () => {
       expect(Number.isFinite(metrics.annualReturn)).toBe(true);
       expect(metrics.maxDrawdown).toBeGreaterThanOrEqual(99.9);
     });
+
+    it("sorts dates and ignores invalid points before calculating metrics", () => {
+      const metrics = calculateRiskMetrics(
+        [
+          { date: "2026-01-03", close: 120, value: 120 },
+          { date: "2026-01-02", close: 0, value: 0 },
+          { date: "2026-01-01", close: 100, value: 100 },
+          { date: "2026-01-01", close: 105, value: 105 },
+        ],
+        [
+          { date: "2026-01-03", close: 39000 },
+          { date: "2026-01-01", close: 38000 },
+          { date: "2026-01-02", close: Number.NaN },
+        ],
+      );
+
+      expect(metrics.annualReturn).toBeGreaterThan(0);
+      expect(Number.isFinite(metrics.annualVolatility)).toBe(true);
+      expect(Number.isFinite(metrics.beta)).toBe(true);
+    });
   });
 
   describe("calculateStockDetails", () => {
@@ -169,6 +189,35 @@ describe("analytics library", () => {
       expect(toyota.changePct).toBeCloseTo(3.7, 1);
       expect(toyota.contributionPt).toBeGreaterThan(0);
       expect(toyota.sparkline).toEqual([2700, 2800]);
+    });
+
+    it("uses the latest chronological valid stock prices", () => {
+      const details = calculateStockDetails(
+        [{ ticker: "7203", name: "トヨタ", weight: 100, theme: "自動車" }],
+        [{
+          ticker: "7203",
+          name: "トヨタ",
+          theme: "自動車",
+          sector: "Auto",
+          latestPrice: 0,
+          series: [
+            { date: "2026-01-02", close: 110 },
+            { date: "2026-01-03", close: 0 },
+            { date: "2026-01-01", close: 100 },
+          ],
+        }],
+        1000,
+        [
+          { date: "2026-01-02", close: 1100, value: 1100 },
+          { date: "2026-01-01", close: 1000, value: 1000 },
+        ],
+      );
+
+      expect(details[0].currentPrice).toBe(110);
+      expect(details[0].previousPrice).toBe(100);
+      expect(details[0].change).toBe(10);
+      expect(details[0].contributionPt).toBe(100);
+      expect(details[0].sparkline).toEqual([100, 110]);
     });
   });
 });
