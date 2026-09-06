@@ -1,8 +1,10 @@
 import { useState, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, Tag } from "./ui";
 import { LayoutGrid, TrendingUp, TrendingDown, Layers, Grid } from "lucide-react";
 import type { StockDetail } from "../types";
+import { createTreemapLayout, type TreemapLayout } from "../lib/treemap";
 
 interface ThemeHeatmapProps {
   stockDetails: StockDetail[];
@@ -40,6 +42,27 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
   }, [filteredStocks]);
 
   const isManyStocks = filteredStocks.length > 28;
+  const heatmapHeight = Math.max(240, Math.min(480, 150 + Math.sqrt(filteredStocks.length) * 24));
+
+  const treemapLayouts = useMemo(() => {
+    const layouts = createTreemapLayout(
+      filteredStocks.map((stock) => ({ key: stock.ticker, value: stock.weight })),
+    );
+    return new Map(layouts.map((layout) => [layout.key, layout]));
+  }, [filteredStocks]);
+
+  const themeTreemapLayouts = useMemo(() => {
+    const layoutsByTheme = new Map<string, Map<string, TreemapLayout>>();
+
+    for (const [theme, stocks] of stocksByTheme) {
+      const layouts = createTreemapLayout(
+        stocks.map((stock) => ({ key: stock.ticker, value: stock.weight })),
+      );
+      layoutsByTheme.set(theme, new Map(layouts.map((layout) => [layout.key, layout])));
+    }
+
+    return layoutsByTheme;
+  }, [stocksByTheme]);
 
   if (filteredStocks.length === 0) return null;
 
@@ -65,41 +88,48 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
 
   const handleMouseMove = (e: React.MouseEvent, stock: StockDetail) => {
     // Keep tooltip positioned near cursor but within viewport bounds
-    const x = Math.min(e.clientX + 14, window.innerWidth - 240);
-    const y = Math.min(e.clientY + 14, window.innerHeight - 160);
+    const x = Math.max(8, Math.min(e.clientX + 14, window.innerWidth - 248));
+    const y = Math.max(8, Math.min(e.clientY + 14, window.innerHeight - 206));
     setHoveredStock({ stock, x, y });
   };
 
-  const renderStockTile = (stock: StockDetail, compact = false) => {
-    const isSelectedTheme = selectedTheme ? stock.theme === selectedTheme : true;
+  const renderStockTile = (stock: StockDetail, layout: TreemapLayout, compact = false) => {
+    const stockTheme = stock.theme || "その他";
+    const isSelectedTheme = selectedTheme ? stockTheme === selectedTheme : true;
     const isUp = stock.changePct > 0;
     const isDown = stock.changePct < 0;
+    const tileArea = layout.width * layout.height;
+    const sizeClass = tileArea >= 0.06 ? "is-large" : tileArea >= 0.018 ? "is-medium" : "is-small";
 
     return (
       <div
         key={stock.ticker}
-        className="heatmap-tile"
+        className={`heatmap-tile ${compact ? "is-compact" : ""} ${sizeClass}`}
         role="button"
         tabIndex={0}
-        aria-pressed={selectedTheme === stock.theme}
+        aria-pressed={selectedTheme === stockTheme}
         aria-label={`${stock.name} (${stock.ticker}) 騰落率: ${stock.changePct >= 0 ? "+" : ""}${stock.changePct.toFixed(1)}%`}
-        onClick={() => onSelectTheme(selectedTheme === stock.theme ? null : stock.theme)}
+        onClick={() => onSelectTheme(selectedTheme === stockTheme ? null : stockTheme)}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            onSelectTheme(selectedTheme === stock.theme ? null : stock.theme);
+            onSelectTheme(selectedTheme === stockTheme ? null : stockTheme);
           }
         }}
         onMouseEnter={(e) => handleMouseMove(e, stock)}
         onMouseMove={(e) => handleMouseMove(e, stock)}
         onMouseLeave={() => setHoveredStock(null)}
         style={{
+          left: `${layout.x * 100}%`,
+          top: `${layout.y * 100}%`,
+          width: `${layout.width * 100}%`,
+          height: `${layout.height * 100}%`,
           background: getBackgroundColor(stock.changePct),
           border: `1px solid ${getBorderColor(stock.changePct)}`,
           opacity: isSelectedTheme ? 1 : 0.28,
         }}
       >
-        <div className="row space-between" style={{ gap: 2 }}>
+        <div className="row space-between heatmap-tile-header" style={{ gap: 2 }}>
           <span className="heatmap-tile-code">{stock.ticker}</span>
           <span className="heatmap-tile-weight">{stock.weight.toFixed(1)}%</span>
         </div>
@@ -193,8 +223,14 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
       </div>
 
       {viewMode === "grid" ? (
-        <div className={`theme-heatmap-grid ${isManyStocks ? "density-compact" : ""}`}>
-          {filteredStocks.map((stock) => renderStockTile(stock, isManyStocks))}
+        <div
+          className={`theme-heatmap-grid ${isManyStocks ? "density-compact" : ""}`}
+          style={{ height: heatmapHeight }}
+        >
+          {filteredStocks.map((stock) => {
+            const layout = treemapLayouts.get(stock.ticker);
+            return layout ? renderStockTile(stock, layout, isManyStocks) : null;
+          })}
         </div>
       ) : (
         <div className="heatmap-groups-container">
@@ -227,8 +263,14 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
                     {isCurrentTheme ? "選択中" : "絞り込み"}
                   </button>
                 </div>
-                <div className="theme-heatmap-grid density-compact">
-                  {stocks.map((stock) => renderStockTile(stock, true))}
+                <div
+                  className="theme-heatmap-grid heatmap-group-grid"
+                  style={{ height: Math.max(96, Math.min(300, 84 + Math.sqrt(stocks.length) * 36)) }}
+                >
+                  {stocks.map((stock) => {
+                    const layout = themeTreemapLayouts.get(theme)?.get(stock.ticker);
+                    return layout ? renderStockTile(stock, layout, true) : null;
+                  })}
                 </div>
               </div>
             );
@@ -237,19 +279,22 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
       )}
 
       {/* Floating Precision Tooltip */}
-      <AnimatePresence>
-        {hoveredStock && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.96 }}
-            transition={{ duration: 0.12 }}
-            className="heatmap-tooltip-portal"
-            style={{
-              top: hoveredStock.y,
-              left: hoveredStock.x,
-            }}
-          >
+      {typeof document !== "undefined" &&
+        createPortal(
+          <AnimatePresence>
+            {hoveredStock && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.96 }}
+                transition={{ duration: 0.12 }}
+                className="heatmap-tooltip-portal"
+                role="tooltip"
+                style={{
+                  top: hoveredStock.y,
+                  left: hoveredStock.x,
+                }}
+              >
             <div className="row space-between" style={{ marginBottom: 4, gap: 8 }}>
               <strong style={{ color: "var(--text-heading)", fontSize: 13 }}>
                 {hoveredStock.stock.name}
@@ -318,9 +363,11 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
                 {hoveredStock.stock.contributionPt.toFixed(2)} pt
               </span>
             </div>
-          </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>,
+          document.body,
         )}
-      </AnimatePresence>
     </Card>
   );
 }

@@ -128,7 +128,7 @@ export function IndexSelector({
               className={`index-item ${isSelected ? "active" : ""}`}
               onClick={() => onSelect(idx)}
             >
-              <div className="row space-between" style={{ marginBottom: 4 }}>
+              <div className="row space-between index-item-header" style={{ marginBottom: 4 }}>
                 <button
                   type="button"
                   className="index-select-btn"
@@ -147,17 +147,17 @@ export function IndexSelector({
                     color: "inherit",
                     font: "inherit",
                     display: "flex",
-                    alignItems: "center",
+                    alignItems: "flex-start",
                     gap: 6,
                     flex: 1,
                   }}
                 >
-                  <span style={{ fontWeight: 700, fontSize: 14, color: isSelected ? "var(--neon-cyan)" : "var(--text-heading)" }}>
+                  <span className="index-item-name" style={{ fontWeight: 700, fontSize: 14, color: isSelected ? "var(--neon-cyan)" : "var(--text-heading)" }}>
                     {idx.name}
                   </span>
                   {isMyIndex && (
                     <span
-                      className="tag"
+                      className="tag index-item-owner"
                       style={{
                         fontSize: 9,
                         padding: "1px 6px",
@@ -175,7 +175,7 @@ export function IndexSelector({
                     </span>
                   )}
                 </button>
-                <div className="row" style={{ gap: 6 }}>
+                <div className="row index-item-actions" style={{ gap: 6 }}>
                   {isMyIndex && onDeleteIndex && (
                     <button
                       type="button"
@@ -210,8 +210,8 @@ export function IndexSelector({
               </div>
 
               <div className="column" style={{ gap: 6, marginTop: 4 }}>
-                <div className="row space-between" style={{ gap: 6, alignItems: "center" }}>
-                  <div className="row" style={{ gap: 4 }}>
+                <div className="row space-between flex-wrap index-item-meta" style={{ gap: 6, alignItems: "flex-start" }}>
+                  <div className="row index-item-basket-tags" style={{ gap: 4 }}>
                     <Tag variant="cyan" style={{ fontSize: 10, padding: "1px 6px" }}>
                       {idx.basket.length} 銘柄
                     </Tag>
@@ -220,18 +220,14 @@ export function IndexSelector({
                     </Tag>
                   </div>
 
-                  <div className="row" style={{ gap: 3, maxWidth: "55%", overflow: "hidden" }}>
+                  <div className="row index-item-stock-tags" style={{ gap: 3 }}>
                     {idx.basket.slice(0, 2).map((b) => (
                       <span
                         key={b.ticker}
-                        className="tag tag-muted"
+                        className="tag tag-muted index-item-stock-tag"
                         style={{
                           fontSize: 9,
                           padding: "1px 4px",
-                          maxWidth: 60,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
                         }}
                         title={b.name}
                       >
