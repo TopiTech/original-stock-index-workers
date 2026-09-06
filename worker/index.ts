@@ -1,5 +1,9 @@
 import { calculateCustomIndex } from "../src/lib/indexEngine";
+import { toYahooSymbol } from "../src/lib/yahooSymbol";
 import type { BasketItem, PricePoint, StockSeries } from "../src/types";
+
+// Re-export toYahooSymbol for backward compatibility with tests and external consumers
+export { toYahooSymbol } from "../src/lib/yahooSymbol";
 
 interface Env {
   ASSETS: Fetcher;
@@ -204,12 +208,6 @@ export async function ensurePasswordTable(env: Env): Promise<void> {
         updated_at INTEGER
       )
     `).run();
-    // Add max_indices column to access_passwords if not exists
-    try {
-      await env.DB.prepare("ALTER TABLE access_passwords ADD COLUMN max_indices INTEGER DEFAULT NULL").run();
-    } catch {
-      // The column may already exist on an upgraded database.
-    }
     // Ensure all columns on indices exist for unmigrated databases
     try {
       await env.DB.prepare("ALTER TABLE indices ADD COLUMN owner_token_hash TEXT").run();
@@ -528,20 +526,6 @@ export async function generateETag(content: string): Promise<string> {
   return `"${hash.slice(0, 16)}"`;
 }
 
-// Normalize ticker to Yahoo Finance query symbol
-// Japanese stock tickers (start with a digit) map to Tokyo Exchange (.T)
-// US and global tickers (e.g. AAPL, NVDA) or index/forex symbols (^N225, USDJPY=X) remain as-is
-export function toYahooSymbol(ticker: string): string {
-  const trimmed = ticker.trim().toUpperCase();
-  if (trimmed.includes(".") || trimmed.startsWith("^") || trimmed.endsWith("=X")) {
-    return trimmed;
-  }
-  if (/^\d/.test(trimmed)) {
-    return `${trimmed}.T`;
-  }
-  return trimmed;
-}
-
 // Yahoo Finance API fetcher
 async function fetchYahooFinance(symbol: string, range = "1y"): Promise<PricePoint[]> {
   const encodedSymbol = encodeURIComponent(symbol);
@@ -656,8 +640,16 @@ function notModified(request?: Request, customHeaders?: Record<string, string>) 
   });
 }
 
+// Maximum request body size (1 MB) to prevent DoS attacks
+const MAX_REQUEST_BODY_SIZE = 1024 * 1024;
+
 async function parseJsonBody(request: Request): Promise<{ ok: true; body: Record<string, unknown> } | { ok: false; response: Response }> {
   try {
+    // Check Content-Length header to reject oversized payloads early
+    const contentLength = request.headers.get("content-length");
+    if (contentLength && Number(contentLength) > MAX_REQUEST_BODY_SIZE) {
+      return { ok: false, response: json({ error: "Request body too large" }, 413, request) };
+    }
     const body = (await request.json()) as Record<string, unknown>;
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       return { ok: false, response: json({ error: "Invalid JSON body" }, 400, request) };

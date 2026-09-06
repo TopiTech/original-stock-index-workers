@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { toYahooSymbol as toYahooSymbolLib } from "./yahooSymbol";
-import { toYahooSymbol as toYahooSymbolLegacy } from "./yahuuSymbol";
+import { toYahooSymbol as toYahooSymbolLegacy } from "./yahooSymbolLegacy";
 import { toYahooSymbol as toYahooSymbolWorker } from "../../worker/index";
 
 describe("toYahooSymbol", () => {
