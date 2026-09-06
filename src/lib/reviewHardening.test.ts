@@ -111,22 +111,23 @@ describe("review hardening: production asset pipeline", () => {
 });
 
 describe("review hardening: separated auth rate-limit buckets", () => {
-  it("uses a dedicated auth-login bucket so admin API traffic cannot exhaust login attempts", async () => {
+  it("uses auth-api for protected requests after using auth-login for verification", async () => {
     const env = createMockEnv();
-    const queries: string[] = [];
-    env.DB.prepare = vi.fn().mockImplementation((query: string) => {
-      queries.push(query);
-      return {
-        bind: vi.fn().mockImplementation(() => ({
-          all: async () => ({ results: [] }),
-          run: async () => ({ success: true }),
-        })),
+    const rateLimitBuckets: string[] = [];
+    env.DB.prepare = vi.fn().mockImplementation((query: string) => ({
+      bind: (...params: unknown[]) => ({
         all: async () => ({ results: [] }),
-        run: async () => ({ success: true }),
-      };
-    });
+        run: async () => {
+          if (query.includes("INSERT INTO rate_limits")) {
+            rateLimitBuckets.push(String(params[1]));
+          }
+          return { success: true };
+        },
+      }),
+      all: async () => ({ results: [] }),
+      run: async () => ({ success: true }),
+    }));
 
-    // A login attempt reserves from the "auth-login" bucket...
     await worker.fetch(
       new Request("http://localhost/api/auth/verify", {
         method: "POST",
@@ -135,9 +136,15 @@ describe("review hardening: separated auth rate-limit buckets", () => {
       }),
       env as any,
     );
-    expect(queries.some((q) => q.includes("'auth-login'") || q.includes("(?, ?, 1, ?"))).toBe(true);
-    // ...not from the shared "auth" bucket.
-    expect(queries.some((q) => q.includes("'auth'") && !q.includes("auth-login"))).toBe(false);
+    await worker.fetch(
+      new Request("http://localhost/api/admin/passwords", {
+        headers: { "x-auth-password": TEST_ADMIN_PASSWORD },
+      }),
+      env as any,
+    );
+
+    expect(rateLimitBuckets).toContain("auth-login");
+    expect(rateLimitBuckets).toContain("auth-api");
   });
 
   it("still fails closed when the auth login rate-limit table is unavailable", async () => {

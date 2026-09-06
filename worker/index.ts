@@ -1,4 +1,8 @@
 import { calculateCustomIndex } from "../src/lib/indexEngine";
+import {
+  getMarketAwareCacheDuration as getMarketAwareCacheDurationShared,
+  isPriceCacheFresh as isPriceCacheFreshShared,
+} from "../src/lib/marketCache";
 import { toYahooSymbol } from "../src/lib/yahooSymbol";
 import type { BasketItem, PricePoint, StockSeries } from "../src/types";
 
@@ -406,7 +410,8 @@ async function upgradeLegacyPasswordHash(
 export async function authenticatePassword(
   request: Request,
   env: Env,
-  explicitPassword?: string | null
+  explicitPassword?: string | null,
+  rateLimitEndpoint = "auth-api",
 ): Promise<AuthResult> {
   const pwd =
     (explicitPassword && typeof explicitPassword === "string" ? explicitPassword.trim() : null) ||
@@ -435,15 +440,13 @@ export async function authenticatePassword(
   }
 
   const ip = request.headers.get("cf-connecting-ip") || "unknown";
-  // Login verification and authenticated API traffic use separate rate-limit
-  // buckets: every admin request consumes an "auth" slot, so sharing one
-  // bucket let a busy admin session exhaust the same 10/min budget that
-  // protects password guessing and lock out legitimate logins.
+  // Keep login verification separate from authenticated API traffic. Otherwise
+  // routine administration can exhaust the stricter login-attempt budget.
   if (
     !(await checkRateLimit(
       env,
       ip,
-      "auth-login",
+      rateLimitEndpoint,
       AUTH_RATE_LIMIT_MAX,
       true,
     ))
@@ -608,87 +611,12 @@ export function clearMemoryCache(prefix?: string): void {
   }
 }
 
-// Market-aware cache duration (JST aware: 09:00-15:30)
-// Extends TTL during market close (nights & weekends) up to 72 hours to save D1 writes and fetches.
 export function getMarketAwareCacheDuration(now: Date = new Date()): number {
-  const jstTime = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-  const day = jstTime.getUTCDay(); // 0: Sun, 1: Mon, ..., 5: Fri, 6: Sat
-  const hour = jstTime.getUTCHours();
-  const minute = jstTime.getUTCMinutes();
-  const timeInMinutes = hour * 60 + minute;
-
-  const MARKET_CLOSE_JST = 15 * 60 + 30; // 15:30 JST (930 min)
-  const MARKET_OPEN_JST = 9 * 60; // 09:00 JST (540 min)
-
-  // Saturday (Day 6) -> until Monday 9:00 (approx 40-64 hours)
-  if (day === 6) {
-    const hoursToMonday = 24 - hour + 24 + 9;
-    return Math.max(12 * 3600, hoursToMonday * 3600);
-  }
-
-  // Sunday (Day 0) -> until Monday 9:00 (approx 9-33 hours)
-  if (day === 0) {
-    const hoursToMonday = 24 - hour + 9;
-    return Math.max(12 * 3600, hoursToMonday * 3600);
-  }
-
-  // Friday after market close (Day 5, >= 15:30) -> until Monday 9:00 (approx 65 hours)
-  if (day === 5 && timeInMinutes >= MARKET_CLOSE_JST) {
-    const hoursToMonday = 24 - hour + 48 + 9;
-    return Math.max(12 * 3600, hoursToMonday * 3600);
-  }
-
-  // Weekdays after market close (Mon-Thu, >= 15:30) -> until next morning 9:00 (approx 17.5 hours)
-  if (day >= 1 && day <= 4 && timeInMinutes >= MARKET_CLOSE_JST) {
-    const hoursToMorning = 24 - hour + 9;
-    return Math.max(12 * 3600, hoursToMorning * 3600);
-  }
-
-  // Weekdays before market open (Mon-Fri, < 9:00) -> until today 9:00
-  if (day >= 1 && day <= 5 && timeInMinutes < MARKET_OPEN_JST) {
-    const minutesToOpen = MARKET_OPEN_JST - timeInMinutes;
-    return Math.max(60, Math.floor(minutesToOpen * 60));
-  }
-
-  // Regular trading hours: standard 12 hours
-  return 12 * 3600;
+  return getMarketAwareCacheDurationShared(now);
 }
 
-/**
- * Determines whether a cached stock price sync is still considered fresh.
- * Evaluates TTL dynamically from the sync timestamp (lastSyncedSec).
- * Furthermore, if data was synced during trading hours (09:00-15:30 JST on a weekday),
- * but the current time (nowSec) is after market close (>= 15:30 JST) on the same or subsequent day,
- * it is considered stale so that the definitive daily closing price will be captured.
- */
 export function isPriceCacheFresh(nowSec: number, lastSyncedSec: number): boolean {
-  if (nowSec < lastSyncedSec) return true; // Clock skew protection
-  const syncDate = new Date(lastSyncedSec * 1000);
-  const cacheDuration = getMarketAwareCacheDuration(syncDate);
-  if (nowSec - lastSyncedSec >= cacheDuration) {
-    return false;
-  }
-
-  // Check if synced during trading hours but market has since closed
-  const syncJst = new Date(syncDate.getTime() + 9 * 3600 * 1000);
-  const nowJst = new Date(nowSec * 1000 + 9 * 3600 * 1000);
-  const syncDay = syncJst.getUTCDay();
-  const syncMins = syncJst.getUTCHours() * 60 + syncJst.getUTCMinutes();
-  const nowMins = nowJst.getUTCHours() * 60 + nowJst.getUTCMinutes();
-  const MARKET_OPEN_JST = 9 * 60; // 09:00 JST
-  const MARKET_CLOSE_JST = 15 * 60 + 30; // 15:30 JST
-
-  if (syncDay >= 1 && syncDay <= 5 && syncMins >= MARKET_OPEN_JST && syncMins < MARKET_CLOSE_JST) {
-    const isSameDay =
-      syncJst.getUTCFullYear() === nowJst.getUTCFullYear() &&
-      syncJst.getUTCMonth() === nowJst.getUTCMonth() &&
-      syncJst.getUTCDate() === nowJst.getUTCDate();
-    if (isSameDay && nowMins >= MARKET_CLOSE_JST) {
-      return false; // Intraday price needs refresh after market close
-    }
-  }
-
-  return true;
+  return isPriceCacheFreshShared(nowSec, lastSyncedSec);
 }
 
 
@@ -917,7 +845,7 @@ export default {
           const parsed = await parseJsonBody(request);
           if (!parsed.ok) return parsed.response;
           const password = typeof parsed.body.password === "string" ? parsed.body.password : "";
-          const auth = await authenticatePassword(request, env, password);
+          const auth = await authenticatePassword(request, env, password, "auth-login");
           if (!auth.authenticated) {
             return json({ ok: false, error: auth.error || "パスワードが正しくありません" }, 401, request);
           }

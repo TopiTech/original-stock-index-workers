@@ -3,11 +3,11 @@ import type { CustomIndex } from "../data/indices";
 import type { PricePoint, StockDetail, StockSeries } from "../types";
 import { calculateStockDetails } from "../lib/analytics";
 import { getAuthHeaders } from "../lib/auth";
+import { isPriceCacheFresh } from "../lib/marketCache";
 import { useAuth } from "./useAuth";
 
 const API_BASE = "/api";
 const SYNC_STORAGE_KEY = "osi_stock_sync_cache";
-const SYNC_CACHE_TTL = 12 * 60 * 60 * 1000; // 12 hours
 
 function getLocalSyncCache(): Record<string, number> {
   try {
@@ -51,7 +51,7 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
   const [syncWarnings, setSyncWarnings] = useState<string[]>([]);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const syncedTickersRef = useRef<Set<string>>(new Set());
+  const syncedTickersRef = useRef<Map<string, number>>(new Map());
 
   const calculate = useCallback(async (force = false) => {
     if (!selectedIndex || selectedIndex.basket.length === 0) {
@@ -99,7 +99,8 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
     setSyncWarnings([]);
 
     try {
-      // 全銘柄の同期を走らせる（セッションおよびlocalStorage内で同期済みの銘柄は重複同期を完全スキップして無料枠クォータを節約）
+      // Worker と同じ市場時間ポリシーで同期済み銘柄を判定する。固定12時間の
+      // ブラウザキャッシュでは、場中に開いた画面が引け後の終値を取りこぼす。
       if (selectedIndex.basket.length > 0) {
         const allTickers = selectedIndex.basket.map((b) => b.ticker);
         const localSyncCache = getLocalSyncCache();
@@ -108,10 +109,12 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
         const tickersToSync = force
           ? allTickers
           : allTickers.filter((t) => {
-              if (syncedTickersRef.current.has(t)) return false;
-              const lastSynced = localSyncCache[t];
-              if (lastSynced && nowMs - lastSynced < SYNC_CACHE_TTL) {
-                syncedTickersRef.current.add(t);
+              const lastSynced = syncedTickersRef.current.get(t) ?? localSyncCache[t];
+              if (
+                lastSynced &&
+                isPriceCacheFresh(Math.floor(nowMs / 1000), Math.floor(lastSynced / 1000))
+              ) {
+                syncedTickersRef.current.set(t, lastSynced);
                 return false;
               }
               return true;
@@ -146,7 +149,7 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
                 if (syncData.results) {
                   for (const r of syncData.results) {
                     if (r.status === "synced" || r.status === "cached") {
-                      syncedTickersRef.current.add(r.ticker);
+                      syncedTickersRef.current.set(r.ticker, Date.now());
                       newlySynced.push(r.ticker);
                     }
                   }

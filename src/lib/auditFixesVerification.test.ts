@@ -31,6 +31,16 @@ describe("Audit Fixes Verification: Market-Aware Stock Price Freshness", () => {
     expect(isPriceCacheFresh(mondayPostOpenSec, fridayCloseSec)).toBe(false);
   });
 
+  it("expires a Friday 15:30 synchronization exactly at the Monday market open", () => {
+    // Friday 2026-09-04 15:30 JST -> 06:30 UTC.
+    const fridayCloseSec = Math.floor(new Date("2026-09-04T06:30:00Z").getTime() / 1000);
+    // Monday 2026-09-07 09:00 JST -> 00:00 UTC.
+    const mondayOpenSec = Math.floor(new Date("2026-09-07T00:00:00Z").getTime() / 1000);
+
+    // The old whole-hour calculation kept this cached until 09:30 JST.
+    expect(isPriceCacheFresh(mondayOpenSec, fridayCloseSec)).toBe(false);
+  });
+
   it("marks intraday weekday prices stale after market close (15:30 JST) to refresh final closing prices", () => {
     // Wednesday 2026-09-02 11:00 JST -> 02:00 UTC
     const wednesdayIntradaySec = Math.floor(new Date("2026-09-02T02:00:00Z").getTime() / 1000);
