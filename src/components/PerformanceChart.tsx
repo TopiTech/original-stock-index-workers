@@ -339,7 +339,7 @@ export function PerformanceChart({
                         </span>
                       </div>
                       <div className="tooltip-row">
-                        <span style={{ color: "#94a3b8" }}>{benchmarkLabel}:</span>
+                        <span style={{ color: "var(--text-secondary)" }}>{benchmarkLabel}:</span>
                         <span>
                           {bVal !== undefined
                             ? viewMode === "percent"
@@ -366,7 +366,7 @@ export function PerformanceChart({
                           style={{
                             marginTop: 4,
                             paddingTop: 4,
-                            borderTop: "1px dashed rgba(255,255,255,0.1)",
+                            borderTop: "1px dashed var(--border-neutral)",
                           }}
                         >
                           <span style={{ color: spread >= 0 ? "var(--neon-green)" : "var(--neon-red)" }}>
@@ -392,11 +392,11 @@ export function PerformanceChart({
               {viewMode === "value" && (
                 <ReferenceLine
                   y={baseValue}
-                  stroke="rgba(255,255,255,0.2)"
+                  stroke="var(--chart-reference)"
                   strokeDasharray="4 4"
                   label={{
                     value: `BASE ${baseValue}`,
-                    fill: "#64748b",
+                    fill: "var(--text-muted)",
                     fontSize: 10,
                     position: "insideTopLeft",
                   }}
@@ -406,7 +406,7 @@ export function PerformanceChart({
               {viewMode === "percent" && (
                 <ReferenceLine
                   y={0}
-                  stroke="rgba(255,255,255,0.25)"
+                  stroke="var(--chart-reference-strong)"
                   strokeDasharray="3 3"
                 />
               )}
@@ -415,7 +415,7 @@ export function PerformanceChart({
               <Line
                 type="monotone"
                 dataKey="nikkei"
-                stroke="#64748b"
+                stroke="var(--text-muted)"
                 strokeWidth={2}
                 dot={false}
                 strokeDasharray="4 4"
@@ -458,7 +458,7 @@ export function PerformanceChart({
                 activeDot={{
                   r: 5,
                   fill: "var(--neon-cyan)",
-                  stroke: "#fff",
+                  stroke: "var(--chart-active-dot)",
                   strokeWidth: 2,
                 }}
                 name="value"
@@ -564,7 +564,7 @@ export function PerformanceChart({
       <div className="row space-between flex-wrap" style={{ marginTop: 14, gap: 8 }}>
         <div className="muted tiny mono">
           <span style={{ color: "var(--neon-cyan)" }}>―</span> 独自指数　
-          <span style={{ color: "#64748b" }}>---</span> {benchmarkLabel} (Base {baseValue}正規化)
+          <span style={{ color: "var(--text-muted)" }}>---</span> {benchmarkLabel} (Base {baseValue}正規化)
           {showSMA5 && <span style={{ color: "var(--neon-yellow)" }}> ― SMA5</span>}
           {showSMA25 && <span style={{ color: "var(--neon-magenta)" }}> ― SMA25</span>}
         </div>

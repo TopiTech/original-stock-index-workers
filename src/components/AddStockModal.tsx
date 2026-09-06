@@ -116,7 +116,7 @@ export function AddStockModal({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        backgroundColor: "rgba(3, 7, 18, 0.85)",
+        backgroundColor: "var(--surface-overlay)",
         backdropFilter: "blur(8px)",
         padding: 16,
       }}
@@ -231,10 +231,10 @@ export function AddStockModal({
                   disabled={isLimitReached}
                   style={{
                     padding: "4px 8px",
-                    background: ticker === p.ticker ? "rgba(0, 229, 255, 0.2)" : "rgba(255, 255, 255, 0.03)",
+                    background: ticker === p.ticker ? "var(--surface-selection)" : "var(--surface-inset)",
                     border: `1px solid ${ticker === p.ticker ? "var(--neon-cyan)" : "var(--border-subtle)"}`,
                     borderRadius: 6,
-                    color: ticker === p.ticker ? "#fff" : "var(--text-secondary)",
+                    color: ticker === p.ticker ? "var(--text-on-selection)" : "var(--text-secondary)",
                     fontSize: 11,
                     cursor: "pointer",
                     display: "flex",
@@ -267,10 +267,10 @@ export function AddStockModal({
                   style={{
                     width: "100%",
                     padding: "8px 10px",
-                    background: "rgba(0, 0, 0, 0.4)",
+                    background: "var(--bg-input)",
                     border: "1px solid var(--border-subtle)",
                     borderRadius: 6,
-                    color: "#fff",
+                    color: "var(--text-primary)",
                     fontSize: 13,
                     boxSizing: "border-box",
                   }}
@@ -290,10 +290,10 @@ export function AddStockModal({
                   style={{
                     width: "100%",
                     padding: "8px 10px",
-                    background: "rgba(0, 0, 0, 0.4)",
+                    background: "var(--bg-input)",
                     border: "1px solid var(--border-subtle)",
                     borderRadius: 6,
-                    color: "#fff",
+                    color: "var(--text-primary)",
                     fontSize: 13,
                     boxSizing: "border-box",
                   }}
@@ -316,10 +316,10 @@ export function AddStockModal({
                   style={{
                     width: "100%",
                     padding: "8px 10px",
-                    background: "rgba(0, 0, 0, 0.4)",
+                    background: "var(--bg-input)",
                     border: "1px solid var(--border-subtle)",
                     borderRadius: 6,
-                    color: "#fff",
+                    color: "var(--text-primary)",
                     fontSize: 13,
                     boxSizing: "border-box",
                   }}
@@ -342,10 +342,10 @@ export function AddStockModal({
                     style={{
                       width: "100%",
                       padding: "8px 24px 8px 10px",
-                      background: "rgba(0, 0, 0, 0.4)",
+                      background: "var(--bg-input)",
                       border: "1px solid var(--border-subtle)",
                       borderRadius: 6,
-                      color: "#fff",
+                      color: "var(--text-primary)",
                       fontSize: 13,
                       boxSizing: "border-box",
                     }}
@@ -365,7 +365,7 @@ export function AddStockModal({
           style={{
             padding: "14px 20px",
             borderTop: "1px solid var(--border-subtle)",
-            background: "rgba(0, 0, 0, 0.2)",
+            background: "var(--surface-footer)",
           }}
         >
           <div className="muted tiny">

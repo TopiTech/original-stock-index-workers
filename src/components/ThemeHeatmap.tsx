@@ -26,13 +26,13 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
     if (pct < -2) return "rgba(255, 51, 102, 0.28)";
     if (pct < -0.5) return "rgba(255, 51, 102, 0.18)";
     if (pct < 0) return "rgba(255, 51, 102, 0.1)";
-    return "rgba(255, 255, 255, 0.04)";
+    return "var(--surface-neutral)";
   };
 
   const getBorderColor = (pct: number) => {
     if (pct > 0) return "rgba(0, 230, 118, 0.4)";
     if (pct < 0) return "rgba(255, 51, 102, 0.4)";
-    return "rgba(255, 255, 255, 0.1)";
+    return "var(--border-neutral)";
   };
 
   return (
@@ -106,7 +106,7 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
               title={`${stock.name} (${stock.ticker}) [${stock.theme}]\n株価: ¥${stock.currentPrice.toLocaleString()} (${stock.changePct >= 0 ? "+" : ""}${stock.changePct}%)\n構成比: ${stock.weight.toFixed(1)}%\n指数寄与度: ${stock.contributionPt >= 0 ? "+" : ""}${stock.contributionPt}pt`}
             >
               <div className="row space-between" style={{ marginBottom: 4 }}>
-                <span className="mono bold" style={{ fontSize: 12, color: "#fff" }}>
+                <span className="mono bold" style={{ fontSize: 12, color: "var(--text-on-heatmap)" }}>
                   {stock.ticker}
                 </span>
                 <span className="mono tiny muted">{stock.weight.toFixed(1)}%</span>

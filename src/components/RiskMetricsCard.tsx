@@ -90,7 +90,7 @@ export function RiskMetricsCard({
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: idx * 0.05 }}
             style={{
-              background: "rgba(255, 255, 255, 0.02)",
+              background: "var(--surface-inset)",
               border: "1px solid var(--border-subtle)",
               borderRadius: 8,
               padding: "12px 14px",

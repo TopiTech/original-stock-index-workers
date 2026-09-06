@@ -511,10 +511,10 @@ export function AdminDashboard({
                   style={{
                     width: "100%",
                     padding: "11px 14px",
-                    background: "rgba(0,0,0,0.4)",
+                    background: "var(--bg-input)",
                     border: "1px solid var(--border-subtle)",
                     borderRadius: 8,
-                    color: "#fff",
+                    color: "var(--text-primary)",
                     fontSize: 14,
                     boxSizing: "border-box",
                   }}
@@ -713,10 +713,10 @@ export function AdminDashboard({
                   style={{
                     width: "100%",
                     padding: "8px 10px",
-                    background: "rgba(0,0,0,0.4)",
+                    background: "var(--bg-input)",
                     border: "1px solid var(--border-subtle)",
                     borderRadius: 6,
-                    color: "#fff",
+                    color: "var(--text-primary)",
                     fontSize: 13,
                     boxSizing: "border-box",
                   }}
@@ -754,7 +754,7 @@ export function AdminDashboard({
                   style={{
                     width: "100%",
                     padding: "8px 10px",
-                    background: "rgba(0,0,0,0.4)",
+                    background: "var(--bg-input)",
                     border: "1px solid var(--border-subtle)",
                     borderRadius: 6,
                     color: "var(--neon-cyan)",
@@ -804,10 +804,10 @@ export function AdminDashboard({
                       style={{
                         width: 80,
                         padding: "6px 8px",
-                        background: "var(--bg-input, rgba(0,0,0,0.4))",
+                        background: "var(--bg-input)",
                         border: "1px solid var(--border-subtle)",
                         borderRadius: 6,
-                        color: "var(--text-primary, #fff)",
+                        color: "var(--text-primary)",
                         fontSize: 12,
                       }}
                     />
@@ -855,10 +855,10 @@ export function AdminDashboard({
                       style={{
                         width: 80,
                         padding: "6px 8px",
-                        background: "var(--bg-input, rgba(0,0,0,0.4))",
+                        background: "var(--bg-input)",
                         border: "1px solid var(--border-subtle)",
                         borderRadius: 6,
-                        color: "var(--text-primary, #fff)",
+                        color: "var(--text-primary)",
                         fontSize: 12,
                       }}
                     />
@@ -1081,10 +1081,10 @@ export function AdminDashboard({
                   onChange={(e) => setSelectedEditIndexId(e.target.value)}
                   style={{
                     padding: "6px 12px",
-                    background: "rgba(0,0,0,0.5)",
+                    background: "var(--bg-input)",
                     border: "1px solid var(--border-cyan)",
                     borderRadius: 6,
-                    color: "#fff",
+                    color: "var(--text-primary)",
                     fontSize: 13,
                   }}
                 >
@@ -1130,10 +1130,10 @@ export function AdminDashboard({
                   style={{
                     width: "100%",
                     padding: "8px 10px",
-                    background: "rgba(0,0,0,0.4)",
+                    background: "var(--bg-input)",
                     border: "1px solid var(--border-subtle)",
                     borderRadius: 6,
-                    color: "#fff",
+                    color: "var(--text-primary)",
                     fontSize: 14,
                     boxSizing: "border-box",
                   }}
@@ -1154,10 +1154,10 @@ export function AdminDashboard({
                   style={{
                     width: "100%",
                     padding: "8px 10px",
-                    background: "rgba(0,0,0,0.4)",
+                    background: "var(--bg-input)",
                     border: "1px solid var(--border-subtle)",
                     borderRadius: 6,
-                    color: "#fff",
+                    color: "var(--text-primary)",
                     fontSize: 14,
                     boxSizing: "border-box",
                   }}
@@ -1177,10 +1177,10 @@ export function AdminDashboard({
                 style={{
                   width: "100%",
                   padding: "8px 10px",
-                  background: "rgba(0,0,0,0.4)",
+                  background: "var(--bg-input)",
                   border: "1px solid var(--border-subtle)",
                   borderRadius: 6,
-                  color: "#fff",
+                  color: "var(--text-primary)",
                   fontSize: 13,
                   boxSizing: "border-box",
                 }}
@@ -1238,10 +1238,10 @@ export function AdminDashboard({
                             style={{
                               width: 70,
                               padding: "4px 6px",
-                              background: "rgba(0,0,0,0.5)",
+                              background: "var(--bg-input)",
                               border: "1px solid var(--border-subtle)",
                               borderRadius: 4,
-                              color: "#fff",
+                              color: "var(--text-primary)",
                               fontSize: 12,
                             }}
                           />
@@ -1274,7 +1274,7 @@ export function AdminDashboard({
               onSubmit={handleAddStockToBasket}
               style={{
                 padding: "12px 14px",
-                background: "rgba(255,255,255,0.02)",
+                background: "var(--surface-inset)",
                 border: "1px solid var(--border-subtle)",
                 borderRadius: 8,
                 marginBottom: 20,
@@ -1293,10 +1293,10 @@ export function AdminDashboard({
                   style={{
                     width: 120,
                     padding: "6px 8px",
-                    background: "rgba(0,0,0,0.4)",
+                    background: "var(--bg-input)",
                     border: "1px solid var(--border-subtle)",
                     borderRadius: 4,
-                    color: "#fff",
+                    color: "var(--text-primary)",
                     fontSize: 12,
                   }}
                 />
@@ -1310,10 +1310,10 @@ export function AdminDashboard({
                     flex: 1,
                     minWidth: 160,
                     padding: "6px 8px",
-                    background: "rgba(0,0,0,0.4)",
+                    background: "var(--bg-input)",
                     border: "1px solid var(--border-subtle)",
                     borderRadius: 4,
-                    color: "#fff",
+                    color: "var(--text-primary)",
                     fontSize: 12,
                   }}
                 />
@@ -1326,10 +1326,10 @@ export function AdminDashboard({
                   style={{
                     width: 130,
                     padding: "6px 8px",
-                    background: "rgba(0,0,0,0.4)",
+                    background: "var(--bg-input)",
                     border: "1px solid var(--border-subtle)",
                     borderRadius: 4,
-                    color: "#fff",
+                    color: "var(--text-primary)",
                     fontSize: 12,
                   }}
                 />
@@ -1342,10 +1342,10 @@ export function AdminDashboard({
                   style={{
                     width: 70,
                     padding: "6px 8px",
-                    background: "rgba(0,0,0,0.4)",
+                    background: "var(--bg-input)",
                     border: "1px solid var(--border-subtle)",
                     borderRadius: 4,
-                    color: "#fff",
+                    color: "var(--text-primary)",
                     fontSize: 12,
                   }}
                 />
@@ -1452,10 +1452,10 @@ export function AdminDashboard({
                   style={{
                     width: "100%",
                     padding: "8px 10px",
-                    background: "rgba(0,0,0,0.4)",
+                    background: "var(--bg-input)",
                     border: "1px solid var(--border-subtle)",
                     borderRadius: 6,
-                    color: "#fff",
+                    color: "var(--text-primary)",
                     fontSize: 13,
                     boxSizing: "border-box",
                   }}
@@ -1476,10 +1476,10 @@ export function AdminDashboard({
                   style={{
                     width: "100%",
                     padding: "8px 10px",
-                    background: "rgba(0,0,0,0.4)",
+                    background: "var(--bg-input)",
                     border: "1px solid var(--border-subtle)",
                     borderRadius: 6,
-                    color: "#fff",
+                    color: "var(--text-primary)",
                     fontSize: 13,
                     boxSizing: "border-box",
                   }}

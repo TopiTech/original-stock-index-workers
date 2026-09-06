@@ -113,7 +113,7 @@ export function IndexSelector({
                     flex: 1,
                   }}
                 >
-                  <span style={{ fontWeight: 700, fontSize: 14, color: isSelected ? "var(--neon-cyan)" : "#fff" }}>
+                  <span style={{ fontWeight: 700, fontSize: 14, color: isSelected ? "var(--neon-cyan)" : "var(--text-heading)" }}>
                     {idx.name}
                   </span>
                   {isMyIndex && (
@@ -230,7 +230,7 @@ export function IndexSelector({
                     key={item.ticker}
                     style={{
                       padding: "8px 12px",
-                      background: "rgba(255, 255, 255, 0.02)",
+                      background: "var(--surface-inset)",
                       border: "1px solid var(--border-subtle)",
                       borderRadius: 6,
                     }}

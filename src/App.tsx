@@ -193,7 +193,7 @@ export default function App() {
             className="row space-between flex-wrap"
             style={{
               padding: "10px 16px",
-              background: "rgba(13, 19, 38, 0.6)",
+              background: "var(--surface-benchmark)",
               border: "1px solid var(--border-subtle)",
               borderRadius: 10,
               gap: 12,

@@ -64,7 +64,7 @@ export function AuthModal({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        backgroundColor: "rgba(3, 7, 18, 0.85)",
+        backgroundColor: "var(--surface-overlay)",
         backdropFilter: "blur(8px)",
         padding: 16,
       }}
@@ -162,10 +162,10 @@ export function AuthModal({
                 style={{
                   width: "100%",
                   padding: "10px 40px 10px 12px",
-                  background: "rgba(0, 0, 0, 0.4)",
+                  background: "var(--bg-input)",
                   border: "1px solid var(--border-subtle)",
                   borderRadius: 8,
-                  color: "#fff",
+                  color: "var(--text-primary)",
                   fontSize: 14,
                   outline: "none",
                   boxSizing: "border-box",

@@ -337,7 +337,7 @@ export function ConstituentsTable({
         style={{
           marginBottom: 16,
           padding: "10px 14px",
-          background: "rgba(255, 255, 255, 0.02)",
+          background: "var(--surface-inset)",
           border: "1px solid var(--border-subtle)",
           borderRadius: 8,
           gap: 10,

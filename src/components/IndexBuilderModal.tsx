@@ -202,7 +202,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        backgroundColor: "rgba(3, 7, 18, 0.85)",
+        backgroundColor: "var(--surface-overlay)",
         backdropFilter: "blur(8px)",
         padding: 16,
       }}
@@ -296,8 +296,8 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
                 </>
               ) : (
                 <div className="row" style={{ gap: 8, alignItems: "center" }}>
-                  <Lock size={14} style={{ color: "#ffaa00" }} />
-                  <span style={{ color: "#ffaa00" }}>
+                  <Lock size={14} style={{ color: "var(--neon-amber)" }} />
+                  <span style={{ color: "var(--neon-amber)" }}>
                     未認証状態です。指数の保存にはパスワード認証が必要です。
                   </span>
                   <button
@@ -402,7 +402,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
             style={{
               gap: 8,
               padding: "10px 12px",
-              background: "rgba(255,255,255,0.02)",
+              background: "var(--surface-inset)",
               border: "1px dashed var(--border-subtle)",
               borderRadius: 8,
               marginBottom: 20,
@@ -464,7 +464,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
                   className="row space-between"
                   style={{
                     padding: "8px 12px",
-                    background: "rgba(255,255,255,0.03)",
+                    background: "var(--surface-inset)",
                     border: "1px solid var(--border-subtle)",
                     borderRadius: 6,
                     gap: 12,
@@ -523,7 +523,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
           style={{
             padding: "14px 24px",
             borderTop: "1px solid var(--border-subtle)",
-            background: "rgba(0,0,0,0.2)",
+            background: "var(--surface-footer)",
             gap: 12,
           }}
         >

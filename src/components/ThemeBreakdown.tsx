@@ -104,7 +104,7 @@ export function ThemeBreakdown({
               aria-label={`テーマ ${t.theme} 構成比率 ${t.weight.toFixed(1)}%`}
               style={{
                 borderColor: isSelected ? t.color : undefined,
-                color: isSelected ? "#fff" : "var(--text-primary)",
+                color: "var(--text-primary)",
               }}
             >
               <span className="theme-dot" style={{ backgroundColor: t.color }} />

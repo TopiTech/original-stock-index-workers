@@ -65,7 +65,7 @@ export function ThemeControls() {
                 height: 18,
                 borderRadius: "50%",
                 background: opt.color,
-                border: isSelected ? "2px solid #ffffff" : "2px solid transparent",
+                border: isSelected ? "2px solid var(--text-on-selection)" : "2px solid transparent",
                 boxShadow: isSelected ? `0 0 10px ${opt.color}` : "none",
                 cursor: "pointer",
                 padding: 0,
