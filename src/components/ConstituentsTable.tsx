@@ -22,6 +22,7 @@ import { normalizeWeights } from "../lib/indexEngine";
 import { useAuth } from "../hooks/useAuth";
 import { AuthModal } from "./AuthModal";
 import { AddStockModal } from "./AddStockModal";
+import { toYahooSymbol } from "../lib/yahuuSymbol";
 
 interface ConstituentsTableProps {
   basket: BasketItem[];
@@ -43,14 +44,10 @@ type SortField =
 type SortOrder = "asc" | "desc";
 
 function getYahooFinanceUrl(ticker: string): string {
-  const trimmed = ticker.trim().toUpperCase();
-  if (trimmed.includes(".") || trimmed.startsWith("^") || trimmed.endsWith("=X")) {
-    return `https://finance.yahoo.co.jp/quote/${encodeURIComponent(trimmed)}`;
-  }
-  if (/^\d/.test(trimmed)) {
-    return `https://finance.yahoo.co.jp/quote/${trimmed}.T`;
-  }
-  return `https://finance.yahoo.co.jp/quote/${encodeURIComponent(trimmed)}`;
+  // Use the same symbol normalization as the backend (`toYahooSymbol`) so that
+  // the external link resolves to the same market page the app uses for data.
+  const symbol = toYahooSymbol(ticker);
+  return `https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}`;
 }
 
 function Sparkline({ data, isPositive }: { data: number[]; isPositive: boolean }) {
@@ -517,7 +514,23 @@ export function ConstituentsTable({
                         <a
                           href={getYahooFinanceUrl(item.ticker)}
                           target="_blank"
-                          rel="noreferrer"
+                          rel="noopener noreferrer"
+                          onClick={(event) => {
+                            // Defer navigation so the user sees the status update even on
+                            // slow connections, and so the link always navigates to an
+                            // explicitly trusted external domain.
+                            const anchor = event.currentTarget as HTMLAnchorElement | null;
+                            if (!anchor) return;
+                            const href = anchor.getAttribute("href") ?? "";
+                            if (!href) return;
+                            if (event.metaKey || event.ctrlKey) return;
+                            event.preventDefault();
+                            const newWindow = window.open(href, "_blank", "noopener");
+                            if (newWindow) {
+                              // best-effort focus; older browsers may ignore programmatic focus
+                              newWindow.focus();
+                            }
+                          }}
                           className="tag mono row"
                           style={{
                             textDecoration: "none",
@@ -525,7 +538,7 @@ export function ConstituentsTable({
                             display: "inline-flex",
                             transition: "all 0.2s ease",
                           }}
-                          title="Yahoo!ファイナンスで開く"
+                          title="Yahoo!ファイナンスで開く（新規タブ）"
                         >
                           {item.ticker}
                           <ExternalLink size={10} style={{ opacity: 0.7 }} />
@@ -612,7 +625,7 @@ export function ConstituentsTable({
                               opacity: 0.8,
                             }}
                             title={isAuthenticated ? `銘柄「${item.name}」を削除` : "削除するにはパスワード認証が必要です"}
-                            aria-label={`銘柄「${item.name}」を削除`}
+                            aria-label={isAuthenticated ? `銘柄「${item.name}」を削除` : "削除するにはパスワード認証が必要です"}
                           >
                             <Trash2 size={13} />
                           </button>
