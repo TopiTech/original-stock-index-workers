@@ -524,6 +524,13 @@ export async function authenticatePassword(
     return cachedAuth.result;
   }
 
+  // Schema bootstrap must happen BEFORE the fail-closed rate-limit check. On a
+  // fresh, unmigrated database the rate_limits INSERT inside checkRateLimit
+  // would fail, fail closed, and report a misleading "rate limit exceeded"
+  // error on every login attempt, because the best-effort ensurePasswordTable()
+  // call inside the try block below would never be reached.
+  await ensurePasswordTable(env);
+
   const ip = request.headers.get("cf-connecting-ip") || "unknown";
   // Keep login verification separate from authenticated API traffic. Otherwise
   // routine administration can exhaust the stricter login-attempt budget.
@@ -544,7 +551,8 @@ export async function authenticatePassword(
   }
 
   try {
-    await ensurePasswordTable(env);
+    // Schema bootstrap already ran above (before the fail-closed rate-limit
+    // check); go straight to the credential lookup.
 
     // 1. Check if customized master admin password exists in D1
     const { results: adminMasterRows } = await env.DB.prepare(
@@ -1609,10 +1617,17 @@ export default {
         // For ^N225, check snapshot_cache (id = 1) for backward compatibility
         let cacheRow: { data: string; cached_at: number } | undefined;
         if (symbol === "^N225") {
-          const { results: cached } = await env.DB.prepare(
-            "SELECT data, cached_at FROM snapshot_cache WHERE id = 1",
-          ).all();
-          cacheRow = (cached as { data: string; cached_at: number }[])[0];
+          try {
+            const { results: cached } = await env.DB.prepare(
+              "SELECT data, cached_at FROM snapshot_cache WHERE id = 1",
+            ).all();
+            cacheRow = (cached as { data: string; cached_at: number }[])[0];
+          } catch (cacheErr: unknown) {
+            if (!isMissingTableError(cacheErr, "snapshot_cache")) throw cacheErr;
+            // snapshot_cache table might not exist yet on an unmigrated
+            // database; proceed to a fresh fetch instead of failing the
+            // default benchmark request.
+          }
         } else {
           try {
             const { results: cached } = await env.DB.prepare(
