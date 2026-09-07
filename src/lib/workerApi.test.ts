@@ -1055,6 +1055,7 @@ describe("worker fetch handlers", () => {
       const data = await res.json();
       expect(data.ok).toBe(true);
       expect(executedQueryWithLegacyColumns).toBe(true);
+      expect(data.ownerToken).toBeUndefined();
     });
 
     it("DELETE /api/indices finds and deletes index on unmigrated database missing owner_token_hash column", async () => {

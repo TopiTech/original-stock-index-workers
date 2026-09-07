@@ -423,11 +423,17 @@ export function AdminDashboard({
   // Change Master Admin Password
   const handleUpdateAdminPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newAdminPassword.length < 8 || newAdminPassword.length > 100) {
+    // The Worker trims password input before hashing and authenticating. Keep
+    // the session value in exactly the same canonical form, otherwise a
+    // password with accidental edge whitespace appears to succeed but every
+    // subsequent request from this tab is rejected.
+    const normalizedPassword = newAdminPassword.trim();
+    const normalizedConfirmation = confirmAdminPassword.trim();
+    if (normalizedPassword.length < 8 || normalizedPassword.length > 100) {
       setAdminPwdMessage({ type: "error", text: "パスワードは8〜100文字で入力してください" });
       return;
     }
-    if (newAdminPassword !== confirmAdminPassword) {
+    if (normalizedPassword !== normalizedConfirmation) {
       setAdminPwdMessage({ type: "error", text: "確認用パスワードが一致しません" });
       return;
     }
@@ -441,14 +447,14 @@ export function AdminDashboard({
           "Content-Type": "application/json",
           ...getHeaders(),
         },
-        body: JSON.stringify({ newPassword: newAdminPassword }),
+        body: JSON.stringify({ newPassword: normalizedPassword }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
         throw new Error(data.error || "管理者パスワードの更新に失敗しました");
       }
       setAdminPwdMessage({ type: "success", text: "管理者パスワードを正常に変更しました" });
-      const updatedPassword = newAdminPassword;
+      const updatedPassword = normalizedPassword;
       setNewAdminPassword("");
       setConfirmAdminPassword("");
       if (session) {
@@ -1614,7 +1620,11 @@ export function AdminDashboard({
 
               <button
                 type="submit"
-                disabled={updatingAdminPwd || newAdminPassword.length < 8 || newAdminPassword.length > 100}
+                disabled={
+                  updatingAdminPwd ||
+                  newAdminPassword.trim().length < 8 ||
+                  newAdminPassword.trim().length > 100
+                }
                 className="btn btn-default"
                 style={{ width: "100%" }}
               >

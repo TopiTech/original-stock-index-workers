@@ -173,4 +173,13 @@ describe("isPriceCacheFresh with trading-hours cache", () => {
     const nowAt = toUnixSec("2024-01-01T05:00:00Z");    // Mon 14:00 JST
     expect(isPriceCacheFresh(nowAt, syncedAt)).toBe(true);
   });
+
+  it("fails closed for invalid synchronization timestamps", () => {
+    const nowAt = toUnixSec("2024-01-02T05:00:00Z");
+    expect(isPriceCacheFresh(nowAt, 0)).toBe(false);
+    expect(isPriceCacheFresh(nowAt, -1)).toBe(false);
+    expect(isPriceCacheFresh(nowAt, Number.NaN)).toBe(false);
+    expect(isPriceCacheFresh(Number.NaN, nowAt)).toBe(false);
+    expect(isPriceCacheFresh(0, nowAt)).toBe(false);
+  });
 });

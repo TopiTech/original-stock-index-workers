@@ -22,7 +22,7 @@ export type BenchmarkData = {
   series: { date: string; close: number }[];
 };
 
-export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225") {
+export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled = true) {
   const [selectedBenchmark, setSelectedBenchmark] = useState<BenchmarkSymbol>(initialSymbol);
   const [benchmarkData, setBenchmarkData] = useState<BenchmarkData | null>(() => {
     const cached = benchmarkSessionCache.get(initialSymbol);
@@ -45,6 +45,12 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225") {
   }, [selectedBenchmark]);
 
   useEffect(() => {
+    if (!enabled) {
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
     const cached = benchmarkSessionCache.get(selectedBenchmark);
     const now = Date.now();
     if (cached && now - cached.timestamp < BENCHMARK_CACHE_TTL) {
@@ -134,7 +140,7 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225") {
       });
 
     return () => controller.abort();
-  }, [selectedBenchmark, retryCount]);
+  }, [enabled, selectedBenchmark, retryCount]);
 
   return {
     selectedBenchmark,

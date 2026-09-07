@@ -31,6 +31,25 @@ describe("review regressions: dashboard styles", () => {
     expect((css.match(/\.index-item::before/g) || []).length).toBe(1);
   });
 
+  it("keeps the admin password session aligned with the Worker's trimmed password", () => {
+    const adminDashboard = readFileSync(resolve("src/components/AdminDashboard.tsx"), "utf8");
+
+    expect(adminDashboard).toContain("const normalizedPassword = newAdminPassword.trim();");
+    expect(adminDashboard).toContain("newPassword: normalizedPassword");
+    expect(adminDashboard).toContain("const updatedPassword = normalizedPassword;");
+  });
+
+  it("does not start market data work while the dashboard is not active", () => {
+    const app = readFileSync(resolve("src/App.tsx"), "utf8");
+    const benchmarkHook = readFileSync(resolve("src/hooks/useBenchmark.ts"), "utf8");
+    const calculationHook = readFileSync(resolve("src/hooks/useCalculation.ts"), "utf8");
+
+    expect(app).toContain('useBenchmark("^N225", currentView === "dashboard")');
+    expect(app).toContain("useCalculation(selectedIndex, currentView === \"dashboard\")");
+    expect(benchmarkHook).toContain("if (!enabled)");
+    expect(calculationHook).toContain("if (!enabled)");
+  });
+
   it("removes a closed mobile drawer from keyboard focus and does not invent owner tokens", () => {
     const app = readFileSync(resolve("src/App.tsx"), "utf8");
     const indicesHook = readFileSync(resolve("src/hooks/useIndices.ts"), "utf8");
@@ -198,6 +217,65 @@ describe("review regressions: schema compatibility and authorization", () => {
     expect(fallbackPreservedOwner).toBe(true);
     expect(batchQueries[1][0]).toContain("owner_token_hash");
     expect(batchQueries[1][0]).not.toContain("created_at");
+  });
+
+  it("keeps one constituent when concurrent deletes target the final two rows", async () => {
+    const basket = ["AAA", "BBB"];
+    const preparedQueries: string[] = [];
+    const prepare = vi.fn().mockImplementation((query: string) => {
+      let params: unknown[] = [];
+      const statement = {
+        bind: vi.fn().mockImplementation((...bound: unknown[]) => {
+          params = bound;
+          return statement;
+        }),
+        all: vi.fn().mockImplementation(async () => {
+          if (query.includes("FROM access_passwords")) return { results: [] };
+          if (query.includes("FROM indices WHERE id = ?")) {
+            return { results: [{ id: params[0], owner_token_hash: null }] };
+          }
+          if (query.includes("SELECT COUNT(*) as cnt FROM basket_items")) {
+            return { results: [{ cnt: basket.length }] };
+          }
+          return { results: [] };
+        }),
+        run: vi.fn().mockImplementation(async () => {
+          if (query.includes("INSERT INTO rate_limits")) {
+            return { meta: { changes: 1 } };
+          }
+          if (query.includes("DELETE FROM basket_items")) {
+            const ticker = String(params[1] || "").toUpperCase();
+            const index = basket.indexOf(ticker);
+            if (basket.length > 1 && index >= 0) {
+              basket.splice(index, 1);
+              return { meta: { changes: 1 } };
+            }
+            return { meta: { changes: 0 } };
+          }
+          return { meta: { changes: 1 } };
+        }),
+        query,
+      };
+      preparedQueries.push(query);
+      return statement;
+    });
+    const env = {
+      ASSETS: { fetch: vi.fn() },
+      DB: { prepare, batch: vi.fn() },
+      ADMIN_PASSWORD: "atomic-delete-admin",
+    };
+    const remove = (ticker: string) => worker.fetch(
+      new Request(`http://localhost/api/indices/stock?indexId=atomic-index&ticker=${ticker}`, {
+        method: "DELETE",
+        headers: { "x-auth-password": "atomic-delete-admin" },
+      }),
+      env as any,
+    );
+
+    const [removeA, removeB] = await Promise.all([remove("AAA"), remove("BBB")]);
+    expect([removeA.status, removeB.status].sort()).toEqual([200, 400]);
+    expect(basket).toHaveLength(1);
+    expect(preparedQueries.some((query) => query.includes("AND (SELECT COUNT(*) FROM basket_items WHERE index_id = ?) > 1"))).toBe(true);
   });
 
   it("fails closed when a user index quota cannot be checked", async () => {

@@ -90,6 +90,18 @@ describe("calculateCustomIndex", () => {
     expect(result[2].close).toBe(1200);
   });
 
+  it("matches basket and price tickers case-insensitively for legacy data", () => {
+    const basket: BasketItem[] = [
+      { ticker: "aapl", name: "Apple", theme: "tech", weight: 100 },
+    ];
+    const universe: StockSeries[] = [makeStock("AAPL", 100, [1, 1.1])];
+
+    const result = calculateCustomIndex(basket, universe, 1000);
+
+    expect(result).toHaveLength(2);
+    expect(result[1].value).toBe(1100);
+  });
+
   it("calculates weighted index for two stocks", () => {
     const basket: BasketItem[] = [
       { ticker: "A", name: "Stock A", theme: "t", weight: 50 },

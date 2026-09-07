@@ -263,5 +263,31 @@ describe("analytics library", () => {
       expect(details[0].contributionPt).toBe(100);
       expect(details[0].sparkline).toEqual([100, 110]);
     });
+
+    it("matches stock details case-insensitively for legacy basket tickers", () => {
+      const details = calculateStockDetails(
+        [{ ticker: "aapl", name: "Apple", weight: 100, theme: "Tech" }],
+        [{
+          ticker: "AAPL",
+          name: "Apple",
+          theme: "Tech",
+          sector: "Technology",
+          latestPrice: 110,
+          series: [
+            { date: "2026-01-01", close: 100 },
+            { date: "2026-01-02", close: 110 },
+          ],
+        }],
+        1000,
+        [
+          { date: "2026-01-01", close: 1000, value: 1000 },
+          { date: "2026-01-02", close: 1100, value: 1100 },
+        ],
+      );
+
+      expect(details[0].currentPrice).toBe(110);
+      expect(details[0].changePct).toBe(10);
+      expect(details[0].sparkline).toEqual([100, 110]);
+    });
   });
 });

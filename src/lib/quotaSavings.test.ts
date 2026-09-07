@@ -114,7 +114,13 @@ function createSavingsTestEnv(): SavingsTestEnv {
         results: [
           {
             data: JSON.stringify({
-              snapshot: { symbol: "^N225", label: "日経225", current: 39000 },
+              snapshot: {
+                symbol: "^N225",
+                label: "日経225",
+                current: 39000,
+                change: 0,
+                changePct: 0,
+              },
               series: [{ date: "2026-09-01", close: 39000 }],
             }),
             cached_at: Math.floor(Date.now() / 1000),
@@ -260,6 +266,51 @@ describe("Cloudflare Quota Savings: No-Op Write Skip on Identical Price Data", (
 
     // Only sync_logs was updated to prevent repeated fetch
     expect(env._syncLogs.has("7203")).toBe(true);
+  });
+
+  it("writes corrected intermediate prices even when the first and last prices are unchanged", async () => {
+    const env = createSavingsTestEnv();
+    env._stockSeries.set("7203", {
+      ticker: "7203",
+      prices: JSON.stringify([
+        { date: "2026-09-01", close: 2480 },
+        { date: "2026-09-02", close: 2520 },
+        { date: "2026-09-03", close: 2500 },
+      ]),
+      updated_at: Math.floor(Date.now() / 1000) - 3600,
+    });
+
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          chart: {
+            result: [
+              {
+                timestamp: [1788220800, 1788307200, 1788393600],
+                indicators: { quote: [{ close: [2480, 2490, 2500] }] },
+              },
+            ],
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+
+    const initialBatchCalls = (env.DB.batch as any).mock.calls.length;
+    const res = await worker.fetch(
+      new Request("http://localhost/api/sync-prices", {
+        method: "POST",
+        headers: { "cf-connecting-ip": "1.2.3.4" },
+        body: JSON.stringify({ tickers: ["7203"] }),
+      }),
+      env as any,
+    );
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.results[0].status).toBe("synced");
+    expect((env.DB.batch as any).mock.calls.length).toBeGreaterThan(initialBatchCalls);
+    expect(JSON.parse(env._stockSeries.get("7203")!.prices)[1].close).toBe(2490);
   });
 });
 

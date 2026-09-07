@@ -101,6 +101,7 @@ export function useIndices() {
         // subsequent 304 must never resurrect deleted indices after reload.
         try {
           localStorage.removeItem(INDICES_CACHE_KEY);
+          localStorage.removeItem(INDICES_ETAG_KEY);
         } catch {
           // Ignore storage failures; the in-memory fallback remains usable.
         }

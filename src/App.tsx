@@ -179,7 +179,7 @@ export default function App() {
     availableBenchmarks,
     refetch: refetchBenchmark,
     lastUpdatedAt: benchmarkUpdatedAt,
-  } = useBenchmark("^N225");
+  } = useBenchmark("^N225", currentView === "dashboard");
 
   const {
     customSeries,
@@ -191,7 +191,7 @@ export default function App() {
     error: calcError,
     recalculate,
     lastUpdatedAt: calculationUpdatedAt,
-  } = useCalculation(selectedIndex);
+  } = useCalculation(selectedIndex, currentView === "dashboard");
 
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);

@@ -56,6 +56,9 @@ export function getMarketAwareCacheDuration(now: Date = new Date()): number {
 
 /** Determines whether a cached stock-price synchronization is still fresh. */
 export function isPriceCacheFresh(nowSec: number, lastSyncedSec: number): boolean {
+  if (!Number.isFinite(nowSec) || !Number.isFinite(lastSyncedSec) || nowSec <= 0 || lastSyncedSec <= 0) {
+    return false;
+  }
   if (nowSec < lastSyncedSec) return true; // Clock-skew protection.
 
   const syncDate = new Date(lastSyncedSec * 1000);

@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { getMissingPriceDataTickers } from "./useCalculation";
+import { getMissingPriceDataTickers, parseLocalSyncCache } from "./useCalculation";
+
+describe("parseLocalSyncCache", () => {
+  it("ignores malformed and non-positive timestamps from browser storage", () => {
+    expect(parseLocalSyncCache(JSON.stringify({
+      AAPL: 1_700_000_000_000,
+      aapl: 1_600_000_000_000,
+      INVALID_TEXT: "fresh",
+      ZERO: 0,
+      NAN: null,
+      NEGATIVE: -1,
+    }))).toEqual({ AAPL: 1_700_000_000_000 });
+  });
+
+  it("returns an empty cache for non-object JSON values", () => {
+    expect(parseLocalSyncCache("[]")).toEqual({});
+    expect(parseLocalSyncCache("not-json")).toEqual({});
+  });
+});
 
 describe("getMissingPriceDataTickers", () => {
   it("reports tickers that are returned without any usable price points", () => {

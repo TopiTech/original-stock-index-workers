@@ -9,10 +9,37 @@ import { useAuth } from "./useAuth";
 const API_BASE = "/api";
 const SYNC_STORAGE_KEY = "osi_stock_sync_cache";
 
+/** Parse browser sync metadata without allowing malformed storage to mark a ticker fresh forever. */
+export function parseLocalSyncCache(raw: string | null): Record<string, number> {
+  if (!raw) return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+
+    const cache: Record<string, number> = {};
+    for (const [ticker, timestamp] of Object.entries(parsed)) {
+      const normalizedTicker = ticker.trim().toUpperCase();
+      if (
+        /^[A-Z0-9.-]+$/.test(normalizedTicker) &&
+        normalizedTicker.length <= 20 &&
+        typeof timestamp === "number" &&
+        Number.isFinite(timestamp) &&
+        timestamp > 0
+      ) {
+        cache[normalizedTicker] = Math.max(cache[normalizedTicker] || 0, timestamp);
+      }
+    }
+    return cache;
+  } catch {
+    return {};
+  }
+}
+
 function getLocalSyncCache(): Record<string, number> {
   try {
-    const raw = localStorage.getItem(SYNC_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
+    return parseLocalSyncCache(
+      typeof localStorage === "undefined" ? null : localStorage.getItem(SYNC_STORAGE_KEY),
+    );
   } catch {
     return {};
   }
@@ -23,7 +50,8 @@ function updateLocalSyncCache(tickers: string[]): void {
     const cache = getLocalSyncCache();
     const now = Date.now();
     for (const t of tickers) {
-      cache[t] = now;
+      const normalizedTicker = t.trim().toUpperCase();
+      if (normalizedTicker) cache[normalizedTicker] = now;
     }
     // Clean entries older than 7 days
     for (const [k, v] of Object.entries(cache)) {
@@ -92,7 +120,7 @@ export function getMissingPriceDataTickers(
   });
 }
 
-export function useCalculation(selectedIndex: CustomIndex | null) {
+export function useCalculation(selectedIndex: CustomIndex | null, enabled = true) {
   const { session } = useAuth();
   const [customSeries, setCustomSeries] = useState<PricePoint[]>([]);
   const [stockUniverse, setStockUniverse] = useState<StockSeries[]>([]);
@@ -167,12 +195,13 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
         const tickersToSync = force
           ? allTickers
           : allTickers.filter((t) => {
-              const lastSynced = syncedTickersRef.current.get(t) ?? localSyncCache[t];
+              const normalizedTicker = t.trim().toUpperCase();
+              const lastSynced = syncedTickersRef.current.get(normalizedTicker) ?? localSyncCache[normalizedTicker];
               if (
                 lastSynced &&
                 isPriceCacheFresh(Math.floor(nowMs / 1000), Math.floor(lastSynced / 1000))
               ) {
-                syncedTickersRef.current.set(t, lastSynced);
+                syncedTickersRef.current.set(normalizedTicker, lastSynced);
                 return false;
               }
               return true;
@@ -208,8 +237,11 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
                 if (syncData.results) {
                   for (const r of syncData.results) {
                     if (r.status === "synced" || r.status === "cached") {
-                      syncedTickersRef.current.set(r.ticker, Date.now());
-                      newlySynced.push(r.ticker);
+                      const normalizedTicker = typeof r.ticker === "string" ? r.ticker.trim().toUpperCase() : "";
+                      if (normalizedTicker) {
+                        syncedTickersRef.current.set(normalizedTicker, Date.now());
+                        newlySynced.push(normalizedTicker);
+                      }
                     }
                   }
                   const failed = syncData.results
@@ -276,9 +308,10 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
             const cache = getLocalSyncCache();
             let changed = false;
             for (const mt of missingTickers) {
-              syncedTickersRef.current.delete(mt);
-              if (cache[mt]) {
-                delete cache[mt];
+              const normalizedTicker = mt.trim().toUpperCase();
+              syncedTickersRef.current.delete(normalizedTicker);
+              if (cache[normalizedTicker]) {
+                delete cache[normalizedTicker];
                 changed = true;
               }
             }
@@ -325,13 +358,19 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
   }, [selectedIndex, stockUniverse, customSeries]);
 
   useEffect(() => {
+    if (!enabled) {
+      setLoading(false);
+      setSyncing(false);
+      return;
+    }
+
     calculate();
     return () => {
       if (abortRef.current) {
         abortRef.current.abort();
       }
     };
-  }, [calculate]);
+  }, [calculate, enabled]);
 
   return {
     customSeries,

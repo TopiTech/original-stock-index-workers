@@ -1,5 +1,9 @@
 import type { BasketItem, PricePoint, StockSeries } from "../types";
 
+function normalizeTicker(ticker: string): string {
+  return ticker.trim().toUpperCase();
+}
+
 export function normalizeWeights(items: BasketItem[]): BasketItem[] {
   const safeItems = items.map((item) => ({
     ...item,
@@ -20,9 +24,10 @@ export function calculateCustomIndex(
 ): PricePoint[] {
   const safeBase = typeof baseValue === "number" && Number.isFinite(baseValue) && baseValue > 0 ? baseValue : 1000;
   const normalized = normalizeWeights(basket);
+  const stockByTicker = new Map(stockUniverse.map((stock) => [normalizeTicker(stock.ticker), stock]));
   const selected = normalized
     .map((item) => {
-      const stock = stockUniverse.find((s) => s.ticker === item.ticker);
+      const stock = stockByTicker.get(normalizeTicker(item.ticker));
       return stock && stock.series.length > 0 ? { ...stock, weight: item.weight } : null;
     })
     .filter((stock): stock is StockSeries & { weight: number } => Boolean(stock));
@@ -30,7 +35,7 @@ export function calculateCustomIndex(
   if (selected.length === 0) return [];
 
   // Build ticker → index map for O(1) lookup instead of findIndex
-  const tickerIndexMap = new Map(selected.map((s, i) => [s.ticker, i]));
+  const tickerIndexMap = new Map(selected.map((s, i) => [normalizeTicker(s.ticker), i]));
 
   // 全銘柄から存在する全日付を抽出してソート (YYYY-MM-DD sorts correctly as strings)
   const allDates = Array.from(new Set(
@@ -90,7 +95,7 @@ export function calculateCustomIndex(
     const totalWeightOfAvailable = availableStocks.reduce((sum, s) => sum + s.weight, 0);
 
     const weightedRelative = availableStocks.reduce((sum, stock) => {
-      const stockIndex = tickerIndexMap.get(stock.ticker)!;
+      const stockIndex = tickerIndexMap.get(normalizeTicker(stock.ticker))!;
       const start = basePrices[stockIndex];
       const current = stockPriceMatrix[stockIndex][dateIndex];
 

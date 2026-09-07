@@ -1676,29 +1676,33 @@ export default {
             }
           }
 
-          // 最低1銘柄は必要
-          const { results: countRes } = await env.DB.prepare(
-            "SELECT count(*) as cnt FROM basket_items WHERE index_id = ?"
-          ).bind(indexId).all();
-          const cnt = (countRes?.[0] as { cnt: number })?.cnt ?? 0;
-          if (cnt <= 1) {
-            return json({ error: "構成銘柄が1件のみのため削除できません（指数には最低1銘柄必要です）" }, 400, request);
-          }
-
-          let deleteResult = await env.DB.prepare(
-            "DELETE FROM basket_items WHERE index_id = ? AND ticker = ?"
-          ).bind(indexId, ticker).run();
-          let deletedChanges = (deleteResult as { meta?: { changes?: number } }).meta?.changes;
+          // Keep the minimum-one-constituent invariant in the DELETE itself.
+          // A separate COUNT followed by DELETE allows two concurrent requests
+          // to both observe two constituents and remove both rows. The scalar
+          // subquery is evaluated as part of the same SQLite statement, so D1
+          // serializes the check and the deletion. Select one physical row so
+          // legacy case-variant duplicates cannot all be removed at once.
+          const deleteResult = await env.DB.prepare(
+            `DELETE FROM basket_items
+             WHERE rowid = (
+               SELECT rowid FROM basket_items
+               WHERE index_id = ? AND UPPER(ticker) = ?
+               ORDER BY rowid
+               LIMIT 1
+             )
+             AND (SELECT COUNT(*) FROM basket_items WHERE index_id = ?) > 1`,
+          ).bind(indexId, ticker, indexId).run();
+          const deletedChanges = (deleteResult as { meta?: { changes?: number } }).meta?.changes;
           if (deletedChanges === 0) {
-            // Handle legacy rows written before ticker normalization. The
-            // second query is only needed when the exact-case delete was a
-            // confirmed no-op.
-            deleteResult = await env.DB.prepare(
-              "DELETE FROM basket_items WHERE index_id = ? AND UPPER(ticker) = ?"
-            ).bind(indexId, ticker).run();
-            deletedChanges = (deleteResult as { meta?: { changes?: number } }).meta?.changes;
-          }
-          if (deletedChanges === 0) {
+            // Distinguish the invariant violation from a missing ticker after
+            // the atomic DELETE has already ruled out the race condition.
+            const { results: countRes } = await env.DB.prepare(
+              "SELECT COUNT(*) as cnt FROM basket_items WHERE index_id = ?",
+            ).bind(indexId).all();
+            const count = Number((countRes?.[0] as { cnt?: unknown } | undefined)?.cnt);
+            if (Number.isFinite(count) && count <= 1) {
+              return json({ error: "構成銘柄が1件のみのため削除できません（指数には最低1銘柄必要です）" }, 400, request);
+            }
             return json({ error: "指定された銘柄が見つかりません" }, 404, request);
           }
 
@@ -1954,8 +1958,10 @@ export default {
             });
           }
           if (row.ticker) {
+            const ticker = String(row.ticker).trim().toUpperCase();
+            if (!ticker) continue;
             indicesMap.get(id)!.basket.push({
-              ticker: String(row.ticker),
+              ticker,
               name: String(row.stock_name),
               weight: Number(row.weight),
               theme: row.theme ? String(row.theme) : "",
@@ -2367,7 +2373,13 @@ export default {
         return json({
           ok: true,
           id,
-          ownerToken: isAdmin && isExisting && existingHash ? undefined : (SYSTEM_INDICES.has(id) ? undefined : providedToken),
+          // Only return an owner token when the final write actually persisted
+          // its hash. On an unmigrated legacy schema the token cannot authorize
+          // a later owner operation, so returning it would create a misleading
+          // "owned" index in the browser.
+          ownerToken: indexWriteColumns.ownerTokenHash && !SYSTEM_INDICES.has(id)
+            ? (isAdmin && isExisting && existingHash ? undefined : providedToken)
+            : undefined,
           message: "Index saved successfully",
         }, 200, request);
       } catch (err) {
@@ -2547,21 +2559,15 @@ export default {
                     const existingPricesValue = (existingRows?.[0] as D1Row | undefined)?.prices;
                     if (typeof existingPricesValue === "string") {
                       const existingPrices: unknown = JSON.parse(existingPricesValue);
+                      const normalizedExistingPrices = sanitizePriceSeries(existingPrices);
                       if (Array.isArray(existingPrices) && existingPrices.length > 0) {
-                        const lastExisting = existingPrices[existingPrices.length - 1];
-                        const lastFresh = series[series.length - 1];
-                        const firstExisting = existingPrices[0];
-                        const firstFresh = series[0];
                         if (
-                          existingPrices.length === series.length &&
-                          isPricePoint(lastExisting) &&
-                          lastFresh &&
-                          lastExisting.date === lastFresh.date &&
-                          lastExisting.close === lastFresh.close &&
-                          isPricePoint(firstExisting) &&
-                          firstFresh &&
-                          firstExisting.date === firstFresh.date &&
-                          firstExisting.close === firstFresh.close
+                          normalizedExistingPrices.length === series.length &&
+                          normalizedExistingPrices.every(
+                            (existingPoint, index) =>
+                              existingPoint.date === series[index]?.date &&
+                              existingPoint.close === series[index]?.close,
+                          )
                         ) {
                           shouldSkipWrite = true;
                         }

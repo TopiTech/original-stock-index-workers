@@ -256,7 +256,7 @@ export function calculateStockDetails(
   customSeries: PricePoint[] = [],
 ): StockDetail[] {
   const normalized = normalizeWeights(basket);
-  const stockMap = new Map(stockUniverse.map((s) => [s.ticker, s]));
+  const stockMap = new Map(stockUniverse.map((s) => [s.ticker.trim().toUpperCase(), s]));
   const normalizedCustomSeries = normalizeAnalyticsSeries(customSeries, true);
   const safeBaseValue = typeof baseValue === "number" && Number.isFinite(baseValue) && baseValue > 0 ? baseValue : 1000;
 
@@ -269,7 +269,7 @@ export function calculateStockDetails(
     : latestIndexVal;
 
   return normalized.map((item) => {
-    const stock = stockMap.get(item.ticker);
+    const stock = stockMap.get(item.ticker.trim().toUpperCase());
     const series = normalizeAnalyticsSeries(stock?.series, false);
     const len = series.length;
 
