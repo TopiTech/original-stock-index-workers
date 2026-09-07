@@ -9,6 +9,7 @@ import { DataFreshness } from "./DataFreshness";
 import { AuthModal } from "./AuthModal";
 
 interface HeaderProps {
+  onNavigateToHome?: () => void;
   onNavigateToAdmin?: () => void;
   benchmarkUpdatedAt?: number | null;
   calculationUpdatedAt?: number | null;
@@ -17,6 +18,7 @@ interface HeaderProps {
 }
 
 export function Header({
+  onNavigateToHome,
   onNavigateToAdmin,
   benchmarkUpdatedAt,
   calculationUpdatedAt,
@@ -45,7 +47,23 @@ export function Header({
         className="top-header"
       >
         <div className="row space-between flex-wrap" style={{ gap: 12, alignItems: "center" }}>
-          <div className="header-brand row" style={{ gap: 10, alignItems: "center" }}>
+          <div
+            className={`header-brand row ${onNavigateToHome ? "clickable" : ""}`}
+            style={{ gap: 10, alignItems: "center", cursor: onNavigateToHome ? "pointer" : "default" }}
+            onClick={onNavigateToHome}
+            role={onNavigateToHome ? "button" : undefined}
+            tabIndex={onNavigateToHome ? 0 : undefined}
+            onKeyDown={
+              onNavigateToHome
+                ? (e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onNavigateToHome();
+                    }
+                  }
+                : undefined
+            }
+          >
             <div
               style={{
                 width: 30,

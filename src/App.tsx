@@ -19,6 +19,10 @@ import { ErrorFallback } from "./components/ErrorFallback";
 import { LoadingScreen } from "./components/LoadingScreen";
 import { buildChartData } from "./lib/chartData";
 import { filterByTimeframe } from "./lib/timeframe";
+import { Footer } from "./components/Footer";
+import { PortfolioPage } from "./components/PortfolioPage";
+import { DisclaimerPage } from "./components/DisclaimerPage";
+import { parseViewFromLocation, getViewPath, type PageView } from "./lib/navigation";
 import type { Timeframe } from "./types";
 import type { CustomIndex } from "./data/indices";
 
@@ -26,6 +30,11 @@ const MOBILE_LAYOUT_QUERY = "(max-width: 1080px)";
 
 function getInitialMobileLayout() {
   return typeof window !== "undefined" && window.matchMedia(MOBILE_LAYOUT_QUERY).matches;
+}
+
+function getInitialView(): PageView {
+  if (typeof window === "undefined") return "dashboard";
+  return parseViewFromLocation(window.location.pathname, window.location.search);
 }
 
 export default function App() {
@@ -36,29 +45,24 @@ export default function App() {
   const sidebarToggleRef = useRef<HTMLButtonElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
   const sidebarWasOpenRef = useRef(false);
-  const [currentView, setCurrentView] = useState<"dashboard" | "admin">(() => {
-    if (typeof window !== "undefined") {
-      const path = window.location.pathname;
-      const search = new URLSearchParams(window.location.search);
-      return path === "/admin" || search.get("page") === "admin" ? "admin" : "dashboard";
-    }
-    return "dashboard";
-  });
+  const [currentView, setCurrentView] = useState<PageView>(getInitialView);
 
-  const navigateTo = useCallback((view: "dashboard" | "admin") => {
+  const navigateTo = useCallback((view: PageView) => {
     setCurrentView(view);
-    if (view === "admin") {
-      window.history.pushState({}, "", "/admin");
-    } else {
-      window.history.pushState({}, "", "/");
+    const targetPath = getViewPath(view);
+
+    if (typeof window !== "undefined" && window.location.pathname !== targetPath) {
+      window.history.pushState({}, "", targetPath);
+    }
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }
   }, []);
 
   useEffect(() => {
     const onPopState = () => {
-      const path = window.location.pathname;
-      const search = new URLSearchParams(window.location.search);
-      setCurrentView(path === "/admin" || search.get("page") === "admin" ? "admin" : "dashboard");
+      setCurrentView(parseViewFromLocation(window.location.pathname, window.location.search));
+      window.scrollTo({ top: 0, behavior: "smooth" });
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
@@ -282,9 +286,48 @@ export default function App() {
     );
   }
 
+  if (currentView === "portfolio") {
+    return (
+      <div className="app">
+        <Header
+          onNavigateToHome={() => navigateTo("dashboard")}
+          onNavigateToAdmin={() => navigateTo("admin")}
+          benchmarkUpdatedAt={benchmarkUpdatedAt}
+          calculationUpdatedAt={calculationUpdatedAt}
+          dataLoading={loadingBenchmark || loadingCalc}
+          syncing={syncing}
+        />
+        <main style={{ minHeight: "calc(100vh - 280px)" }}>
+          <PortfolioPage onNavigate={navigateTo} />
+        </main>
+        <Footer onNavigate={navigateTo} currentView={currentView} />
+      </div>
+    );
+  }
+
+  if (currentView === "disclaimer") {
+    return (
+      <div className="app">
+        <Header
+          onNavigateToHome={() => navigateTo("dashboard")}
+          onNavigateToAdmin={() => navigateTo("admin")}
+          benchmarkUpdatedAt={benchmarkUpdatedAt}
+          calculationUpdatedAt={calculationUpdatedAt}
+          dataLoading={loadingBenchmark || loadingCalc}
+          syncing={syncing}
+        />
+        <main style={{ minHeight: "calc(100vh - 280px)" }}>
+          <DisclaimerPage onNavigate={navigateTo} />
+        </main>
+        <Footer onNavigate={navigateTo} currentView={currentView} />
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       <Header
+        onNavigateToHome={() => navigateTo("dashboard")}
         onNavigateToAdmin={() => navigateTo("admin")}
         benchmarkUpdatedAt={benchmarkUpdatedAt}
         calculationUpdatedAt={calculationUpdatedAt}
@@ -510,6 +553,9 @@ export default function App() {
           </AnimatePresence>
         </main>
       </div>
+
+      {/* Footer */}
+      <Footer onNavigate={navigateTo} currentView={currentView} />
 
       {/* Index Builder Modal */}
       <IndexBuilderModal
