@@ -164,7 +164,7 @@ export function PerformanceChart({
       <div className="chart-header row space-between flex-wrap" style={{ marginBottom: 16, gap: 12 }}>
         <div className="chart-heading">
           <div className="row" style={{ gap: 8 }}>
-            <BarChart2 size={18} style={{ color: "var(--neon-cyan)" }} />
+            <BarChart2 size={18} style={{ color: "var(--accent-color)" }} />
             <h2 style={{ margin: 0, fontSize: 17 }}>パフォーマンス分析チャート</h2>
           </div>
           <div className="muted tiny" style={{ marginTop: 2 }}>
@@ -232,15 +232,15 @@ export function PerformanceChart({
           className="row space-between"
           style={{
             padding: "8px 14px",
-            background: "rgba(0, 229, 255, 0.05)",
+            background: "var(--accent-subtle)",
             border: "1px solid var(--border-cyan)",
             borderRadius: 8,
             marginBottom: 14,
           }}
         >
           <div className="row" style={{ gap: 8 }}>
-            <Loader2 className="animate-spin" size={13} style={{ color: "var(--neon-cyan)" }} />
-            <span className="mono tiny" style={{ color: "var(--neon-cyan)" }}>
+            <Loader2 className="animate-spin" size={13} style={{ color: "var(--accent-color)" }} />
+            <span className="mono tiny" style={{ color: "var(--accent-text)" }}>
               株価データ同期中... ({syncProgress}%)
             </span>
           </div>
@@ -372,7 +372,7 @@ export function PerformanceChart({
                       ) : (
                         <>
                           <div className="tooltip-row">
-                            <span style={{ color: "var(--neon-cyan)" }}>独自指数:</span>
+                            <span style={{ color: "var(--accent-text)" }}>独自指数:</span>
                             <span style={{ fontWeight: 700 }}>
                               {cVal !== undefined
                                 ? viewMode === "percent"
@@ -505,14 +505,14 @@ export function PerformanceChart({
               <Area
                 type="monotone"
                 dataKey="value"
-                stroke="var(--neon-cyan)"
+                stroke="var(--accent-color)"
                 strokeWidth={2}
                 fillOpacity={1}
                 fill="url(#cyanGradient)"
                 dot={{ r: 0 }}
                 activeDot={{
                   r: 4.5,
-                  fill: "var(--neon-cyan)",
+                  fill: "var(--accent-color)",
                   stroke: "var(--chart-active-dot)",
                   strokeWidth: 2,
                 }}
@@ -590,7 +590,7 @@ export function PerformanceChart({
               style={{
                 color:
                   stats.alpha > 0
-                    ? "var(--neon-cyan)"
+                    ? "var(--accent-text)"
                     : stats.alpha < 0
                       ? "var(--neon-red)"
                       : "inherit",
@@ -626,12 +626,12 @@ export function PerformanceChart({
         <div className="chart-legend muted tiny mono">
           {viewMode === "spread" ? (
             <>
-              <span style={{ color: "var(--neon-cyan)" }}>―</span> 独自指数 市場超過リターン (α){" "}
+              <span style={{ color: "var(--accent-color)" }}>―</span> 独自指数 市場超過リターン (α){" "}
               <span style={{ color: "var(--text-muted)" }}>---</span> {benchmarkLabel}基準線 (±0%pt)
             </>
           ) : (
             <>
-              <span style={{ color: "var(--neon-cyan)" }}>―</span> 独自指数{" "}
+              <span style={{ color: "var(--accent-color)" }}>―</span> 独自指数{" "}
               <span style={{ color: "var(--text-muted)" }}>---</span> {benchmarkLabel} (Base {baseValue}正規化)
               {showSMA5 && <span style={{ color: "var(--neon-yellow)" }}> ― SMA5</span>}
               {showSMA25 && <span style={{ color: "var(--neon-magenta)" }}> ― SMA25</span>}

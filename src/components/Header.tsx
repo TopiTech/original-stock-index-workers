@@ -51,12 +51,12 @@ export function Header({
                 width: 30,
                 height: 30,
                 borderRadius: 6,
-                background: "linear-gradient(135deg, rgba(6, 182, 212, 0.2) 0%, rgba(139, 92, 246, 0.2) 100%)",
-                border: "1px solid var(--border-cyan)",
+                background: "linear-gradient(135deg, var(--accent-subtle) 0%, rgba(139, 92, 246, 0.2) 100%)",
+                border: "1px solid var(--accent-border)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                color: "var(--neon-cyan)",
+                color: "var(--accent-text)",
               }}
               aria-hidden="true"
             >
@@ -108,7 +108,7 @@ export function Header({
                 title="パスワード認証でログイン"
                 aria-label="パスワード認証でログイン"
               >
-                <LogIn size={12} style={{ color: "var(--neon-cyan)" }} />
+                <LogIn size={12} style={{ color: "var(--accent-text)" }} />
                 <span>ログイン</span>
                 <span className="mono tiny muted" style={{ fontSize: 10 }}>(閲覧中)</span>
               </button>

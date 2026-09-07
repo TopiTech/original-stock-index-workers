@@ -267,11 +267,11 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
           style={{
             padding: "16px 22px",
             borderBottom: "1px solid var(--border-subtle)",
-            background: "linear-gradient(90deg, rgba(0,229,255,0.06), transparent)",
+            background: "linear-gradient(90deg, var(--accent-subtle), transparent)",
           }}
         >
           <div className="row" style={{ gap: 8 }}>
-            <Sliders size={18} style={{ color: "var(--neon-cyan)" }} />
+            <Sliders size={18} style={{ color: "var(--accent-text)" }} />
               <div>
                 <h2 id="modal-builder-title" style={{ fontSize: 16, margin: 0 }}>独自指数ビルダー & シミュレーター</h2>
                 <p id="modal-builder-description" className="modal-subtitle">構成銘柄とウェイトを設定して、独自指数を作成します。</p>
@@ -319,8 +319,8 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
           <div
             style={{
               padding: "8px 12px",
-              background: isAuthenticated ? "rgba(0, 229, 255, 0.08)" : "rgba(255, 170, 0, 0.1)",
-              border: `1px solid ${isAuthenticated ? "rgba(0, 229, 255, 0.3)" : "rgba(255, 170, 0, 0.3)"}`,
+              background: isAuthenticated ? "var(--accent-subtle)" : "rgba(255, 170, 0, 0.1)",
+              border: `1px solid ${isAuthenticated ? "var(--accent-border)" : "rgba(255, 170, 0, 0.3)"}`,
               borderRadius: 8,
               marginBottom: 16,
               display: "flex",
@@ -332,9 +332,9 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
             <div className="row" style={{ gap: 6, alignItems: "center" }}>
               {isAuthenticated ? (
                 <>
-                  <KeyRound size={14} style={{ color: "var(--neon-cyan)" }} />
+                  <KeyRound size={14} style={{ color: "var(--accent-text)" }} />
                   <span>編集権限: <strong>{session?.name}</strong></span>
-                  <span className="mono" style={{ color: "var(--neon-cyan)" }}>
+                  <span className="mono" style={{ color: "var(--accent-text)" }}>
                     ({[maxStocks ? `上限 ${maxStocks}銘柄` : "銘柄数無制限", maxIndices ? `指数上限 ${maxIndices}件` : ""].filter(Boolean).join(" / ")})
                   </span>
                 </>
@@ -348,7 +348,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
                     type="button"
                     onClick={() => setIsAuthModalOpen(true)}
                     className="btn btn-sm btn-outline"
-                    style={{ padding: "2px 8px", fontSize: 11, borderColor: "var(--neon-cyan)", color: "var(--neon-cyan)" }}
+                    style={{ padding: "2px 8px", fontSize: 11, borderColor: "var(--accent-border)", color: "var(--accent-text)" }}
                   >
                     <KeyRound size={11} /> パスワード認証
                   </button>
@@ -496,7 +496,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
             {popularSuggestions.length > 0 && (
               <div className="row flex-wrap" style={{ gap: 6, alignItems: "center", paddingTop: 4 }}>
                 <span className="mono tiny muted" style={{ fontSize: 10, display: "inline-flex", alignItems: "center", gap: 3 }}>
-                  <Sparkles size={11} style={{ color: "var(--neon-cyan)" }} /> 候補補完:
+                  <Sparkles size={11} style={{ color: "var(--accent-text)" }} /> 候補補完:
                 </span>
                 {popularSuggestions.map((s) => (
                   <button
@@ -508,8 +508,8 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
                       cursor: "pointer",
                       fontSize: 10,
                       padding: "2px 6px",
-                      background: "rgba(6, 182, 212, 0.08)",
-                      border: "1px solid rgba(6, 182, 212, 0.25)",
+                      background: "var(--accent-subtle)",
+                      border: "1px solid var(--accent-border)",
                       color: "var(--text-primary)",
                       display: "inline-flex",
                       alignItems: "center",
@@ -517,7 +517,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
                     }}
                     title="クリックしてフォームに入力"
                   >
-                    <strong style={{ color: "var(--neon-cyan)" }}>{s.ticker}</strong>
+                    <strong style={{ color: "var(--accent-text)" }}>{s.ticker}</strong>
                     <span>{s.name}</span>
                     <span className="muted" style={{ fontSize: 9 }}>({s.theme})</span>
                   </button>
@@ -529,7 +529,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
           {/* Basket List & Weight Sliders */}
           <div>
             <div className="row space-between flex-wrap" style={{ marginBottom: 10, gap: 8 }}>
-              <span className="mono tiny bold uppercase" style={{ color: "var(--neon-cyan)" }}>
+              <span className="mono tiny bold uppercase" style={{ color: "var(--accent-text)" }}>
                 構成銘柄とウェイト設定 ({basket.length} 銘柄 / 合計: {totalWeight.toFixed(1)}%
                 {Math.abs(totalWeight - 100) > 0.05 ? " ※保存時に100%へ自動正規化" : ""})
               </span>
@@ -570,7 +570,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
                 >
                   <div style={{ minWidth: 140 }}>
                     <div className="row" style={{ gap: 6 }}>
-                      <span className="mono bold" style={{ fontSize: 12, color: "var(--neon-cyan)" }}>
+                      <span className="mono bold" style={{ fontSize: 12, color: "var(--accent-text)" }}>
                         {item.ticker}
                       </span>
                       <span style={{ fontSize: 12 }}>{item.name}</span>
@@ -587,7 +587,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
                       aria-label={`${item.name} (${item.ticker}) の構成比率`}
                       value={item.weight}
                       onChange={(e) => handleWeightChange(item.ticker, Number(e.target.value))}
-                      style={{ flex: 1, accentColor: "var(--neon-cyan)" }}
+                      style={{ flex: 1, accentColor: "var(--accent-color)" }}
                     />
                     <span className="mono bold" style={{ width: 45, textAlign: "right", fontSize: 12 }}>
                       {item.weight.toFixed(0)}%

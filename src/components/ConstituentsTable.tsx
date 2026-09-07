@@ -248,9 +248,9 @@ export function ConstituentsTable({
       return <ArrowUpDown size={12} style={{ opacity: 0.35, marginLeft: 4 }} />;
     }
     return sortOrder === "asc" ? (
-      <ArrowUp size={12} style={{ color: "var(--neon-cyan)", marginLeft: 4 }} />
+      <ArrowUp size={12} style={{ color: "var(--accent-text)", marginLeft: 4 }} />
     ) : (
-      <ArrowDown size={12} style={{ color: "var(--neon-cyan)", marginLeft: 4 }} />
+      <ArrowDown size={12} style={{ color: "var(--accent-text)", marginLeft: 4 }} />
     );
   };
 
@@ -308,7 +308,7 @@ export function ConstituentsTable({
     <Card className="section">
       <div className="row space-between flex-wrap" style={{ marginBottom: 16, gap: 12 }}>
         <div className="row" style={{ gap: 8 }}>
-          <ListOrdered size={16} style={{ color: "var(--neon-cyan)" }} />
+          <ListOrdered size={16} style={{ color: "var(--accent-text)" }} />
           <h2 style={{ fontSize: 15, margin: 0 }}>構成銘柄リスト & 寄与度分析</h2>
           <Tag variant="cyan" className="mono tiny">
             {filteredAndSorted.length} / {basket.length} 銘柄
@@ -446,9 +446,9 @@ export function ConstituentsTable({
                 style={{
                   fontSize: 11,
                   padding: "3px 8px",
-                  background: isAdmin ? "rgba(255, 0, 234, 0.12)" : "rgba(0, 229, 255, 0.12)",
-                  color: isAdmin ? "var(--neon-magenta)" : "var(--neon-cyan)",
-                  border: `1px solid ${isAdmin ? "rgba(255, 0, 234, 0.3)" : "rgba(0, 229, 255, 0.3)"}`,
+                  background: isAdmin ? "rgba(255, 0, 234, 0.12)" : "var(--accent-subtle)",
+                  color: isAdmin ? "var(--neon-magenta)" : "var(--accent-text)",
+                  border: `1px solid ${isAdmin ? "rgba(255, 0, 234, 0.3)" : "var(--accent-border)"}`,
                   borderRadius: 6,
                   display: "inline-flex",
                   alignItems: "center",

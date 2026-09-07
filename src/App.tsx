@@ -364,7 +364,7 @@ export default function App() {
           >
             <div className="sidebar-drawer-header">
               <div className="row" style={{ gap: 8 }}>
-                <Menu size={16} style={{ color: "var(--neon-cyan)" }} />
+                <Menu size={16} style={{ color: "var(--accent-text)" }} />
                 <span className="mono tiny uppercase">指数メニュー</span>
               </div>
               <button

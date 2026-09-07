@@ -172,7 +172,7 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
     <Card className="section">
       <div className="row space-between flex-wrap" style={{ marginBottom: 14, gap: 10 }}>
         <div className="row" style={{ gap: 8 }}>
-          <LayoutGrid size={16} style={{ color: "var(--neon-cyan)" }} />
+          <LayoutGrid size={16} style={{ color: "var(--accent-text)" }} />
           <h2 style={{ fontSize: 15, margin: 0 }}>構成銘柄ヒートマップ（騰落率 × 構成比）</h2>
           <Tag variant="cyan" className="mono tiny">
             {filteredStocks.length} 銘柄
@@ -211,7 +211,7 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
               type="button"
               className="btn btn-sm btn-outline"
               onClick={() => onSelectTheme(null)}
-              style={{ fontSize: 11, padding: "2px 8px", borderColor: "var(--border-cyan)", color: "var(--neon-cyan)" }}
+              style={{ fontSize: 11, padding: "2px 8px", borderColor: "var(--accent-border)", color: "var(--accent-text)" }}
               title="テーマ絞り込みを解除"
             >
               ✕ テーマ解除 ({selectedTheme})
@@ -227,7 +227,7 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
         <span className="heatmap-legend-item">
           <span className="heatmap-swatch heatmap-swatch-negative" aria-hidden="true" />下落
         </span>
-        <span className="heatmap-legend-note" style={{ color: "var(--neon-cyan)" }}>
+        <span className="heatmap-legend-note" style={{ color: "var(--accent-text)" }}>
           ※ タイルをクリックしてテーマ絞り込み / ホバーで詳細情報
         </span>
       </div>
@@ -253,8 +253,8 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
                 key={theme}
                 className="heatmap-group-section"
                 style={{
-                  borderColor: isCurrentTheme ? "var(--border-cyan)" : undefined,
-                  background: isCurrentTheme ? "rgba(6, 182, 212, 0.04)" : undefined,
+                  borderColor: isCurrentTheme ? "var(--accent-border)" : undefined,
+                  background: isCurrentTheme ? "var(--accent-subtle)" : undefined,
                 }}
               >
                 <div className="heatmap-group-header">
@@ -309,7 +309,7 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
               <strong style={{ color: "var(--text-heading)", fontSize: 13 }}>
                 {hoveredStock.stock.name}
               </strong>
-              <span className="mono bold" style={{ color: "var(--neon-cyan)", fontSize: 12 }}>
+              <span className="mono bold" style={{ color: "var(--accent-text)", fontSize: 12 }}>
                 {hoveredStock.stock.ticker}
               </span>
             </div>

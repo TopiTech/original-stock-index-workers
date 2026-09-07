@@ -31,8 +31,8 @@ export function RiskMetricsCard({
       label: "シャープレシオ (Sharpe)",
       value: metrics.sharpeRatio.toFixed(2),
       sub: metrics.sharpeRatio >= 1 ? "優秀なリスク対比リターン" : metrics.sharpeRatio > 0 ? "プラスリターン" : "リスク見劣り",
-      icon: <Target size={15} style={{ color: "var(--neon-cyan)" }} />,
-      color: metrics.sharpeRatio >= 1 ? "var(--neon-green)" : metrics.sharpeRatio > 0 ? "var(--neon-cyan)" : "var(--neon-red)",
+      icon: <Target size={15} style={{ color: "var(--accent-text)" }} />,
+      color: metrics.sharpeRatio >= 1 ? "var(--neon-green)" : metrics.sharpeRatio > 0 ? "var(--accent-text)" : "var(--neon-red)",
     },
     {
       label: "最大ドローダウン (MDD)",
@@ -68,7 +68,7 @@ export function RiskMetricsCard({
     <Card className="section">
       <div className="row space-between" style={{ marginBottom: 14 }}>
         <div className="row" style={{ gap: 8 }}>
-          <ShieldAlert size={16} style={{ color: "var(--neon-cyan)" }} />
+          <ShieldAlert size={16} style={{ color: "var(--accent-text)" }} />
           <h2 style={{ fontSize: 15, margin: 0 }}>クオンツ・リスク分析 (Risk & Performance Metrics)</h2>
         </div>
         <Tag variant="cyan" className="mono tiny">

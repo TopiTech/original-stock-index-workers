@@ -47,7 +47,7 @@ export function ThemeControls() {
           </>
         ) : (
           <>
-            <Moon size={14} style={{ color: "var(--neon-cyan)" }} />
+            <Moon size={14} style={{ color: "var(--accent-text)" }} />
             <span className="theme-toggle-label">DARK</span>
           </>
         )}

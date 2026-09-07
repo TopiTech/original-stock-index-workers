@@ -63,7 +63,7 @@ export function IndexSelector({
           title={isExpanded ? "指数セレクターを閉じる" : "指数セレクターを開く"}
         >
           <span className="index-selector-toggle-title">
-            <Layers size={16} style={{ color: "var(--neon-cyan)" }} />
+            <Layers size={16} style={{ color: "var(--accent-color)" }} />
             <span>指数セレクター</span>
           </span>
           <span className="index-selector-toggle-meta">
@@ -104,7 +104,7 @@ export function IndexSelector({
                 type="button"
                 onClick={onCreateIndex}
                 className="btn btn-default"
-                style={{ width: "100%", marginBottom: 12, padding: "8px 12px" }}
+                style={{ width: "100%", marginTop: 2, marginBottom: 12, padding: "8px 12px", position: "relative", zIndex: 1 }}
               >
                 <Plus size={14} /> 独自指数を新規作成
               </button>
@@ -157,7 +157,7 @@ export function IndexSelector({
                     flex: 1,
                   }}
                 >
-                  <span className="index-item-name" style={{ fontWeight: 700, fontSize: 14, color: isSelected ? "var(--neon-cyan)" : "var(--text-heading)" }}>
+                  <span className="index-item-name" style={{ fontWeight: 700, fontSize: 14, color: isSelected ? "var(--accent-text)" : "var(--text-heading)" }}>
                     {idx.name}
                   </span>
                   {isMyIndex && (
@@ -166,9 +166,9 @@ export function IndexSelector({
                       style={{
                         fontSize: 9,
                         padding: "1px 6px",
-                        background: "rgba(0, 229, 255, 0.12)",
-                        color: "var(--neon-cyan)",
-                        border: "1px solid rgba(0, 229, 255, 0.3)",
+                        background: "var(--accent-subtle)",
+                        color: "var(--accent-text)",
+                        border: "1px solid var(--accent-border)",
                         borderRadius: 4,
                         display: "inline-flex",
                         alignItems: "center",
@@ -203,12 +203,12 @@ export function IndexSelector({
                     </button>
                   )}
                   {isSelected ? (
-                    <CheckCircle2 size={16} style={{ color: "var(--neon-cyan)", flexShrink: 0 }} />
+                    <CheckCircle2 size={16} style={{ color: "var(--accent-color)", flexShrink: 0 }} />
                   ) : null}
                 </div>
               </div>
 
-              <div className="muted tiny" style={{ lineHeight: 1.4, marginBottom: 8, fontSize: 11 }}>
+              <div className="muted tiny" style={{ lineHeight: 1.4, marginBottom: 8, fontSize: 11, wordBreak: "break-word", overflowWrap: "anywhere" }}>
                 {idx.description}
               </div>
 
@@ -289,7 +289,7 @@ export function IndexSelector({
                   >
                     <div className="row space-between">
                       <div className="row" style={{ gap: 8 }}>
-                        <span className="mono" style={{ color: "var(--neon-cyan)", fontWeight: 600, fontSize: 12 }}>
+                        <span className="mono" style={{ color: "var(--accent-text)", fontWeight: 600, fontSize: 12 }}>
                           {item.ticker}
                         </span>
                         <span style={{ fontSize: 12 }}>{item.name}</span>

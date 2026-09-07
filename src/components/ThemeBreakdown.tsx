@@ -57,7 +57,7 @@ export function ThemeBreakdown({
     <Card className="section">
       <div className="row space-between" style={{ marginBottom: 8 }}>
         <div className="row" style={{ gap: 8 }}>
-          <PieIcon size={16} style={{ color: "var(--neon-cyan)" }} />
+          <PieIcon size={16} style={{ color: "var(--accent-text)" }} />
           <h2 style={{ fontSize: 15, margin: 0 }}>テーマ別構成比率</h2>
         </div>
         {selectedTheme && (

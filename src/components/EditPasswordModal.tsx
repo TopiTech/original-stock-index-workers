@@ -159,7 +159,7 @@ export function EditPasswordModal({
           backgroundColor: "var(--bg-surface)",
           border: "1px solid var(--border-cyan)",
           borderRadius: 14,
-          boxShadow: "0 20px 60px rgba(0,0,0,0.8), 0 0 30px rgba(0,229,255,0.2)",
+          boxShadow: "0 20px 60px rgba(0,0,0,0.8), 0 0 30px var(--accent-glow)",
           overflow: "hidden",
         }}
       >
@@ -169,11 +169,11 @@ export function EditPasswordModal({
           style={{
             padding: "16px 20px",
             borderBottom: "1px solid var(--border-subtle)",
-            background: "linear-gradient(90deg, rgba(0,229,255,0.08), transparent)",
+            background: "linear-gradient(90deg, var(--accent-subtle), transparent)",
           }}
         >
           <div className="row" style={{ gap: 8 }}>
-            <Sliders size={18} style={{ color: "var(--neon-cyan)" }} />
+            <Sliders size={18} style={{ color: "var(--accent-text)" }} />
             <h2 id="edit-password-modal-title" style={{ fontSize: 16, margin: 0, fontWeight: 700 }}>
               パスワード設定の編集
             </h2>

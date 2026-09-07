@@ -74,7 +74,7 @@ export function ConfirmModal({
           borderRadius: 14,
           boxShadow: isDanger
             ? "0 20px 60px rgba(0,0,0,0.8), 0 0 25px rgba(244, 63, 94, 0.2)"
-            : "0 20px 60px rgba(0,0,0,0.8), 0 0 25px rgba(6, 182, 212, 0.2)",
+            : "0 20px 60px rgba(0,0,0,0.8), 0 0 25px var(--accent-glow)",
           overflow: "hidden",
         }}
       >
@@ -84,15 +84,15 @@ export function ConfirmModal({
             padding: "16px 20px",
             borderBottom: "1px solid var(--border-subtle)",
             background: isDanger
-              ? "linear-gradient(90deg, rgba(244, 63, 94, 0.1), transparent)"
-              : "linear-gradient(90deg, rgba(6, 182, 212, 0.1), transparent)",
+              ? "linear-gradient(90deg, rgba(244, 63, 94, 0.08), transparent)"
+              : "linear-gradient(90deg, var(--accent-subtle), transparent)",
           }}
         >
           <div className="row" style={{ gap: 8 }}>
             {isDanger ? (
               <AlertTriangle size={18} style={{ color: "var(--neon-red)" }} />
             ) : (
-              <AlertCircle size={18} style={{ color: "var(--neon-cyan)" }} />
+              <AlertCircle size={18} style={{ color: "var(--accent-text)" }} />
             )}
             <h2 id="confirm-modal-title" style={{ fontSize: 16, margin: 0, fontWeight: 700 }}>
               {title}

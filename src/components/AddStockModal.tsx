@@ -157,11 +157,11 @@ export function AddStockModal({
           style={{
             padding: "16px 20px",
             borderBottom: "1px solid var(--border-subtle)",
-            background: "linear-gradient(90deg, rgba(0,229,255,0.08), transparent)",
+            background: "linear-gradient(90deg, var(--accent-subtle), transparent)",
           }}
         >
           <div className="row" style={{ gap: 8 }}>
-            <Plus size={18} style={{ color: "var(--neon-cyan)" }} />
+            <Plus size={18} style={{ color: "var(--accent-text)" }} />
             <div>
               <h2 id="add-stock-modal-title" style={{ fontSize: 16, margin: 0, fontWeight: 700 }}>構成銘柄の追加</h2>
               <div id="add-stock-modal-description" className="muted tiny">対象指数: {indexName}</div>
@@ -190,14 +190,14 @@ export function AddStockModal({
           <div
             style={{
               padding: "10px 14px",
-              background: isLimitReached ? "rgba(255, 51, 102, 0.1)" : "rgba(0, 229, 255, 0.05)",
+              background: isLimitReached ? "rgba(255, 51, 102, 0.1)" : "var(--accent-subtle)",
               border: `1px solid ${isLimitReached ? "var(--neon-red)" : "var(--border-subtle)"}`,
               borderRadius: 8,
               marginBottom: 16,
             }}
           >
             <div className="row space-between" style={{ fontSize: 12 }}>
-              <span style={{ fontWeight: 600, color: isLimitReached ? "var(--neon-red)" : "var(--neon-cyan)" }}>
+              <span style={{ fontWeight: 600, color: isLimitReached ? "var(--neon-red)" : "var(--accent-text)" }}>
                 銘柄登録状況
               </span>
               <span className="mono">
@@ -236,7 +236,7 @@ export function AddStockModal({
           {/* Quick presets */}
           <div style={{ marginBottom: 16 }}>
             <div className="row" style={{ gap: 6, marginBottom: 8, fontSize: 12, color: "var(--text-secondary)" }}>
-              <Sparkles size={13} style={{ color: "var(--neon-cyan)" }} />
+              <Sparkles size={13} style={{ color: "var(--accent-text)" }} />
               <span>プリセット銘柄から選択:</span>
             </div>
             <div className="row flex-wrap" style={{ gap: 6, maxHeight: 110, overflowY: "auto" }}>
@@ -249,7 +249,7 @@ export function AddStockModal({
                   style={{
                     padding: "4px 8px",
                     background: ticker === p.ticker ? "var(--surface-selection)" : "var(--surface-inset)",
-                    border: `1px solid ${ticker === p.ticker ? "var(--neon-cyan)" : "var(--border-subtle)"}`,
+                    border: `1px solid ${ticker === p.ticker ? "var(--accent-border)" : "var(--border-subtle)"}`,
                     borderRadius: 6,
                     color: ticker === p.ticker ? "var(--text-on-selection)" : "var(--text-secondary)",
                     fontSize: 11,
@@ -259,7 +259,7 @@ export function AddStockModal({
                     gap: 4,
                   }}
                 >
-                  <span className="mono" style={{ color: "var(--neon-cyan)" }}>{p.ticker}</span>
+                  <span className="mono" style={{ color: "var(--accent-text)" }}>{p.ticker}</span>
                   <span>{p.name}</span>
                 </button>
               ))}
@@ -324,7 +324,7 @@ export function AddStockModal({
             {popularSuggestions.length > 0 && (
               <div className="row flex-wrap" style={{ gap: 6, alignItems: "center", marginBottom: 14 }}>
                 <span className="mono tiny muted" style={{ fontSize: 10, display: "inline-flex", alignItems: "center", gap: 3 }}>
-                  <Sparkles size={11} style={{ color: "var(--neon-cyan)" }} /> 候補補完:
+                  <Sparkles size={11} style={{ color: "var(--accent-text)" }} /> 候補補完:
                 </span>
                 {popularSuggestions.map((s) => (
                   <button
@@ -336,8 +336,8 @@ export function AddStockModal({
                       cursor: "pointer",
                       fontSize: 10,
                       padding: "2px 6px",
-                      background: "rgba(6, 182, 212, 0.08)",
-                      border: "1px solid rgba(6, 182, 212, 0.25)",
+                      background: "var(--accent-subtle)",
+                      border: "1px solid var(--accent-border)",
                       color: "var(--text-primary)",
                       display: "inline-flex",
                       alignItems: "center",
@@ -345,7 +345,7 @@ export function AddStockModal({
                     }}
                     title="クリックして自動入力"
                   >
-                    <strong style={{ color: "var(--neon-cyan)" }}>{s.ticker}</strong>
+                    <strong style={{ color: "var(--accent-text)" }}>{s.ticker}</strong>
                     <span>{s.name}</span>
                     <span className="muted" style={{ fontSize: 9 }}>({s.theme})</span>
                   </button>

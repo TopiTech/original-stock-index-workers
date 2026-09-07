@@ -95,11 +95,11 @@ export function AuthModal({
           style={{
             padding: "16px 20px",
             borderBottom: "1px solid var(--border-subtle)",
-            background: "linear-gradient(90deg, rgba(0,229,255,0.08), transparent)",
+            background: "linear-gradient(90deg, var(--accent-subtle), transparent)",
           }}
         >
           <div className="row" style={{ gap: 8 }}>
-            <KeyRound size={18} style={{ color: "var(--neon-cyan)" }} />
+            <KeyRound size={18} style={{ color: "var(--accent-text)" }} />
             <h2 id="auth-modal-title" style={{ fontSize: 16, margin: 0, fontWeight: 700 }}>{title}</h2>
           </div>
           <button

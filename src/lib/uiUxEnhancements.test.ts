@@ -62,4 +62,39 @@ describe("UI/UX Enhancements Unit Tests", () => {
       expect(normalized[1].weight).toBe(0);
     });
   });
+
+  describe("UI Layout & Accent Theming Regressions", () => {
+    it("ensures index-item does not shrink and index-selector-content has clearance for hover", async () => {
+      const { readFileSync } = await import("node:fs");
+      const { resolve } = await import("node:path");
+      const css = readFileSync(resolve("src/index.css"), "utf8");
+
+      const indexItemBlock = css.match(/\.index-item\s*\{([\s\S]*?)\n\}/)?.[1] || "";
+      expect(indexItemBlock).toContain("flex-shrink: 0");
+      expect(indexItemBlock).toContain("min-height: fit-content");
+
+      const selectorContentBlock = css.match(/\.index-selector-content\s*\{([\s\S]*?)\n\}/)?.[1] || "";
+      expect(selectorContentBlock).toContain("padding: 4px 2px 0");
+    });
+
+    it("defines CSS variables for all 5 accent palettes in dark and light modes", async () => {
+      const { readFileSync } = await import("node:fs");
+      const { resolve } = await import("node:path");
+      const css = readFileSync(resolve("src/index.css"), "utf8");
+
+      const accents = ["cyan", "emerald", "violet", "amber", "rose"];
+      for (const accent of accents) {
+        expect(css).toContain(`[data-accent="${accent}"]`);
+        expect(css).toContain(`[data-theme="light"][data-accent="${accent}"]`);
+      }
+
+      // Check key variables exist in root
+      expect(css).toContain("--accent-color:");
+      expect(css).toContain("--accent-text:");
+      expect(css).toContain("--accent-border:");
+      expect(css).toContain("--accent-subtle:");
+      expect(css).toContain("--accent-glow:");
+    });
+  });
 });
+
