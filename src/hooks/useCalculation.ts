@@ -149,6 +149,12 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
     setSyncing(false);
     setSyncProgress(0);
     setSyncWarnings([]);
+    // A sync request may be handled by a different warm Worker isolate than
+    // the subsequent calculation request. Bypass the Worker calculation cache
+    // whenever this run had to contact the sync endpoint (and on an explicit
+    // retry) so freshly written D1 prices cannot be hidden by a stale isolate
+    // local cache.
+    let bypassServerCalculationCache = force;
 
     try {
       // Worker と同じ市場時間ポリシーで同期済み銘柄を判定する。固定12時間の
@@ -173,6 +179,7 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
             });
 
         if (tickersToSync.length > 0) {
+          bypassServerCalculationCache = true;
           setSyncing(true);
           const BATCH_SIZE = 30;
           const warnings: string[] = [];
@@ -240,6 +247,7 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(bypassServerCalculationCache ? { "Cache-Control": "no-cache" } : {}),
           ...getAuthHeaders(session),
         },
         body: JSON.stringify({

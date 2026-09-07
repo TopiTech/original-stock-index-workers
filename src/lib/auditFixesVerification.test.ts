@@ -410,6 +410,62 @@ describe("Audit Fixes Verification: Admin Password Update", () => {
     expect(boundParams).toContain(1);
     expect(boundParams).toContain("user-target");
   });
+
+  it("keeps legacy password updates compatible when max_indices is not migrated", async () => {
+    const adminPassword = "legacy-schema-admin";
+    const adminHash = await hashPassword(adminPassword);
+    const updateQueries: string[] = [];
+
+    const prepare = vi.fn().mockImplementation((sql: string) => {
+      const statement = {
+        bind: vi.fn().mockReturnThis(),
+        all: vi.fn().mockImplementation(async () => {
+          if (sql.includes("FROM access_passwords WHERE id = 'admin-master'")) {
+            return {
+              results: [{
+                id: "admin-master",
+                name: "Legacy Admin",
+                password_hash: adminHash,
+                role: "admin",
+                is_active: 1,
+              }],
+            };
+          }
+          return { results: [] };
+        }),
+        run: vi.fn().mockImplementation(async () => {
+          if (sql.includes("UPDATE access_passwords SET")) {
+            updateQueries.push(sql);
+            if (sql.includes("max_indices = NULL")) {
+              throw new Error("no such column: max_indices");
+            }
+          }
+          return { success: true, meta: { changes: 1 } };
+        }),
+      };
+      return statement;
+    });
+
+    const env = {
+      DB: { prepare, batch: vi.fn().mockResolvedValue([]) },
+      ADMIN_PASSWORD: adminPassword,
+      ASSETS: { fetch: vi.fn() },
+    };
+    const res = await worker.fetch(
+      new Request("https://localhost/api/admin/passwords", {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${adminPassword}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ id: "legacy-user", name: "Renamed", maxIndices: null }),
+      }),
+      env as any,
+    );
+
+    expect(res.status).toBe(200);
+    expect(updateQueries).toHaveLength(2);
+    expect(updateQueries[0]).toContain("max_indices = NULL");
+    expect(updateQueries[1]).not.toContain("max_indices");
+    expect(updateQueries[1]).toContain("name = ?");
+  });
 });
 
 describe("Audit Fixes Verification: Index Selection Fallback", () => {

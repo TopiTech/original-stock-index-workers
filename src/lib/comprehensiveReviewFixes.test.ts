@@ -427,6 +427,41 @@ describe("Comprehensive Review Fixes", () => {
         consoleError.mockRestore();
       }
     });
+
+    it("returns 502 instead of exposing a structurally invalid stale snapshot payload", async () => {
+      const db = createMockDb({
+        all: (query) => {
+          if (query.includes("FROM benchmark_cache") || query.includes("FROM snapshot_cache")) {
+            return {
+              results: [
+                {
+                  data: JSON.stringify({
+                    snapshot: { symbol: "^N225", current: 39000, change: 100, changePct: 0.25 },
+                    series: [],
+                  }),
+                  cached_at: Math.floor(Date.now() / 1000) - 7200,
+                },
+              ],
+            };
+          }
+          return { results: [] };
+        },
+      });
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn().mockRejectedValue(new Error("Yahoo Finance unavailable"));
+
+      try {
+        const res = await worker.fetch(
+          new Request("http://localhost/api/snapshot?symbol=%5EN225"),
+          { ASSETS: { fetch: vi.fn() }, DB: db, ADMIN_PASSWORD: "unused" } as any,
+        );
+
+        expect(res.status).toBe(502);
+        expect((await res.json()).error).toContain("No data available");
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
   });
 
   describe("[HIGH-02] Dynamic Calc Cache Partitioning", () => {

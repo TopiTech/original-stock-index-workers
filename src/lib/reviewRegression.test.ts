@@ -30,6 +30,15 @@ describe("review regressions: dashboard styles", () => {
     expect(heatmap).toContain('color: "var(--text-heading)"');
     expect((css.match(/\.index-item::before/g) || []).length).toBe(1);
   });
+
+  it("removes a closed mobile drawer from keyboard focus and does not invent owner tokens", () => {
+    const app = readFileSync(resolve("src/App.tsx"), "utf8");
+    const indicesHook = readFileSync(resolve("src/hooks/useIndices.ts"), "utf8");
+
+    expect(app).toContain('inert={isMobileLayout && !isSidebarOpen ? true : undefined}');
+    expect(indicesHook).toContain("const responseToken =");
+    expect(indicesHook).not.toContain("const finalToken = data.ownerToken || token;");
+  });
 });
 
 describe("review regressions: Worker input boundaries", () => {

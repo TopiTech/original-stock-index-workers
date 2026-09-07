@@ -403,6 +403,7 @@ export default function App() {
             aria-hidden={isMobileLayout && !isSidebarOpen}
             role={isMobileLayout ? "dialog" : undefined}
             aria-modal={isMobileLayout ? isSidebarOpen : undefined}
+            inert={isMobileLayout && !isSidebarOpen ? true : undefined}
             tabIndex={isMobileLayout ? -1 : undefined}
           >
             <div className="sidebar-drawer-header">

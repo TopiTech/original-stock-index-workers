@@ -357,6 +357,55 @@ describe("Cloudflare Quota Savings: In-Memory Calculation Cache", () => {
     const data = await second.json();
     expect(data.stockUniverse[0]).toMatchObject({ name: "SoftBank Group", theme: "Telecom" });
   });
+
+  it("bypasses an isolate-local calculation cache when the caller requests fresh prices", async () => {
+    const env = createSavingsTestEnv();
+    env._stockSeries.set("9984", {
+      ticker: "9984",
+      prices: JSON.stringify([
+        { date: "2026-09-01", close: 8000 },
+        { date: "2026-09-02", close: 8200 },
+      ]),
+      updated_at: Math.floor(Date.now() / 1000),
+    });
+
+    const basket = [{ ticker: "9984", name: "SoftBank", theme: "AI", weight: 100 }];
+    const first = await worker.fetch(
+      new Request("http://localhost/api/calculate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ basket, baseValue: 1000 }),
+      }),
+      env as any,
+    );
+    expect(first.status).toBe(200);
+
+    const d1CallsAfterFirst = env._prepareCalls.filter((q) => q.includes("stock_series")).length;
+    env._stockSeries.set("9984", {
+      ticker: "9984",
+      prices: JSON.stringify([
+        { date: "2026-09-01", close: 8000 },
+        { date: "2026-09-02", close: 9000 },
+      ]),
+      updated_at: Math.floor(Date.now() / 1000),
+    });
+
+    const second = await worker.fetch(
+      new Request("http://localhost/api/calculate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-cache" },
+        body: JSON.stringify({ basket, baseValue: 1000 }),
+      }),
+      env as any,
+    );
+    expect(second.status).toBe(200);
+    expect(second.headers.get("x-cache")).toBeNull();
+    const data = (await second.json()) as { series: Array<{ value: number }> };
+    expect(data.series[data.series.length - 1]?.value).toBe(1125);
+
+    const d1CallsAfterSecond = env._prepareCalls.filter((q) => q.includes("stock_series")).length;
+    expect(d1CallsAfterSecond).toBeGreaterThan(d1CallsAfterFirst);
+  });
 });
 
 describe("Cloudflare Quota Savings: ETag and 304 Not Modified Support", () => {

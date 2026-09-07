@@ -64,6 +64,56 @@ function sanitizePriceSeries(value: unknown): PricePoint[] {
   return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
 }
 
+interface SnapshotResponseData {
+  snapshot: {
+    symbol: string;
+    label: string;
+    current: number;
+    change: number;
+    changePct: number;
+    updatedAt: string;
+    description: string;
+  };
+  series: PricePoint[];
+}
+
+function parseSnapshotResponseData(
+  value: unknown,
+  symbol: string,
+  benchmark: { label: string; desc: string },
+): SnapshotResponseData | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  if (!raw.snapshot || typeof raw.snapshot !== "object" || Array.isArray(raw.snapshot)) return null;
+
+  const snapshot = raw.snapshot as Record<string, unknown>;
+  const current = snapshot.current;
+  const change = snapshot.change;
+  const changePct = snapshot.changePct;
+  const series = sanitizePriceSeries(raw.series);
+  if (
+    typeof current !== "number" || !Number.isFinite(current) || current <= 0 ||
+    typeof change !== "number" || !Number.isFinite(change) ||
+    typeof changePct !== "number" || !Number.isFinite(changePct) ||
+    series.length === 0
+  ) {
+    return null;
+  }
+
+  return {
+    snapshot: {
+      symbol: typeof snapshot.symbol === "string" && snapshot.symbol.length > 0 ? snapshot.symbol : symbol,
+      label: typeof snapshot.label === "string" ? snapshot.label : benchmark.label,
+      current,
+      change,
+      changePct,
+      updatedAt: typeof snapshot.updatedAt === "string" ? snapshot.updatedAt : "",
+      description: typeof snapshot.description === "string" ? snapshot.description : benchmark.desc,
+    },
+    series,
+  };
+}
+
 function isMissingColumnError(error: unknown, column: string): boolean {
   const message = error instanceof Error ? error.message : String(error ?? "");
   return message.toLowerCase().includes(column.toLowerCase()) && /no column|no such column|does not exist|sqlite_error/i.test(message);
@@ -919,6 +969,12 @@ async function parseJsonBody(request: Request): Promise<{ ok: true; body: Record
 const RATE_LIMIT_WINDOW = 60; // seconds
 const RATE_LIMIT_MAX = 60; // max requests per window per endpoint
 
+function requestsFreshCalculation(request: Request): boolean {
+  return (request.headers.get("cache-control") || "")
+    .split(",")
+    .some((directive) => directive.trim().toLowerCase() === "no-cache");
+}
+
 async function checkRateLimit(
   env: Env,
   ip: string,
@@ -1141,6 +1197,8 @@ export default {
           await ensurePasswordTable(env);
           const updates: string[] = [];
           const params: unknown[] = [];
+          let includesMaxIndicesUpdate = false;
+          let maxIndicesRequiresMigration = false;
 
           if (typeof name === "string" && name.trim()) {
             updates.push("name = ?");
@@ -1176,7 +1234,9 @@ export default {
               }
               updates.push("max_indices = ?");
               params.push(Math.floor(num));
+              maxIndicesRequiresMigration = true;
             }
+            includesMaxIndicesUpdate = true;
           }
           if (role === "admin" || role === "user") {
             updates.push("role = ?");
@@ -1191,9 +1251,25 @@ export default {
           params.push(now);
 
           params.push(id);
-          await env.DB.prepare(
-            `UPDATE access_passwords SET ${updates.join(", ")} WHERE id = ?`
-          ).bind(...params).run();
+          const updateQuery = `UPDATE access_passwords SET ${updates.join(", ")} WHERE id = ?`;
+          try {
+            await env.DB.prepare(updateQuery).bind(...params).run();
+          } catch (updateErr: unknown) {
+            if (!includesMaxIndicesUpdate || !isMissingColumnError(updateErr, "max_indices")) {
+              throw updateErr;
+            }
+            // A legacy database can still update all pre-migration fields. A
+            // finite index quota cannot be represented safely without the
+            // column, so fail explicitly rather than acknowledging a partial
+            // update. Clearing an unlimited quota is already the legacy
+            // default and can be treated as a no-op for that field.
+            if (maxIndicesRequiresMigration) {
+              return json({ error: "指数上限を保存するにはデータベースのマイグレーションが必要です" }, 503, request);
+            }
+            const legacyUpdates = updates.filter((update) => update !== "max_indices = NULL");
+            const legacyQuery = `UPDATE access_passwords SET ${legacyUpdates.join(", ")} WHERE id = ?`;
+            await env.DB.prepare(legacyQuery).bind(...params).run();
+          }
           clearAuthCache();
 
           return json({ ok: true }, 200, request);
@@ -1659,9 +1735,10 @@ export default {
 
         if (cacheRow && now - cacheRow.cached_at < SNAPSHOT_CACHE_TTL) {
           try {
-            const parsedData = JSON.parse(cacheRow.data);
+            const parsedData = parseSnapshotResponseData(JSON.parse(cacheRow.data), symbol, benchInfo);
+            if (!parsedData) throw new Error("Invalid snapshot cache payload");
             setMemoryCache(memKey, parsedData, 60);
-            const etag = await generateETag(cacheRow.data);
+            const etag = await generateETag(JSON.stringify(parsedData));
             const ifNoneMatch = request.headers.get("if-none-match");
             if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
               return notModified(request, {
@@ -1688,11 +1765,9 @@ export default {
           if (cacheRow) {
             try {
               console.warn(`Using stale snapshot cache for ${symbol} due to Yahoo Finance failure`);
-              const staleData = JSON.parse(cacheRow.data);
-              if (typeof staleData === "object" && staleData !== null) {
-                staleData.stale = true;
-              }
-              return json(staleData, 200, request, {
+              const staleData = parseSnapshotResponseData(JSON.parse(cacheRow.data), symbol, benchInfo);
+              if (!staleData) throw new Error("Invalid snapshot cache payload");
+              return json({ ...staleData, stale: true }, 200, request, {
                 "x-data-stale": "true",
                 "cache-control": "public, max-age=30",
               });
@@ -2590,8 +2665,9 @@ export default {
           basket: validatedBasket,
         }));
         const calcCacheKey = `calc:${calcCacheFingerprint}`;
+        const bypassCalcCache = requestsFreshCalculation(request);
 
-        const cachedCalc = getMemoryCache<unknown>(calcCacheKey);
+        const cachedCalc = bypassCalcCache ? null : getMemoryCache<unknown>(calcCacheKey);
         if (cachedCalc) {
           return json(cachedCalc, 200, request, {
             "x-cache": "HIT",
