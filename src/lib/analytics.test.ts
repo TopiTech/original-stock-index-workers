@@ -20,6 +20,28 @@ describe("analytics library", () => {
       expect(calculateSMA([10, 20], 0)).toEqual([null, null]);
       expect(calculateSMA([], 5)).toEqual([]);
     });
+
+    it("returns null for windows containing NaN (does not propagate NaN)", () => {
+      const data = [10, 20, NaN, 40, 50, 60];
+      const sma = calculateSMA(data, 3);
+      // Windows containing NaN should be null, not NaN
+      expect(sma).toEqual([null, null, null, null, null, 50]);
+    });
+
+    it("returns null for windows containing Infinity", () => {
+      const data = [10, 20, Infinity, 40, 50, 60];
+      const sma = calculateSMA(data, 3);
+      expect(sma).toEqual([null, null, null, null, null, 50]);
+    });
+
+    it("recovers after NaN passes out of window", () => {
+      const data = [10, 20, 30, NaN, 50, 60, 70];
+      const sma = calculateSMA(data, 3);
+      // First valid window is [10,20,30] = 20
+      // Then windows with NaN are null
+      // After NaN passes: [50,60,70] = 60
+      expect(sma).toEqual([null, null, 20, null, null, null, 60]);
+    });
   });
 
   describe("calculateRiskMetrics", () => {
@@ -109,6 +131,28 @@ describe("analytics library", () => {
       expect(Number.isFinite(metrics.winRate)).toBe(true);
       expect(Number.isFinite(metrics.bestDay)).toBe(true);
       expect(Number.isFinite(metrics.worstDay)).toBe(true);
+    });
+
+    it("does not propagate NaN from corrupted data points into risk metrics", () => {
+      const corruptedCustom: PricePoint[] = [
+        { date: "2026-01-01", close: 1000, value: 1000 },
+        { date: "2026-01-02", close: NaN, value: NaN }, // corrupted point
+        { date: "2026-01-03", close: 1050, value: 1050 },
+        { date: "2026-01-04", close: 1100, value: 1100 },
+      ];
+      const bench: PricePoint[] = [
+        { date: "2026-01-01", close: 38000 },
+        { date: "2026-01-02", close: 38000 },
+        { date: "2026-01-03", close: 38000 },
+        { date: "2026-01-04", close: 38000 },
+      ];
+      const metrics = calculateRiskMetrics(corruptedCustom, bench);
+      // All metrics must be finite, not NaN
+      expect(Number.isFinite(metrics.annualReturn)).toBe(true);
+      expect(Number.isFinite(metrics.annualVolatility)).toBe(true);
+      expect(Number.isFinite(metrics.sharpeRatio)).toBe(true);
+      expect(Number.isFinite(metrics.maxDrawdown)).toBe(true);
+      expect(Number.isFinite(metrics.beta)).toBe(true);
     });
 
     it("safely handles total wipeout scenarios (totalReturn <= -100%) without NaN", () => {

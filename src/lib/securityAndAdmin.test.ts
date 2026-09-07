@@ -284,7 +284,9 @@ describe("Security and Admin Regression Tests", () => {
     const res = await worker.fetch(req, env as any);
     expect(res.status).toBe(201);
     const data = await res.json();
-    expect(data.password.initialPassword).toBe("issued-password-123");
+    // SECURITY: The API response must never carry the plaintext password.
+    // The client already holds the value it generated before sending it.
+    expect(data.password.initialPassword).toBeUndefined();
     expect(data.password.plain_password).toBeUndefined();
 
     const stored = Array.from(passwords.values()).find((record) => record.name === "Issued User");
@@ -1102,5 +1104,24 @@ describe("Security and Admin Regression Tests", () => {
       const idx1UpdateRes = await worker.fetch(idx1UpdateReq, env as any);
       expect(idx1UpdateRes.status).toBe(200);
     });
+  });
+
+  it("rejects authentication with passwords exceeding maximum length (DoS prevention)", async () => {
+    const { env } = createSecurityTestEnv();
+
+    // Create a password longer than 100 characters
+    const longPassword = "a".repeat(150);
+
+    const req = new Request("http://localhost/api/auth/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: longPassword }),
+    });
+
+    const res = await worker.fetch(req, env as any);
+    // Should be rejected with 401 (not authenticated) before any hashing
+    expect(res.status).toBe(401);
+    const data = await res.json();
+    expect(data.ok).toBe(false);
   });
 });

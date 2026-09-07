@@ -32,19 +32,36 @@ function normalizeAnalyticsSeries(
 
 /**
  * 単純移動平均線 (SMA) を計算
+ *
+ * Returns null for any window that contains a non-finite value (NaN,
+ * Infinity, undefined). A single corrupted data point would otherwise
+ * propagate through the sliding-window sum and permanently corrupt all
+ * later SMA values (NaN + x = NaN).
  */
 export function calculateSMA(data: number[], window: number): (number | null)[] {
   if (window <= 0 || data.length === 0) return data.map(() => null);
   const result: (number | null)[] = [];
   let sum = 0;
+  let validCount = 0;
 
   for (let i = 0; i < data.length; i++) {
-    sum += data[i];
+    const val = data[i];
+    const isFinite = typeof val === "number" && Number.isFinite(val);
+    if (isFinite) {
+      sum += val;
+      validCount += 1;
+    }
     if (i >= window) {
-      sum -= data[i - window];
+      const outgoing = data[i - window];
+      const wasFinite = typeof outgoing === "number" && Number.isFinite(outgoing);
+      if (wasFinite) {
+        sum -= outgoing;
+        validCount -= 1;
+      }
     }
     if (i >= window - 1) {
-      result.push(Number((sum / window).toFixed(2)));
+      // Only emit a value when every element in the window is finite.
+      result.push(validCount === window ? Number((sum / window).toFixed(2)) : null);
     } else {
       result.push(null);
     }
@@ -80,11 +97,16 @@ export function calculateRiskMetrics(
   }
 
   // 1. 日次リターン配列の計算
+  // Guard: validate both prev and curr are finite positive numbers before
+  // division. A single NaN/Infinity/null data point would otherwise
+  // propagate through every downstream metric (volatility, Sharpe, etc.).
   const customReturns: number[] = [];
   for (let i = 1; i < customSeries.length; i++) {
-    const prev = customSeries[i - 1].value ?? customSeries[i - 1].close;
-    const curr = customSeries[i].value ?? customSeries[i].close;
-    if (prev > 0) {
+    const prevRaw = customSeries[i - 1].value ?? customSeries[i - 1].close;
+    const currRaw = customSeries[i].value ?? customSeries[i].close;
+    const prev = typeof prevRaw === "number" && Number.isFinite(prevRaw) ? prevRaw : NaN;
+    const curr = typeof currRaw === "number" && Number.isFinite(currRaw) ? currRaw : NaN;
+    if (prev > 0 && Number.isFinite(curr)) {
       customReturns.push((curr - prev) / prev);
     }
   }

@@ -492,6 +492,12 @@ async function upgradeLegacyPasswordHash(
   }
 }
 
+// Maximum password length accepted at authentication. This bounds the CPU
+// cost of SHA-256 hashing and PBKDF2 verification per request, preventing a
+// single attacker from forcing the Worker to hash multi-megabyte payloads.
+// This matches the maximum length enforced when creating passwords.
+const MAX_AUTH_PASSWORD_LENGTH = 100;
+
 export async function authenticatePassword(
   request: Request,
   env: Env,
@@ -509,6 +515,13 @@ export async function authenticatePassword(
 
   if (!pwd) {
     return { authenticated: false, error: "パスワードが指定されていません" };
+  }
+
+  // Reject oversized passwords before hashing to prevent CPU exhaustion.
+  // The rate limit alone is not sufficient: a bounded number of long-password
+  // requests can still consume a disproportionate share of Worker CPU.
+  if (pwd.length > MAX_AUTH_PASSWORD_LENGTH) {
+    return { authenticated: false, error: "パスワードが長すぎます" };
   }
 
   const pwdHash = await hashToken(pwd);
@@ -1084,7 +1097,11 @@ export default {
               password: {
                 id,
                 name: name.trim(),
-                initialPassword,
+                // SECURITY: Do NOT include the plaintext password in the
+                // response. The client already holds the value it generated
+                // (or received from the operator) before sending it here.
+                // Returning it would expose the secret in server access logs,
+                // CDN/proxy caches, and browser devtools Network panels.
                 role: assignedRole,
                 max_stocks: maxStockLimit,
                 max_indices: maxIndexLimit,

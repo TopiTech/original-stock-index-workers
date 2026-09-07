@@ -39,15 +39,23 @@ export function calculateCustomIndex(
 
   if (allDates.length === 0) return [];
 
-  // 基準日の価格（全銘柄の最初の有効な価格）を取得
+  // 基準日の価格（全銘柄の最初の有効な価格）を取得。
+  // Stocks with no valid base price are excluded rather than aborting the
+  // entire index: a single missing data point in a large basket should not
+  // make the whole index uncomputable. The remaining stocks' weights are
+  // re-normalized during the calculation loop below.
   const basePrices = selected.map((stock) => {
     const sorted = [...stock.series].sort((a, b) => a.date.localeCompare(b.date));
     const first = sorted.find((p) => typeof p.close === "number" && Number.isFinite(p.close) && p.close > 0);
     return first ? first.close : 0;
   });
 
-  // いずれかの銘柄で一度も価格が取れなかった場合は計算不可
-  if (basePrices.some((bp) => bp === 0)) return [];
+  // Filter out stocks that have no valid base price.
+  const validIndices = basePrices
+    .map((bp, i) => (bp > 0 ? i : -1))
+    .filter((i) => i >= 0);
+
+  if (validIndices.length === 0) return [];
 
   // 各銘柄の各日付における価格をマッピング
   // データ開始前は初値（基準価格）でバックフィルし、データ欠落時は前日価格でフォワードフィル

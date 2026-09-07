@@ -220,6 +220,94 @@ describe("calculateCustomIndex", () => {
     expect(result[1].value).toBe(1050);
   });
 
+  it("excludes stocks with no valid base price instead of returning empty (resilient to missing data)", () => {
+    const basket: BasketItem[] = [
+      { ticker: "A", name: "Stock A", theme: "t", weight: 50 },
+      { ticker: "B", name: "Stock B", theme: "t", weight: 50 },
+      { ticker: "C", name: "Stock C", theme: "t", weight: 50 },
+    ];
+    // Stock B has no valid base price (all zeros/NaN) - should be excluded
+    // Stocks A and C have valid data
+    const universe: StockSeries[] = [
+      {
+        ticker: "A",
+        name: "Stock A",
+        theme: "t",
+        sector: "Test",
+        latestPrice: 1100,
+        series: [
+          { date: "2026-04-01", close: 1000 },
+          { date: "2026-04-02", close: 1100 },
+        ],
+      },
+      {
+        ticker: "B",
+        name: "Stock B",
+        theme: "t",
+        sector: "Test",
+        latestPrice: 0,
+        series: [
+          { date: "2026-04-01", close: 0 }, // invalid base price
+          { date: "2026-04-02", close: 0 },
+        ],
+      },
+      {
+        ticker: "C",
+        name: "Stock C",
+        theme: "t",
+        sector: "Test",
+        latestPrice: 2200,
+        series: [
+          { date: "2026-04-01", close: 2000 },
+          { date: "2026-04-02", close: 2200 },
+        ],
+      },
+    ];
+    const result = calculateCustomIndex(basket, universe, 1000);
+    // Should still compute an index using stocks A and C (re-normalized)
+    expect(result.length).toBe(2);
+    // Day 0: base values - A=1000, C=2000
+    // Weights re-normalized: A=50/(50+50)=50%, C=50%
+    // Value: 1000 * (0.5 * 1.0 + 0.5 * 1.0) = 1000
+    expect(result[0].value).toBe(1000);
+    // Day 1: A=1100 (1.1x), C=2200 (1.1x)
+    // Value: 1000 * (0.5 * 1.1 + 0.5 * 1.1) = 1100
+    expect(result[1].value).toBe(1100);
+  });
+
+  it("returns empty when ALL stocks have invalid base prices", () => {
+    const basket: BasketItem[] = [
+      { ticker: "A", name: "Stock A", theme: "t", weight: 50 },
+      { ticker: "B", name: "Stock B", theme: "t", weight: 50 },
+    ];
+    const universe: StockSeries[] = [
+      {
+        ticker: "A",
+        name: "Stock A",
+        theme: "t",
+        sector: "Test",
+        latestPrice: 0,
+        series: [
+          { date: "2026-04-01", close: 0 },
+          { date: "2026-04-02", close: 0 },
+        ],
+      },
+      {
+        ticker: "B",
+        name: "Stock B",
+        theme: "t",
+        sector: "Test",
+        latestPrice: 0,
+        series: [
+          { date: "2026-04-01", close: NaN },
+          { date: "2026-04-02", close: NaN },
+        ],
+      },
+    ];
+    const result = calculateCustomIndex(basket, universe, 1000);
+    expect(result).toEqual([]);
+  });
+
   it("maintains continuity without artificial cliff drops when a stock has data starting later than others", () => {
     const basket: BasketItem[] = [
       { ticker: "A", name: "Stock A", theme: "t", weight: 50 },

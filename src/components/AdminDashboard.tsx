@@ -225,8 +225,10 @@ export function AdminDashboard({
         throw new Error(data.error || "パスワード作成に失敗しました");
       }
 
-      const initialPassword =
-        typeof data.password?.initialPassword === "string" ? data.password.initialPassword : null;
+      // The plaintext password is the value the operator just generated.
+      // It must be shown once here and never round-tripped through the API
+      // response, where it would be exposed to server logs and caches.
+      const initialPassword = newUserPassword.trim();
       setCreateSuccess(`パスワードを作成しました: [${newUserName.trim()}] / 銘柄制限: ${newUserRole === "admin" ? "無制限" : `${newUserMaxStocks}銘柄`} / 指数上限: ${newUserRole === "admin" ? "無制限" : `${newUserMaxIndices}件`}`);
       if (initialPassword) {
         setIssuedPassword({ name: newUserName.trim(), password: initialPassword });
