@@ -127,7 +127,7 @@ function createStatefulEnv(): StatefulEnv {
   return env;
 }
 
-describe("worker: R1 sync_logs write on Yahoo failure", () => {
+describe("worker: failed Yahoo synchronization backoff", () => {
   let originalFetch: typeof globalThis.fetch;
 
   beforeEach(() => {
@@ -137,7 +137,7 @@ describe("worker: R1 sync_logs write on Yahoo failure", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("records a sync_logs entry even when Yahoo fetch fails so retries are short-circuited", async () => {
+  it("records a short failure backoff without reporting missing prices as cached", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ chart: { error: { code: "Too Many Requests" } } }), {
         status: 429,
@@ -156,9 +156,11 @@ describe("worker: R1 sync_logs write on Yahoo failure", () => {
     const data1 = await res1.json();
     expect(data1.results[0].status).toBe("failed");
 
-    // After failure, sync_logs MUST contain a row for 7203 (any timestamp), so the
-    // second call short-circuits with "cached" instead of re-hitting Yahoo.
+    // A negative timestamp distinguishes a failed fetch from a successful
+    // synchronization. It prevents a retry storm without making the client
+    // believe its price data is fresh.
     expect(env._syncLogs.has("7203")).toBe(true);
+    expect(env._syncLogs.get("7203")?.last_synced_at).toBeLessThan(0);
 
     const res2 = await worker.fetch(
       new Request("http://localhost/api/sync-prices", {
@@ -169,9 +171,33 @@ describe("worker: R1 sync_logs write on Yahoo failure", () => {
       env as any,
     );
     const data2 = await res2.json();
-    expect(data2.results[0].status).toBe("cached");
+    expect(data2.results[0].status).toBe("failed");
     // Only the first call should have hit Yahoo.
     expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+  });
+
+  it("retries Yahoo after the short failure backoff expires", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_800_000_000_000);
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ chart: { error: { code: "Too Many Requests" } } }), { status: 429 }),
+    );
+    const env = createStatefulEnv();
+    const request = () => new Request("http://localhost/api/sync-prices", {
+      method: "POST",
+      headers: { "cf-connecting-ip": "1.2.3.5" },
+      body: JSON.stringify({ tickers: ["7203"] }),
+    });
+
+    try {
+      await worker.fetch(request(), env as any);
+      clock.mockReturnValue(1_800_000_300_001);
+      const response = await worker.fetch(request(), env as any);
+
+      expect((await response.json()).results[0].status).toBe("failed");
+      expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2);
+    } finally {
+      clock.mockRestore();
+    }
   });
 });
 

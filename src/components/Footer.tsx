@@ -43,7 +43,7 @@ export function Footer({ onNavigate, currentView = "dashboard" }: FooterProps) {
             </div>
             <p className="footer-desc muted">
               独自投資戦略・テーマ別ポートフォリオの客観的株価指数化プラットフォーム。
-              日米主要指数との比較分析、リスク指標のリアルタイム算出をエッジ上で高速に実行します。
+              日米主要ベンチマークとの比較分析とリスク指標の算出を、エッジ上で高速に実行します。
             </p>
             <div className="footer-creator-note">
               <Code2 size={13} className="footer-icon-accent" />

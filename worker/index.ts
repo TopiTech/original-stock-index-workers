@@ -295,6 +295,11 @@ const BENCHMARK_MAP: Record<string, { label: string; desc: string }> = {
 // this remains below D1 statement-parameter and Worker invocation limits while
 // comfortably accommodating the largest built-in index (175 stocks).
 const MAX_BASKET_ITEMS = 500;
+// `sync_logs.last_synced_at` is positive for a successful synchronization.
+// A negative value records a transient Yahoo failure at its absolute timestamp.
+// This lets us apply a short retry backoff without ever treating failed data
+// retrieval as fresh price data.
+const SYNC_FAILURE_RETRY_SECONDS = 5 * 60;
 const PASSWORD_HASH_PREFIX = "pbkdf2-sha256";
 const PASSWORD_HASH_ITERATIONS = 100_000;
 const AUTH_RATE_LIMIT_MAX = 10;
@@ -1467,6 +1472,7 @@ export default {
           )?.ticker;
           const isAlreadyPresent = typeof existingTicker === "string";
           const currentCount = existingStocks?.length ?? 0;
+          let insertionLimit = MAX_BASKET_ITEMS;
 
           if (!isAlreadyPresent) {
             if (currentCount >= MAX_BASKET_ITEMS) {
@@ -1507,6 +1513,7 @@ export default {
                       request,
                     );
                   }
+                  insertionLimit = Math.min(insertionLimit, creatorMaxStocks);
                 }
               } catch (quotaLookupErr) {
                 console.error("Failed to check index creator stock quota:", quotaLookupErr);
@@ -1526,6 +1533,7 @@ export default {
                   request
                 );
               }
+              insertionLimit = Math.min(insertionLimit, auth.maxStocks);
             }
           }
 
@@ -1542,6 +1550,42 @@ export default {
               ).bind(cleanIndexId, ticker),
               saveStockStmt,
             ]);
+          } else if (!isAlreadyPresent) {
+            // The earlier count checks produce clear validation errors for a
+            // normal request, but are not sufficient under concurrent writes:
+            // two requests can both observe the final free slot. Reserve the
+            // slot in the INSERT itself so D1 serializes the quota decision.
+            // An exact ticker match remains writable at the limit, making two
+            // concurrent edits of the same constituent idempotent.
+            const insertResult = await env.DB.prepare(
+              `INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme)
+               SELECT ?, ?, ?, ?, ?
+               WHERE EXISTS (SELECT 1 FROM basket_items WHERE index_id = ? AND ticker = ?)
+                  OR (
+                    NOT EXISTS (SELECT 1 FROM basket_items WHERE index_id = ? AND UPPER(ticker) = ?)
+                    AND (SELECT COUNT(*) FROM basket_items WHERE index_id = ?) < ?
+                  )`,
+            ).bind(
+              cleanIndexId,
+              ticker,
+              name,
+              weight,
+              theme,
+              cleanIndexId,
+              ticker,
+              cleanIndexId,
+              ticker,
+              cleanIndexId,
+              insertionLimit,
+            ).run();
+            const changes = (insertResult as { meta?: { changes?: number } }).meta?.changes;
+            if (changes === 0) {
+              return json(
+                { error: "同時更新により銘柄数上限に達しました。最新の構成を確認してから再試行してください" },
+                409,
+                request,
+              );
+            }
           } else {
             await saveStockStmt.run();
           }
@@ -2457,21 +2501,31 @@ export default {
           .all();
 
         const lastSyncedMap = new Map(
-          (syncLogs as { ticker: string; last_synced_at: number }[]).map((l) => [
-            l.ticker,
-            l.last_synced_at,
-          ]),
+          (syncLogs as { ticker: string; last_synced_at: unknown }[])
+            .map((l) => [l.ticker, Number(l.last_synced_at)] as const)
+            .filter(([ticker, lastSynced]) => typeof ticker === "string" && Number.isFinite(lastSynced)),
         );
 
         // Collect tickers that need fetching
         const toFetch: string[] = [];
         for (const ticker of tickers) {
           const lastSynced = lastSyncedMap.get(ticker);
-          if (!force && lastSynced && isPriceCacheFresh(now, lastSynced)) {
-            results.push({ ticker, status: "cached", lastSynced });
-          } else {
-            toFetch.push(ticker);
+          if (!force && lastSynced !== undefined) {
+            if (lastSynced < 0) {
+              const failedAt = -lastSynced;
+              if (now - failedAt < SYNC_FAILURE_RETRY_SECONDS) {
+                // Do not report a failed fetch as "cached": the client would
+                // persist that status and suppress later retries despite
+                // having no fresh prices.
+                results.push({ ticker, status: "failed" });
+                continue;
+              }
+            } else if (lastSynced > 0 && isPriceCacheFresh(now, lastSynced)) {
+              results.push({ ticker, status: "cached", lastSynced });
+              continue;
+            }
           }
+          toFetch.push(ticker);
         }
 
         // Fetch in parallel batches (concurrency = 5)
@@ -2569,12 +2623,13 @@ export default {
                 clearMemoryCache("calc:");
                 return { ticker, status: "synced", count: series.length };
               }
-              // Record the attempt in sync_logs so the next request within
-              // CACHE_DURATION short-circuits instead of re-hitting Yahoo.
+              // Record a short-lived negative cache marker. Using a positive
+              // "last synced" timestamp here would falsely declare stale or
+              // missing prices fresh for an entire market-cache window.
               await env.DB.prepare(
                 "INSERT OR REPLACE INTO sync_logs (ticker, last_synced_at) VALUES (?, ?)",
               )
-                .bind(ticker, now)
+                .bind(ticker, -now)
                 .run();
               return { ticker, status: "failed" };
             }),

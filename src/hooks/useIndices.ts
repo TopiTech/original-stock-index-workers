@@ -25,6 +25,21 @@ function getLocalIndicesCache(): CustomIndex[] | null {
   }
 }
 
+/**
+ * A conditional request is only useful when this tab still has the matching
+ * response body. Sending an old ETag after localStorage was cleared makes a
+ * valid 304 response leave the UI stuck on the built-in fallback indices.
+ */
+export function getIndicesRequestHeaders(cachedIndices: CustomIndex[] | null): Record<string, string> {
+  if (!cachedIndices) return {};
+  try {
+    const etag = localStorage.getItem(INDICES_ETAG_KEY);
+    return etag ? { "If-None-Match": etag } : {};
+  } catch {
+    return {};
+  }
+}
+
 export function useIndices() {
   const [indices, setIndices] = useState<CustomIndex[]>(() => {
     const cached = getLocalIndicesCache();
@@ -38,23 +53,21 @@ export function useIndices() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchIndices = useCallback(async () => {
+    const cachedIndices = getLocalIndicesCache();
     try {
-      if (!getLocalIndicesCache()) {
+      if (!cachedIndices) {
         setLoading(true);
       }
       setError(null);
-      const etag = localStorage.getItem(INDICES_ETAG_KEY);
-      const headers: Record<string, string> = {};
-      if (etag) {
-        headers["If-None-Match"] = etag;
-      }
 
       const res = await fetch(`${API_BASE}/indices`, {
-        headers,
+        headers: getIndicesRequestHeaders(cachedIndices),
       });
 
       if (res.status === 304) {
         // Not Modified: local cached indices are completely up-to-date!
+        // This should be unreachable without a matching local cache because
+        // getIndicesRequestHeaders omits the ETag in that situation.
         return;
       }
 
@@ -83,6 +96,14 @@ export function useIndices() {
           return found || data[0];
         });
       } else {
+        // The server's empty list supersedes any prior local response. Keep
+        // neither its body nor its ETag paired with a stale local body; a
+        // subsequent 304 must never resurrect deleted indices after reload.
+        try {
+          localStorage.removeItem(INDICES_CACHE_KEY);
+        } catch {
+          // Ignore storage failures; the in-memory fallback remains usable.
+        }
         setIndices(DEFAULT_INDICES);
         setSelectedIndex((prev) => {
           if (!prev) return DEFAULT_INDICES[0];

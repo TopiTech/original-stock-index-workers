@@ -279,6 +279,50 @@ describe("Comprehensive Review Fixes", () => {
       expect(res.status).toBe(403);
       expect((await res.json()).error).toContain("作成者の設定により最大2銘柄");
     });
+
+    it("rejects an atomic constituent insert when a concurrent request consumed the final slot", async () => {
+      const adminPassword = "atomic-slot-admin";
+      const db = createMockDb({
+        all: (query) => {
+          if (query.includes("WHERE id = 'admin-master'")) return { results: [] };
+          if (query.includes("SELECT ticker FROM basket_items WHERE index_id = ?")) {
+            return {
+              results: Array.from({ length: 499 }, (_, index) => ({ ticker: `T${index}` })),
+            };
+          }
+          if (query.includes("SELECT id, owner_token_hash, creator_id FROM indices")) {
+            return { results: [{ id: "atomic-index", owner_token_hash: null, creator_id: null }] };
+          }
+          return { results: [] };
+        },
+        run: (query) => {
+          if (query.includes("INSERT OR REPLACE INTO basket_items") && query.includes("SELECT ?, ?, ?, ?, ?")) {
+            // D1 reports no change when the conditional INSERT sees that a
+            // concurrent request has already filled the final permitted slot.
+            return { meta: { changes: 0 } };
+          }
+          return { meta: { changes: 1 } };
+        },
+      });
+
+      const res = await worker.fetch(
+        new Request("http://localhost/api/indices/stock", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-auth-password": adminPassword,
+          },
+          body: JSON.stringify({
+            indexId: "atomic-index",
+            stock: { ticker: "NEW", name: "New Stock", theme: "Test", weight: 10 },
+          }),
+        }),
+        { ASSETS: { fetch: vi.fn() }, DB: db, ADMIN_PASSWORD: adminPassword } as any,
+      );
+
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toContain("同時更新により銘柄数上限に達しました");
+    });
   });
 
   describe("[HIGH-03] Large Basket D1 Batching", () => {

@@ -606,6 +606,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
                       opacity: 0.8,
                     }}
                     title="削除"
+                    aria-label={`${item.name} (${item.ticker}) を構成銘柄から削除`}
                   >
                     <Trash2 size={14} />
                   </button>

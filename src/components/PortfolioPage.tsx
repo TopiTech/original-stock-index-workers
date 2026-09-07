@@ -128,7 +128,7 @@ export function PortfolioPage({ onNavigate }: PortfolioPageProps) {
             </div>
             <h3 className="project-title">独自株価指数トラッカー & クオンツ分析プラットフォーム</h3>
             <p className="project-desc">
-              「特定のテーマや自分独自の投資戦略銘柄群を、市場ベンチマーク（日経平均・S&P500・オルカンなど）と客観的に比較したい」というニーズに応えるため開発したWebアプリケーション。
+              「特定のテーマや自分独自の投資戦略銘柄群を、市場ベンチマーク（日経平均・S&P 500・米ドル/円）と客観的に比較したい」というニーズに応えるため開発したWebアプリケーション。
               Yahoo Financeの最新データを取得し、Cloudflare EdgeとD1データベースを組み合わせた高速な多段キャッシュ機構により、瞬時にインデックス計算とリスク指標分析を提供します。
             </p>
 
@@ -139,7 +139,7 @@ export function PortfolioPage({ onNavigate }: PortfolioPageProps) {
                   <strong>客観的な指数化エンジン</strong>
                 </div>
                 <p className="feature-item-desc tiny muted">
-                  構成比率と基準値（Base Value 10,000pt）をもとに時系列インデックスを正規化算出。配当落ち・分割補正データに準拠。
+                  構成比率と基準値（既定 1,000pt）をもとに時系列インデックスを正規化算出。取得できた日足終値を基準に比較します。
                 </p>
               </div>
 
@@ -149,7 +149,7 @@ export function PortfolioPage({ onNavigate }: PortfolioPageProps) {
                   <strong>クオンツ・リスクメトリクス</strong>
                 </div>
                 <p className="feature-item-desc tiny muted">
-                  シャープレシオ、ベータ値（対市場感応度）、年率ボラティリティ、最大ドローダウン（MDD）、相関係数を動的に算出。
+                  シャープレシオ、ベータ値（対市場感応度）、年率ボラティリティ、最大ドローダウン（MDD）、日次勝率を動的に算出。
                 </p>
               </div>
 
