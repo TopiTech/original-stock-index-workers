@@ -37,8 +37,25 @@ function updateLocalSyncCache(tickers: string[]): void {
   }
 }
 
-// In-memory cache for calculated index results across tab clicks
+// In-memory cache for calculated index results across tab clicks (bounded to 50 entries)
+const MAX_CLIENT_CALC_CACHE_SIZE = 50;
 const clientCalcCache = new Map<string, { series: PricePoint[]; stockUniverse: StockSeries[]; timestamp: number }>();
+
+export function setClientCalcCache(key: string, entry: { series: PricePoint[]; stockUniverse: StockSeries[]; timestamp: number }): void {
+  if (clientCalcCache.size >= MAX_CLIENT_CALC_CACHE_SIZE) {
+    const oldestKey = clientCalcCache.keys().next().value;
+    if (oldestKey) clientCalcCache.delete(oldestKey);
+  }
+  clientCalcCache.set(key, entry);
+}
+
+export function getClientCalcCacheSize(): number {
+  return clientCalcCache.size;
+}
+
+export function clearClientCalcCache(): void {
+  clientCalcCache.clear();
+}
 
 /**
  * The Worker includes a StockSeries entry for every requested ticker, even
@@ -272,7 +289,7 @@ export function useCalculation(selectedIndex: CustomIndex | null) {
 
       const updatedAt = Date.now();
       setLastUpdatedAt(updatedAt);
-      clientCalcCache.set(basketKey, {
+      setClientCalcCache(basketKey, {
         series: data.series,
         stockUniverse: universe,
         timestamp: updatedAt,

@@ -430,6 +430,20 @@ export async function ensurePasswordTable(env: Env): Promise<void> {
     } catch {
       // The index may already exist or column not yet added
     }
+    // Ensure rate_limits table if not exists
+    try {
+      await env.DB.prepare(`
+        CREATE TABLE IF NOT EXISTS rate_limits (
+          ip TEXT NOT NULL,
+          endpoint TEXT NOT NULL,
+          request_count INTEGER DEFAULT 1,
+          window_start INTEGER NOT NULL,
+          PRIMARY KEY (ip, endpoint)
+        )
+      `).run();
+    } catch {
+      // The table may already exist on an upgraded database.
+    }
     isPasswordTableEnsured = true;
   } catch (err) {
     // Schema initialization is best-effort; log the failure so operators can
@@ -513,12 +527,13 @@ export async function authenticatePassword(
   const ip = request.headers.get("cf-connecting-ip") || "unknown";
   // Keep login verification separate from authenticated API traffic. Otherwise
   // routine administration can exhaust the stricter login-attempt budget.
+  const limitMax = rateLimitEndpoint === "auth-login" ? AUTH_RATE_LIMIT_MAX : RATE_LIMIT_MAX;
   if (
     !(await checkRateLimit(
       env,
       ip,
       rateLimitEndpoint,
-      AUTH_RATE_LIMIT_MAX,
+      limitMax,
       true,
     ))
   ) {
@@ -928,7 +943,7 @@ async function checkRateLimit(
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     try {
-      if (request.method === "OPTIONS") return json({ ok: true }, 200, request);
+      if (request.method === "OPTIONS") return json({ ok: true }, 200, request, { "access-control-max-age": "86400" });
 
       const url = new URL(request.url);
 
@@ -2374,11 +2389,18 @@ export default {
                       if (Array.isArray(existingPrices) && existingPrices.length > 0) {
                         const lastExisting = existingPrices[existingPrices.length - 1];
                         const lastFresh = series[series.length - 1];
+                        const firstExisting = existingPrices[0];
+                        const firstFresh = series[0];
                         if (
+                          existingPrices.length === series.length &&
                           isPricePoint(lastExisting) &&
                           lastFresh &&
                           lastExisting.date === lastFresh.date &&
-                          lastExisting.close === lastFresh.close
+                          lastExisting.close === lastFresh.close &&
+                          isPricePoint(firstExisting) &&
+                          firstFresh &&
+                          firstExisting.date === firstFresh.date &&
+                          firstExisting.close === firstFresh.close
                         ) {
                           shouldSkipWrite = true;
                         }

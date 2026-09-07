@@ -23,6 +23,8 @@ import { SYSTEM_INDICES, type CustomIndex } from "../data/indices";
 import type { BasketItem, UserPasswordItem } from "../types";
 import { Card, Tag, Badge } from "./ui";
 import { EditPasswordModal } from "./EditPasswordModal";
+import { ConfirmModal } from "./ConfirmModal";
+import { useToast } from "./Toast";
 
 interface AdminDashboardProps {
   indices: CustomIndex[];
@@ -52,6 +54,7 @@ export function AdminDashboard({
   deleteCustomIndex,
 }: AdminDashboardProps) {
   const { session, isAdmin, login, logout, getHeaders } = useAuth();
+  const { success: toastSuccess, error: toastError } = useToast();
 
   // Admin login state if not admin
   const [adminPasswordInput, setAdminPasswordInput] = useState("");
@@ -66,6 +69,8 @@ export function AdminDashboard({
   const [loadingPasswords, setLoadingPasswords] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [editingPasswordItem, setEditingPasswordItem] = useState<UserPasswordItem | null>(null);
+  const [passwordToDelete, setPasswordToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [deletingPassword, setDeletingPassword] = useState(false);
 
   // New password form
   const [newUserName, setNewUserName] = useState("");
@@ -88,6 +93,8 @@ export function AdminDashboard({
   const [editBasket, setEditBasket] = useState<BasketItem[]>([]);
   const [savingIndex, setSavingIndex] = useState(false);
   const [indexEditMessage, setIndexEditMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [indexToDelete, setIndexToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [deletingIndex, setDeletingIndex] = useState(false);
 
   // Add stock to edit index inline
   const [addTicker, setAddTicker] = useState("");
@@ -158,6 +165,9 @@ export function AdminDashboard({
   useEffect(() => {
     const found = indices.find((idx) => idx.id === selectedEditIndexId) || indices[0];
     if (found) {
+      if (selectedEditIndexId !== found.id) {
+        setSelectedEditIndexId(found.id);
+      }
       setEditName(found.name);
       setEditDescription(found.description);
       setEditBaseValue(found.baseValue);
@@ -231,24 +241,27 @@ export function AdminDashboard({
     }
   };
 
-  // Delete password
-  const handleDeletePassword = async (id: string, name: string) => {
-    if (!confirm(`パスワード「${name}」を削除しますか？\nこのパスワードを使用しているユーザーは編集できなくなります。`)) {
-      return;
-    }
+  // Delete password confirmation
+  const confirmDeletePassword = async () => {
+    if (!passwordToDelete) return;
+    setDeletingPassword(true);
     try {
-      const res = await fetch(`/api/admin/passwords?id=${encodeURIComponent(id)}`, {
+      const res = await fetch(`/api/admin/passwords?id=${encodeURIComponent(passwordToDelete.id)}`, {
         method: "DELETE",
         headers: getHeaders(),
       });
       if (res.ok) {
+        toastSuccess(`パスワード「${passwordToDelete.name}」を削除しました`);
+        setPasswordToDelete(null);
         await fetchPasswords();
       } else {
         const data = await res.json().catch(() => ({}));
-        alert("削除に失敗しました: " + (data.error || `HTTP ${res.status}`));
+        toastError("削除に失敗しました: " + (data.error || `HTTP ${res.status}`));
       }
     } catch (err) {
-      alert("削除に失敗しました: " + (err instanceof Error ? err.message : ""));
+      toastError("削除に失敗しました: " + (err instanceof Error ? err.message : ""));
+    } finally {
+      setDeletingPassword(false);
     }
   };
 
@@ -277,6 +290,7 @@ export function AdminDashboard({
   // Toggle active password
   const handleToggleActive = async (item: UserPasswordItem) => {
     try {
+      const nextActive = item.is_active !== 1;
       const res = await fetch("/api/admin/passwords", {
         method: "PUT",
         headers: {
@@ -285,18 +299,19 @@ export function AdminDashboard({
         },
         body: JSON.stringify({
           id: item.id,
-          isActive: item.is_active === 1 ? false : true,
+          isActive: nextActive,
         }),
       });
       if (res.ok) {
+        toastSuccess(`「${item.name}」を${nextActive ? "有効化" : "無効化"}しました`);
         await fetchPasswords();
       } else {
         const data = await res.json().catch(() => ({}));
-        alert("状態更新に失敗しました: " + (data.error || `HTTP ${res.status}`));
+        toastError("状態更新に失敗しました: " + (data.error || `HTTP ${res.status}`));
       }
     } catch (err) {
       console.error("状態更新エラー:", err);
-      alert("状態更新に失敗しました: " + (err instanceof Error ? err.message : ""));
+      toastError("状態更新に失敗しました: " + (err instanceof Error ? err.message : ""));
     }
   };
 
@@ -345,9 +360,15 @@ export function AdminDashboard({
 
     setSavingIndex(true);
     setIndexEditMessage(null);
-    const currentIndex = indices.find((idx) => idx.id === selectedEditIndexId);
+    const effectiveIndexId = selectedEditIndexId || indices.find((idx) => idx.id === selectedEditIndexId)?.id || indices[0]?.id || "";
+    if (!effectiveIndexId) {
+      setSavingIndex(false);
+      setIndexEditMessage({ type: "error", text: "編集対象の指数が見つかりません" });
+      return;
+    }
+    const currentIndex = indices.find((idx) => idx.id === effectiveIndexId);
     const updated: CustomIndex = {
-      id: selectedEditIndexId,
+      id: effectiveIndexId,
       name: editName.trim(),
       description: editDescription.trim(),
       baseValue: editBaseValue,
@@ -362,6 +383,31 @@ export function AdminDashboard({
       await onRefreshIndices();
     } else {
       setIndexEditMessage({ type: "error", text: res.error || "保存に失敗しました" });
+    }
+  };
+
+  // Delete custom index confirmation
+  const confirmDeleteIndex = async () => {
+    if (!indexToDelete) return;
+    setDeletingIndex(true);
+    try {
+      const targetId = indexToDelete.id;
+      const res = await deleteCustomIndex(targetId);
+      if (res.ok) {
+        toastSuccess(`カスタム指数「${indexToDelete.name}」を削除しました`);
+        setIndexToDelete(null);
+        await onRefreshIndices();
+        const remaining = indices.filter((idx) => idx.id !== targetId);
+        if (remaining.length > 0) {
+          setSelectedEditIndexId(remaining[0].id);
+        }
+      } else {
+        toastError(res.error || "指数の削除に失敗しました");
+      }
+    } catch (err) {
+      toastError(err instanceof Error ? err.message : "指数の削除に失敗しました");
+    } finally {
+      setDeletingIndex(false);
     }
   };
 
@@ -1097,7 +1143,7 @@ export function AdminDashboard({
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleDeletePassword(item.id, item.name)}
+                              onClick={() => setPasswordToDelete({ id: item.id, name: item.name })}
                               aria-label={`${item.name}のパスワードを削除`}
                               title="削除"
                               style={{
@@ -1441,16 +1487,11 @@ export function AdminDashboard({
                 {!SYSTEM_INDICES.has(selectedEditIndexId) && (
                   <button
                     type="button"
-                    onClick={async () => {
-                      if (confirm(`指数「${editName}」を完全に削除しますか？`)) {
-                        const targetId = selectedEditIndexId;
-                        await deleteCustomIndex(targetId);
-                        await onRefreshIndices();
-                        const remaining = indices.filter((idx) => idx.id !== targetId);
-                        if (remaining.length > 0) {
-                          setSelectedEditIndexId(remaining[0].id);
-                        }
-                      }
+                    onClick={() => {
+                      setIndexToDelete({
+                        id: selectedEditIndexId,
+                        name: editName || "選択中の指数",
+                      });
                     }}
                     className="btn btn-sm btn-outline"
                     style={{ borderColor: "rgba(255,51,102,0.4)", color: "var(--neon-red)" }}
@@ -1591,6 +1632,34 @@ export function AdminDashboard({
         item={editingPasswordItem}
         onSuccess={fetchPasswords}
         getHeaders={getHeaders}
+      />
+
+      {/* Delete Password Confirm Modal */}
+      <ConfirmModal
+        isOpen={Boolean(passwordToDelete)}
+        onClose={() => {
+          if (!deletingPassword) setPasswordToDelete(null);
+        }}
+        onConfirm={confirmDeletePassword}
+        title="パスワード削除の確認"
+        description={passwordToDelete ? `パスワード「${passwordToDelete.name}」を削除しますか？\nこのパスワードを使用しているユーザーは編集できなくなります。` : ""}
+        confirmText="削除する"
+        variant="danger"
+        loading={deletingPassword}
+      />
+
+      {/* Delete Index Confirm Modal */}
+      <ConfirmModal
+        isOpen={Boolean(indexToDelete)}
+        onClose={() => {
+          if (!deletingIndex) setIndexToDelete(null);
+        }}
+        onConfirm={confirmDeleteIndex}
+        title="カスタム指数削除の確認"
+        description={indexToDelete ? `指数「${indexToDelete.name}」を完全に削除しますか？\nこの操作は元に戻せません。` : ""}
+        confirmText="完全に削除"
+        variant="danger"
+        loading={deletingIndex}
       />
     </div>
   );
