@@ -45,7 +45,13 @@ export function getMarketAwareCacheDuration(now: Date = new Date()): number {
     // whole hour and serving stale data after the market has opened.
     return secondsUntilNextMarketOpen(day, minutes);
   }
-  return 12 * 60 * 60;
+  // During trading hours: cache until 30 minutes after market close so fresh
+  // closing prices are fetched once the session ends.  The old fixed 12-hour
+  // value kept data "fresh" well past the close, which was harmless only
+  // because `isPriceCacheFresh` had a secondary guard; using a tighter TTL
+  // here makes the function accurate on its own.
+  const minutesUntilSettlement = (MARKET_CLOSE_JST + 30) - minutes;
+  return Math.max(60, minutesUntilSettlement * 60);
 }
 
 /** Determines whether a cached stock-price synchronization is still fresh. */

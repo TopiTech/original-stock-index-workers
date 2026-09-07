@@ -431,8 +431,10 @@ export async function ensurePasswordTable(env: Env): Promise<void> {
       // The index may already exist or column not yet added
     }
     isPasswordTableEnsured = true;
-  } catch {
-    // ignore
+  } catch (err) {
+    // Schema initialization is best-effort; log the failure so operators can
+    // spot persistent D1 connectivity or permission issues in production logs.
+    console.warn("ensurePasswordTable: schema initialisation failed (will retry on next request):", err);
   }
 }
 

@@ -180,11 +180,12 @@ describe("Cloudflare Quota Savings: Market-Aware Cache Duration", () => {
     expect(ttl).toBeGreaterThanOrEqual(14 * 3600);
   });
 
-  it("uses standard 12 hours during regular trading hours (Wednesday 11:00 JST)", () => {
+  it("caches until settlement during regular trading hours (Wednesday 11:00 JST)", () => {
     // 2026-09-02 is Wednesday. 11:00 JST -> 02:00 UTC
+    // Settlement: 15:30 + 0:30 = 16:00 JST. Duration: 5h = 18000s
     const wednesdayTrading = new Date("2026-09-02T02:00:00Z");
     const ttl = getMarketAwareCacheDuration(wednesdayTrading);
-    expect(ttl).toBe(12 * 3600);
+    expect(ttl).toBe(5 * 3600);
   });
 
   it("sets TTL until 9:00 AM market open before weekday trading hours (Wednesday 08:30 JST)", () => {

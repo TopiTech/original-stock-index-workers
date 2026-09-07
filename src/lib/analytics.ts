@@ -99,10 +99,15 @@ export function calculateRiskMetrics(
   // 年率換算 (CAGR: Compound Annual Growth Rate, 250営業日基準)
   // 短期間（250営業日未満）での幾何平均年率換算は (1+r)^(250/N) で指数爆発を引き起こすため、
   // 250営業日未満の場合は線形年率換算（単利年率）を用いて極端な歪みを防止する。
+  // NOTE: 249日→250日の境界で年率値に小さな不連続が生じうるが、実用上は問題ない。
   const annualFactor = 250 / customReturns.length;
   let annualReturn: number;
   if (customReturns.length >= 250) {
-    annualReturn = 1 + totalReturn > 0 ? (Math.pow(1 + totalReturn, annualFactor) - 1) * 100 : -100;
+    // Guard: Math.pow requires a positive base; a total loss (totalReturn <= -1)
+    // would make the base non-positive, so cap at -100%.
+    annualReturn = (1 + totalReturn) > 0
+      ? (Math.pow(1 + totalReturn, annualFactor) - 1) * 100
+      : -100;
   } else {
     annualReturn = totalReturn * annualFactor * 100;
   }
