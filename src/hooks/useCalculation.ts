@@ -239,7 +239,10 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
                     if (r.status === "synced" || r.status === "cached") {
                       const normalizedTicker = typeof r.ticker === "string" ? r.ticker.trim().toUpperCase() : "";
                       if (normalizedTicker) {
-                        syncedTickersRef.current.set(normalizedTicker, Date.now());
+                        const syncTimestamp = typeof r.lastSynced === "number" && r.lastSynced > 0
+                          ? r.lastSynced * 1000
+                          : Date.now();
+                        syncedTickersRef.current.set(normalizedTicker, syncTimestamp);
                         newlySynced.push(normalizedTicker);
                       }
                     }

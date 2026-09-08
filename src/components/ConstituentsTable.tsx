@@ -171,11 +171,11 @@ export function ConstituentsTable({
 
   // Merge basket and stockDetails
   const combinedList = useMemo(() => {
-    const detailsMap = new Map(stockDetails.map((d) => [d.ticker, d]));
+    const detailsMap = new Map(stockDetails.map((d) => [d.ticker.trim().toUpperCase(), d]));
     const normalized = normalizeWeights(basket);
 
     return normalized.map((item) => {
-      const detail = detailsMap.get(item.ticker);
+      const detail = detailsMap.get(item.ticker.trim().toUpperCase());
       return {
         ticker: item.ticker,
         name: item.name,

@@ -1122,7 +1122,7 @@ export default {
             maxIndexLimit = Math.floor(num);
           }
           const assignedRole = role === "admin" ? "admin" : "user";
-          const id = `pwd-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+          const id = `pwd-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
           const initialPassword = password.trim();
           const hash = await hashPassword(initialPassword);
           const now = Math.floor(Date.now() / 1000);

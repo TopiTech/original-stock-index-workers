@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { Sliders, X, AlertCircle, Sparkles } from "lucide-react";
 import type { UserPasswordItem } from "../types";
 import { useModalFocus } from "../hooks/useModalFocus";
+import { generateSecurePassword } from "../lib/auth";
 
 interface EditPasswordModalProps {
   isOpen: boolean;
@@ -10,18 +11,6 @@ interface EditPasswordModalProps {
   item: UserPasswordItem | null;
   onSuccess: () => void;
   getHeaders: () => Record<string, string>;
-}
-
-function generateSecurePassword(length = 10): string {
-  const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const charsLength = chars.length;
-  const randomValues = new Uint32Array(length);
-  crypto.getRandomValues(randomValues);
-  let result = "";
-  for (let i = 0; i < length; i++) {
-    result += chars.charAt(randomValues[i] % charsLength);
-  }
-  return result;
 }
 
 export function EditPasswordModal({

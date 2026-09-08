@@ -149,3 +149,20 @@ export async function verifyPassword(
     return { ok: false, error: msg };
   }
 }
+
+/**
+ * Generate a cryptographically secure random password.
+ * Uses characters without visually ambiguous pairs (e.g. 0, O, 1, l, I).
+ */
+export function generateSecurePassword(length = 10): string {
+  const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const charsLength = chars.length;
+  const randomValues = new Uint32Array(length);
+  crypto.getRandomValues(randomValues);
+  let result = "";
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(randomValues[i] % charsLength);
+  }
+  return result;
+}
+

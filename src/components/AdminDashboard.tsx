@@ -18,7 +18,7 @@ import {
   Edit2,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
-import { storeAuth } from "../lib/auth";
+import { storeAuth, generateSecurePassword } from "../lib/auth";
 import { SYSTEM_INDICES, type CustomIndex } from "../data/indices";
 import type { BasketItem, UserPasswordItem } from "../types";
 import { Card, Tag, Badge } from "./ui";
@@ -32,18 +32,6 @@ interface AdminDashboardProps {
   onRefreshIndices: () => Promise<void>;
   saveCustomIndex: (index: CustomIndex, ownerToken?: string) => Promise<{ ok: boolean; error?: string }>;
   deleteCustomIndex: (id: string) => Promise<{ ok: boolean; error?: string }>;
-}
-
-function generateSecurePassword(length = 10): string {
-  const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const charsLength = chars.length;
-  const randomValues = new Uint32Array(length);
-  crypto.getRandomValues(randomValues);
-  let result = "";
-  for (let i = 0; i < length; i++) {
-    result += chars.charAt(randomValues[i] % charsLength);
-  }
-  return result;
 }
 
 export function AdminDashboard({
@@ -161,18 +149,24 @@ export function AdminDashboard({
     };
   }, [isAdmin, activeTab, fetchPasswords]);
 
+  const prevSelectedIdRef = useRef<string | null>(null);
+
   // Sync selected index data into edit fields
   useEffect(() => {
     const found = indices.find((idx) => idx.id === selectedEditIndexId) || indices[0];
     if (found) {
+      const isInitialOrChanged = prevSelectedIdRef.current !== found.id;
       if (selectedEditIndexId !== found.id) {
         setSelectedEditIndexId(found.id);
       }
-      setEditName(found.name);
-      setEditDescription(found.description);
-      setEditBaseValue(found.baseValue);
-      setEditBasket([...found.basket]);
-      setIndexEditMessage(null);
+      if (isInitialOrChanged) {
+        prevSelectedIdRef.current = found.id;
+        setEditName(found.name);
+        setEditDescription(found.description);
+        setEditBaseValue(found.baseValue);
+        setEditBasket([...found.basket]);
+        setIndexEditMessage(null);
+      }
     }
   }, [selectedEditIndexId, indices]);
 
