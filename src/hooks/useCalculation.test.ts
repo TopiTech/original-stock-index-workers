@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getMissingPriceDataTickers, parseLocalSyncCache } from "./useCalculation";
+import { determineSyncForce, getMissingPriceDataTickers, parseLocalSyncCache } from "./useCalculation";
 
 describe("parseLocalSyncCache", () => {
   it("ignores malformed and non-positive timestamps from browser storage", () => {
@@ -79,3 +79,21 @@ describe("getMissingPriceDataTickers", () => {
     expect(missing).toEqual(["abc"]);
   });
 });
+
+describe("determineSyncForce", () => {
+  it("returns false if force is false, regardless of session", () => {
+    expect(determineSyncForce(false, null)).toBe(false);
+    expect(determineSyncForce(false, { password: "admin-password" })).toBe(false);
+  });
+
+  it("returns false if force is true but session has no password (prevents 401 on unauthenticated retries)", () => {
+    expect(determineSyncForce(true, null)).toBe(false);
+    expect(determineSyncForce(true, undefined)).toBe(false);
+    expect(determineSyncForce(true, { password: "" })).toBe(false);
+  });
+
+  it("returns true only if force is true and session has a password", () => {
+    expect(determineSyncForce(true, { password: "valid-password" })).toBe(true);
+  });
+});
+

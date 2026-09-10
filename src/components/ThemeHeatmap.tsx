@@ -362,15 +362,15 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
                   fontSize: 11,
                   fontWeight: 600,
                   color:
-                    hoveredStock.stock.contributionPt > 0
+                    hoveredStock.stock.contributionPt >= 0.005
                       ? "var(--neon-green)"
-                      : hoveredStock.stock.contributionPt < 0
+                      : hoveredStock.stock.contributionPt <= -0.005
                         ? "var(--neon-red)"
                         : "inherit",
                 }}
               >
-                {hoveredStock.stock.contributionPt >= 0 ? "+" : ""}
-                {hoveredStock.stock.contributionPt.toFixed(2)} pt
+                {hoveredStock.stock.contributionPt >= 0.005 ? "+" : ""}
+                {Math.abs(hoveredStock.stock.contributionPt) < 0.005 ? "0.00" : hoveredStock.stock.contributionPt.toFixed(2)} pt
               </span>
             </div>
               </motion.div>

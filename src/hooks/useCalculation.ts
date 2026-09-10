@@ -86,6 +86,18 @@ export function clearClientCalcCache(): void {
 }
 
 /**
+ * Determine whether a price sync request should force-refresh prices.
+ * Force synchronization requires authentication; unauthenticated viewers
+ * fall back to normal freshness-checked sync to prevent spurious 401 errors.
+ */
+export function determineSyncForce(
+  force: boolean,
+  session: { password?: string } | null | undefined,
+): boolean {
+  return force && Boolean(session?.password);
+}
+
+/**
  * The Worker includes a StockSeries entry for every requested ticker, even
  * when no usable price points were found. Treat an empty/invalid series as
  * missing so the UI can warn the user and retry it on a later calculation.
@@ -218,6 +230,7 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
             if (controller.signal.aborted) return;
 
             const chunk = tickersToSync.slice(i, i + BATCH_SIZE);
+            const syncForce = determineSyncForce(force, session);
             try {
               const syncRes = await fetch(`${API_BASE}/sync-prices`, {
                 method: "POST",
@@ -225,7 +238,7 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
                   "Content-Type": "application/json",
                   ...getAuthHeaders(session),
                 },
-                body: JSON.stringify({ tickers: chunk, force }),
+                body: JSON.stringify({ tickers: chunk, force: syncForce }),
                 signal: controller.signal,
               });
               if (controller.signal.aborted) return;

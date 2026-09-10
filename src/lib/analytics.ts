@@ -279,13 +279,20 @@ export function calculateStockDetails(
     const currentPrice = len > 0 ? series[len - 1].close : fallbackPrice;
     const previousPrice = len > 1 ? series[len - 2].close : currentPrice;
     
-    const change = Number((currentPrice - previousPrice).toFixed(2));
-    const changePct = previousPrice > 0 ? Number((((currentPrice - previousPrice) / previousPrice) * 100).toFixed(2)) : 0;
+    const rawChange = currentPrice - previousPrice;
+    const change = Math.abs(rawChange) < 0.005 || Object.is(rawChange, -0) ? 0 : Number(rawChange.toFixed(2));
+    const rawChangePct = previousPrice > 0 ? ((currentPrice - previousPrice) / previousPrice) * 100 : 0;
+    const changePct = Math.abs(rawChangePct) < 0.005 || Object.is(rawChangePct, -0) ? 0 : Number(rawChangePct.toFixed(2));
 
     // 指数への寄与度 (pt): (銘柄の騰落率 / 100) * (ウェイト / 100) * 前日指数値
     const weightFraction = item.weight / 100;
-    const contributionPt = Number((((changePct / 100) * weightFraction) * prevIndexVal).toFixed(2));
-    const contributionPct = prevIndexVal > 0 ? Number(((contributionPt / prevIndexVal) * 100).toFixed(2)) : 0;
+    const rawContributionPt = ((changePct / 100) * weightFraction) * prevIndexVal;
+    const contributionPt = Math.abs(rawContributionPt) < 0.005 || Object.is(rawContributionPt, -0)
+      ? 0
+      : Number(rawContributionPt.toFixed(2));
+    const contributionPct = prevIndexVal > 0 && Math.abs(contributionPt) >= 0.005
+      ? Number(((contributionPt / prevIndexVal) * 100).toFixed(2))
+      : 0;
 
     // スパークライン（直近10営業日分）
     const sparkline = series.slice(-10).map((p) => p.close);

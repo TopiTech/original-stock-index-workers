@@ -430,10 +430,22 @@ export function resetPasswordTableEnsured(): void {
   isPasswordTableEnsured = false;
 }
 
+async function runStatement(env: Env, sql: string): Promise<void> {
+  const stmt = env.DB.prepare(sql);
+  if (typeof stmt.run === "function") {
+    await stmt.run();
+  } else if (typeof stmt.bind === "function") {
+    const bound = stmt.bind();
+    if (typeof bound.run === "function") {
+      await bound.run();
+    }
+  }
+}
+
 export async function ensurePasswordTable(env: Env): Promise<void> {
   if (isPasswordTableEnsured) return;
   try {
-    await env.DB.prepare(`
+    await runStatement(env, `
     CREATE TABLE IF NOT EXISTS access_passwords (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -445,49 +457,49 @@ export async function ensurePasswordTable(env: Env): Promise<void> {
         created_at INTEGER NOT NULL,
         updated_at INTEGER
       )
-    `).run();
+    `);
     try {
-      await env.DB.prepare("ALTER TABLE access_passwords ADD COLUMN max_indices INTEGER DEFAULT NULL").run();
+      await runStatement(env, "ALTER TABLE access_passwords ADD COLUMN max_indices INTEGER DEFAULT NULL");
     } catch {
       // The column already exists on current schemas.
     }
     // Ensure all columns on indices exist for unmigrated databases
     try {
-      await env.DB.prepare("ALTER TABLE indices ADD COLUMN owner_token_hash TEXT").run();
+      await runStatement(env, "ALTER TABLE indices ADD COLUMN owner_token_hash TEXT");
     } catch {
       // The column may already exist on an upgraded database.
     }
     try {
-      await env.DB.prepare("ALTER TABLE indices ADD COLUMN created_at INTEGER").run();
+      await runStatement(env, "ALTER TABLE indices ADD COLUMN created_at INTEGER");
     } catch {
       // The column may already exist on an upgraded database.
     }
     try {
-      await env.DB.prepare("ALTER TABLE indices ADD COLUMN creator_id TEXT").run();
+      await runStatement(env, "ALTER TABLE indices ADD COLUMN creator_id TEXT");
     } catch {
       // The column may already exist on an upgraded database.
     }
     // Ensure benchmark_cache table if not exists
     try {
-      await env.DB.prepare(`
+      await runStatement(env, `
         CREATE TABLE IF NOT EXISTS benchmark_cache (
           symbol TEXT PRIMARY KEY,
           data TEXT NOT NULL,
           cached_at INTEGER NOT NULL
         )
-      `).run();
+      `);
     } catch {
       // The table may already exist on an upgraded database.
     }
     // Ensure creator_id index on indices
     try {
-      await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_indices_creator_id ON indices(creator_id)").run();
+      await runStatement(env, "CREATE INDEX IF NOT EXISTS idx_indices_creator_id ON indices(creator_id)");
     } catch {
       // The index may already exist or column not yet added
     }
     // Ensure rate_limits table if not exists
     try {
-      await env.DB.prepare(`
+      await runStatement(env, `
         CREATE TABLE IF NOT EXISTS rate_limits (
           ip TEXT NOT NULL,
           endpoint TEXT NOT NULL,
@@ -495,7 +507,30 @@ export async function ensurePasswordTable(env: Env): Promise<void> {
           window_start INTEGER NOT NULL,
           PRIMARY KEY (ip, endpoint)
         )
-      `).run();
+      `);
+    } catch {
+      // The table may already exist on an upgraded database.
+    }
+    // Ensure sync_logs table if not exists
+    try {
+      await runStatement(env, `
+        CREATE TABLE IF NOT EXISTS sync_logs (
+          ticker TEXT PRIMARY KEY,
+          last_synced_at INTEGER NOT NULL
+        )
+      `);
+    } catch {
+      // The table may already exist on an upgraded database.
+    }
+    // Ensure snapshot_cache table if not exists
+    try {
+      await runStatement(env, `
+        CREATE TABLE IF NOT EXISTS snapshot_cache (
+          id INTEGER PRIMARY KEY,
+          data TEXT NOT NULL,
+          cached_at INTEGER NOT NULL
+        )
+      `);
     } catch {
       // The table may already exist on an upgraded database.
     }
@@ -1950,7 +1985,7 @@ export default {
             const sortOrder = Number.isFinite(rawSort) ? rawSort : 50;
             indicesMap.set(id, {
               id,
-              name: String(row.name),
+              name: row.name != null && String(row.name).trim() ? String(row.name).trim() : id,
               description: row.description ? String(row.description) : "",
               baseValue,
               sortOrder,
@@ -1962,7 +1997,7 @@ export default {
             if (!ticker) continue;
             indicesMap.get(id)!.basket.push({
               ticker,
-              name: String(row.stock_name),
+              name: row.stock_name != null && String(row.stock_name).trim() ? String(row.stock_name).trim() : ticker,
               weight: Number(row.weight),
               theme: row.theme ? String(row.theme) : "",
             });
@@ -2501,16 +2536,23 @@ export default {
             return json({ error: "強制同期にはパスワード認証が必要です" }, 401, request);
           }
         }
+        await ensurePasswordTable(env);
         const results: { ticker: string; status: string; count?: number; lastSynced?: number }[] =
           [];
         const now = Math.floor(Date.now() / 1000);
 
         // すでに同期済みの銘柄を確認
-        const { results: syncLogs } = await env.DB.prepare(
-          `SELECT ticker, last_synced_at FROM sync_logs WHERE ticker IN (${tickers.map(() => "?").join(",")})`,
-        )
-          .bind(...tickers)
-          .all();
+        let syncLogs: unknown[] = [];
+        try {
+          const res = await env.DB.prepare(
+            `SELECT ticker, last_synced_at FROM sync_logs WHERE ticker IN (${tickers.map(() => "?").join(",")})`,
+          )
+            .bind(...tickers)
+            .all();
+          syncLogs = res.results;
+        } catch (syncErr: unknown) {
+          if (!isMissingTableError(syncErr, "sync_logs")) throw syncErr;
+        }
 
         const lastSyncedMap = new Map(
           (syncLogs as { ticker: string; last_synced_at: unknown }[])
@@ -2580,9 +2622,13 @@ export default {
 
                 if (shouldSkipWrite) {
                   // Identical data: save expensive D1 table writes by updating only sync_logs
-                  await env.DB.prepare(
-                    "INSERT OR REPLACE INTO sync_logs (ticker, last_synced_at) VALUES (?, ?)",
-                  ).bind(ticker, now).run();
+                  try {
+                    await env.DB.prepare(
+                      "INSERT OR REPLACE INTO sync_logs (ticker, last_synced_at) VALUES (?, ?)",
+                    ).bind(ticker, now).run();
+                  } catch (logErr: unknown) {
+                    if (!isMissingTableError(logErr, "sync_logs")) throw logErr;
+                  }
                   return { ticker, status: "cached", count: series.length };
                 }
 
@@ -2601,7 +2647,7 @@ export default {
                 try {
                   await env.DB.batch(statements);
                 } catch (batchErr: unknown) {
-                  if (!isMissingTableError(batchErr, "stock_series")) throw batchErr;
+                  if (!isMissingTableError(batchErr, "stock_series") && !isMissingTableError(batchErr, "sync_logs")) throw batchErr;
                   // Fallback for unmigrated database: use legacy chunked stock_prices
                   const CHUNK_SIZE = 25;
                   const insertStatements: D1PreparedStatement[] = [];
@@ -2618,13 +2664,24 @@ export default {
                       ).bind(...params),
                     );
                   }
-                  await env.DB.batch([
-                    env.DB.prepare("DELETE FROM stock_prices WHERE ticker = ?").bind(ticker),
-                    ...insertStatements,
-                    env.DB.prepare(
-                      "INSERT OR REPLACE INTO sync_logs (ticker, last_synced_at) VALUES (?, ?)",
-                    ).bind(ticker, now),
-                  ]);
+                  try {
+                    await env.DB.batch([
+                      env.DB.prepare("DELETE FROM stock_prices WHERE ticker = ?").bind(ticker),
+                      ...insertStatements,
+                      env.DB.prepare(
+                        "INSERT OR REPLACE INTO sync_logs (ticker, last_synced_at) VALUES (?, ?)",
+                      ).bind(ticker, now),
+                    ]);
+                  } catch (fallbackErr: unknown) {
+                    if (isMissingTableError(fallbackErr, "sync_logs")) {
+                      await env.DB.batch([
+                        env.DB.prepare("DELETE FROM stock_prices WHERE ticker = ?").bind(ticker),
+                        ...insertStatements,
+                      ]);
+                    } else {
+                      throw fallbackErr;
+                    }
+                  }
                 }
                 clearMemoryCache("calc:");
                 return { ticker, status: "synced", count: series.length };
@@ -2632,11 +2689,15 @@ export default {
               // Record a short-lived negative cache marker. Using a positive
               // "last synced" timestamp here would falsely declare stale or
               // missing prices fresh for an entire market-cache window.
-              await env.DB.prepare(
-                "INSERT OR REPLACE INTO sync_logs (ticker, last_synced_at) VALUES (?, ?)",
-              )
-                .bind(ticker, -now)
-                .run();
+              try {
+                await env.DB.prepare(
+                  "INSERT OR REPLACE INTO sync_logs (ticker, last_synced_at) VALUES (?, ?)",
+                )
+                  .bind(ticker, -now)
+                  .run();
+              } catch (logErr: unknown) {
+                if (!isMissingTableError(logErr, "sync_logs")) throw logErr;
+              }
               return { ticker, status: "failed" };
             }),
           );

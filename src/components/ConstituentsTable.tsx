@@ -665,15 +665,15 @@ export function ConstituentsTable({
                           className="mono bold"
                           style={{
                             color:
-                              item.contributionPt > 0
+                              item.contributionPt >= 0.005
                                 ? "var(--neon-green)"
-                                : item.contributionPt < 0
+                                : item.contributionPt <= -0.005
                                   ? "var(--neon-red)"
                                   : "inherit",
                           }}
                         >
-                          {item.contributionPt >= 0 ? "+" : ""}
-                          {item.contributionPt.toFixed(2)}pt
+                          {item.contributionPt >= 0.005 ? "+" : ""}
+                          {Math.abs(item.contributionPt) < 0.005 ? "0.00" : item.contributionPt.toFixed(2)}pt
                         </span>
                       </td>
                       <td>
@@ -770,8 +770,8 @@ export function ConstituentsTable({
                   </div>
                   <div>
                     <span>寄与度</span>
-                    <strong className={item.contributionPt > 0 ? "positive" : item.contributionPt < 0 ? "negative" : ""}>
-                      {item.contributionPt >= 0 ? "+" : ""}{item.contributionPt.toFixed(2)}pt
+                    <strong className={item.contributionPt >= 0.005 ? "positive" : item.contributionPt <= -0.005 ? "negative" : ""}>
+                      {item.contributionPt >= 0.005 ? "+" : ""}{Math.abs(item.contributionPt) < 0.005 ? "0.00" : item.contributionPt.toFixed(2)}pt
                     </strong>
                   </div>
                   <div>
