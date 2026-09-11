@@ -32,9 +32,19 @@ export function getStoredAuth(): AuthSession | null {
     const raw = sessionRaw || legacyRaw;
     if (!raw) return null;
     const session = JSON.parse(raw) as AuthSession;
-    if (!sessionRaw && legacyRaw && sessionStore) {
-      sessionStore.setItem(AUTH_STORAGE_KEY, legacyRaw);
-      localStore?.removeItem(AUTH_STORAGE_KEY);
+    if (!sessionRaw && legacyRaw) {
+      // Storage can be present but read-only (private browsing/quota policy).
+      // A failed migration must not discard an otherwise valid legacy session.
+      try {
+        sessionStore?.setItem(AUTH_STORAGE_KEY, legacyRaw);
+      } catch {
+        // Keep using the parsed legacy session for this render.
+      }
+      try {
+        localStore?.removeItem(AUTH_STORAGE_KEY);
+      } catch {
+        // Best-effort cleanup; clearAuth will retry later.
+      }
     }
     return session;
   } catch {
@@ -45,7 +55,8 @@ export function getStoredAuth(): AuthSession | null {
 function notifyAuthChanged(): void {
   if (typeof globalThis !== "undefined") {
     type AuthEventTarget = { dispatchEvent?: (event: Event) => boolean };
-    const target = ((globalThis as unknown as { window?: AuthEventTarget }).window || globalThis) as unknown as AuthEventTarget;
+    const target = ((globalThis as unknown as { window?: AuthEventTarget }).window ||
+      globalThis) as unknown as AuthEventTarget;
     if (typeof target.dispatchEvent === "function" && typeof Event !== "undefined") {
       try {
         target.dispatchEvent(new Event("auth-changed"));
@@ -63,13 +74,34 @@ export function storeAuth(session: AuthSession): void {
   try {
     const serialized = JSON.stringify(session);
     const sessionStore = getSessionStorage();
+    const localStore = getLocalStorage();
     if (sessionStore) {
-      sessionStore.setItem(AUTH_STORAGE_KEY, serialized);
-      getLocalStorage()?.removeItem(AUTH_STORAGE_KEY);
+      try {
+        sessionStore.setItem(AUTH_STORAGE_KEY, serialized);
+        try {
+          localStore?.removeItem(AUTH_STORAGE_KEY);
+        } catch {
+          // Do not fail a successful session write because legacy cleanup failed.
+        }
+      } catch (sessionError) {
+        // Some browsers expose sessionStorage but reject writes. Preserve the
+        // documented fallback behavior rather than losing a successful login.
+        try {
+          localStore?.setItem(AUTH_STORAGE_KEY, serialized);
+        } catch {
+          console.error("Failed to store auth in available browser storage:", sessionError);
+          return;
+        }
+      }
     } else {
       // Fallback for non-browser/older environments where sessionStorage is
       // unavailable; the application still needs to remain usable there.
-      getLocalStorage()?.setItem(AUTH_STORAGE_KEY, serialized);
+      try {
+        localStore?.setItem(AUTH_STORAGE_KEY, serialized);
+      } catch (storageError) {
+        console.error("Failed to store auth:", storageError);
+        return;
+      }
     }
     notifyAuthChanged();
   } catch (err) {
@@ -106,7 +138,7 @@ export function getAuthHeaders(session?: AuthSession | null): Record<string, str
  * Verify password against the worker API
  */
 export async function verifyPassword(
-  password: string
+  password: string,
 ): Promise<{ ok: boolean; session?: AuthSession; error?: string }> {
   try {
     const trimmed = password.trim();
@@ -165,4 +197,3 @@ export function generateSecurePassword(length = 10): string {
   }
   return result;
 }
-

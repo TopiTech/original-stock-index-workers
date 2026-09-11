@@ -20,7 +20,16 @@ export const AVAILABLE_BENCHMARKS: BenchmarkOption[] = [
 export type BenchmarkData = {
   snapshot: Snapshot;
   series: { date: string; close: number }[];
+  /** True when the Worker had to serve an older cached snapshot. */
+  stale?: boolean;
 };
+
+export function isBenchmarkDataForSymbol(
+  data: BenchmarkData | null,
+  symbol: BenchmarkSymbol,
+): boolean {
+  return Boolean(data && data.snapshot.symbol === symbol);
+}
 
 export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled = true) {
   const [selectedBenchmark, setSelectedBenchmark] = useState<BenchmarkSymbol>(initialSymbol);
@@ -57,17 +66,17 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled =
       setBenchmarkData(cached.data);
       setLastUpdatedAt(cached.timestamp);
       setLoading(false);
+      setError(null);
       return;
     }
 
-    if (!cached) {
-      setLastUpdatedAt(null);
-    }
+    // A changed/expired benchmark must not keep the previous symbol's values
+    // while the new request is pending or after it fails.
+    setBenchmarkData(null);
+    setLastUpdatedAt(null);
 
     const controller = new AbortController();
-    if (!cached) {
-      setLoading(true);
-    }
+    setLoading(true);
     setError(null);
 
     const headers: Record<string, string> = {};
@@ -87,10 +96,13 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled =
             return cached.data;
           }
           // If 304 received without memory cache, refetch fresh data bypassing cache
-          const freshRes = await fetch(`${API_BASE}/snapshot?symbol=${encodeURIComponent(selectedBenchmark)}`, {
-            signal: controller.signal,
-            cache: "reload",
-          });
+          const freshRes = await fetch(
+            `${API_BASE}/snapshot?symbol=${encodeURIComponent(selectedBenchmark)}`,
+            {
+              signal: controller.signal,
+              cache: "reload",
+            },
+          );
           if (!freshRes.ok) {
             const errData = await freshRes.json().catch(() => ({}));
             throw new Error(errData.error || `${selectedBenchmark} データの取得に失敗しました`);

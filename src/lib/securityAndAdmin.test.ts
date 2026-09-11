@@ -23,6 +23,7 @@ interface PasswordRecord {
   plain_password: string | null;
   role: "admin" | "user";
   max_stocks: number | null;
+  max_indices?: number | null;
   is_active: number;
   created_at: number;
   updated_at: number;
@@ -30,8 +31,24 @@ interface PasswordRecord {
 
 function createSecurityTestEnv() {
   const passwords = new Map<string, PasswordRecord>();
-  const indices = new Map<string, { id: string; name: string; description: string; base_value: number; owner_token_hash: string | null }>();
-  const basketItems: Array<{ index_id: string; ticker: string; name: string; weight: number; theme: string }> = [];
+  const indices = new Map<
+    string,
+    {
+      id: string;
+      name: string;
+      description: string;
+      base_value: number;
+      owner_token_hash: string | null;
+      creator_id?: string | null;
+    }
+  >();
+  const basketItems: Array<{
+    index_id: string;
+    ticker: string;
+    name: string;
+    weight: number;
+    theme: string;
+  }> = [];
 
   // Seed default system indices
   for (const sysId of Array.from(SYSTEM_INDICES)) {
@@ -52,23 +69,31 @@ function createSecurityTestEnv() {
             const master = passwords.get("admin-master");
             return { results: master ? [master] : [] };
           }
-          if (query.includes("FROM access_passwords") && query.includes("id != 'admin-master'") && query.includes("password_hash")) {
+          if (
+            query.includes("FROM access_passwords") &&
+            query.includes("id != 'admin-master'") &&
+            query.includes("password_hash")
+          ) {
             const matches = Array.from(passwords.values()).filter(
               (p) => p.is_active === 1 && p.id !== "admin-master",
             );
             return { results: matches };
           }
-          if (query.includes("FROM access_passwords WHERE password_hash = ? AND is_active = 1 AND id != 'admin-master'")) {
+          if (
+            query.includes(
+              "FROM access_passwords WHERE password_hash = ? AND is_active = 1 AND id != 'admin-master'",
+            )
+          ) {
             const hash = params[0] as string;
             const matches = Array.from(passwords.values()).filter(
-              (p) => p.password_hash === hash && p.is_active === 1 && p.id !== "admin-master"
+              (p) => p.password_hash === hash && p.is_active === 1 && p.id !== "admin-master",
             );
             return { results: matches };
           }
           if (query.includes("FROM access_passwords WHERE password_hash = ? AND is_active = 1")) {
             const hash = params[0] as string;
             const matches = Array.from(passwords.values()).filter(
-              (p) => p.password_hash === hash && p.is_active === 1
+              (p) => p.password_hash === hash && p.is_active === 1,
             );
             return { results: matches };
           }
@@ -78,7 +103,9 @@ function createSecurityTestEnv() {
           }
           if (query.includes("COUNT(*) as count FROM indices WHERE creator_id = ?")) {
             const creatorId = params[0] as string;
-            const count = Array.from(indices.values()).filter((idx: any) => idx.creator_id === creatorId).length;
+            const count = Array.from(indices.values()).filter(
+              (idx: any) => idx.creator_id === creatorId,
+            ).length;
             return { results: [{ count }] };
           }
           if (query.includes("FROM indices WHERE id = ?")) {
@@ -100,7 +127,10 @@ function createSecurityTestEnv() {
           return { results: [] };
         },
         run: async () => {
-          if (query.includes("INSERT INTO access_passwords") || query.includes("INSERT OR REPLACE INTO access_passwords")) {
+          if (
+            query.includes("INSERT INTO access_passwords") ||
+            query.includes("INSERT OR REPLACE INTO access_passwords")
+          ) {
             if (query.includes("'admin-master'")) {
               // Master admin update: VALUES ('admin-master', 'マスター管理者', ?, 'admin', NULL, 1, ?, ?)
               const hash = params[0] as string;
@@ -179,9 +209,20 @@ function createSecurityTestEnv() {
             passwords.delete(id);
             return { success: true };
           }
-          if (query.includes("INSERT OR REPLACE INTO basket_items") || query.includes("INSERT INTO basket_items")) {
-            const [indexId, ticker, name, weight, theme] = params as [string, string, string, number, string];
-            const existingIdx = basketItems.findIndex((b) => b.index_id === indexId && b.ticker === ticker);
+          if (
+            query.includes("INSERT OR REPLACE INTO basket_items") ||
+            query.includes("INSERT INTO basket_items")
+          ) {
+            const [indexId, ticker, name, weight, theme] = params as [
+              string,
+              string,
+              string,
+              number,
+              string,
+            ];
+            const existingIdx = basketItems.findIndex(
+              (b) => b.index_id === indexId && b.ticker === ticker,
+            );
             if (existingIdx >= 0) {
               basketItems[existingIdx] = { index_id: indexId, ticker, name, weight, theme };
             } else {
@@ -197,9 +238,22 @@ function createSecurityTestEnv() {
             return { success: true };
           }
           if (query.includes("INTO indices")) {
-            const [id, name, description, baseValue, hash] = params as [string, string, string, number, string | null];
+            const [id, name, description, baseValue, hash] = params as [
+              string,
+              string,
+              string,
+              number,
+              string | null,
+            ];
             const creatorId = params.length >= 7 ? (params[6] as string | null) : null;
-            indices.set(id, { id, name, description, base_value: baseValue, owner_token_hash: hash || null, creator_id: creatorId });
+            indices.set(id, {
+              id,
+              name,
+              description,
+              base_value: baseValue,
+              owner_token_hash: hash || null,
+              creator_id: creatorId,
+            });
             return { success: true };
           }
           if (query.includes("DELETE FROM indices WHERE id = ?")) {
@@ -522,8 +576,18 @@ describe("Security and Admin Regression Tests", () => {
   describe("Client Auth Session and Headers", () => {
     it("generates correct headers for admin and user sessions", async () => {
       const { getAuthHeaders } = await import("./auth");
-      const adminSession = { role: "admin" as const, name: "管理者", password: "pwd1", maxStocks: null };
-      const userSession = { role: "user" as const, name: "ユーザー", password: "pwd2", maxStocks: 5 };
+      const adminSession = {
+        role: "admin" as const,
+        name: "管理者",
+        password: "pwd1",
+        maxStocks: null,
+      };
+      const userSession = {
+        role: "user" as const,
+        name: "ユーザー",
+        password: "pwd2",
+        maxStocks: 5,
+      };
 
       const adminHeaders = getAuthHeaders(adminSession);
       expect(adminHeaders["x-auth-password"]).toBe("pwd1");
@@ -646,12 +710,15 @@ describe("Security and Admin Regression Tests", () => {
       expect(addWrongTokenData.error).toContain("作成者トークンが一致しません");
 
       // 3. User B tries to DELETE stock without ownerToken -> 403 Forbidden
-      const delNoTokenReq = new Request("http://localhost/api/indices/stock?indexId=custom-a&ticker=7203", {
-        method: "DELETE",
-        headers: {
-          "x-auth-password": "pass-b",
+      const delNoTokenReq = new Request(
+        "http://localhost/api/indices/stock?indexId=custom-a&ticker=7203",
+        {
+          method: "DELETE",
+          headers: {
+            "x-auth-password": "pass-b",
+          },
         },
-      });
+      );
       const delNoTokenRes = await worker.fetch(delNoTokenReq, env as any);
       expect(delNoTokenRes.status).toBe(403);
       const delNoTokenData = await delNoTokenRes.json();
@@ -724,7 +791,9 @@ describe("Security and Admin Regression Tests", () => {
       const demoteRes = await worker.fetch(demoteReq, env as any);
       expect(demoteRes.status).toBe(403);
       const demoteData = await demoteRes.json();
-      expect(demoteData.error).toContain("マスター管理者アカウントのロール変更および無効化はできません");
+      expect(demoteData.error).toContain(
+        "マスター管理者アカウントのロール変更および無効化はできません",
+      );
 
       // Try to deactivate admin-master
       const deactivateReq = new Request("http://localhost/api/admin/passwords", {
@@ -935,13 +1004,16 @@ describe("Security and Admin Regression Tests", () => {
       expect(postData.error).toContain("保護されているため更新できません");
 
       // DELETE /api/indices/stock
-      const delReq = new Request("http://localhost/api/indices/stock?indexId=protected-idx&ticker=9984", {
-        method: "DELETE",
-        headers: {
-          "x-auth-password": "user1234",
-          "x-owner-token": "attacker-token",
+      const delReq = new Request(
+        "http://localhost/api/indices/stock?indexId=protected-idx&ticker=9984",
+        {
+          method: "DELETE",
+          headers: {
+            "x-auth-password": "user1234",
+            "x-owner-token": "attacker-token",
+          },
         },
-      });
+      );
       const delRes = await worker.fetch(delReq, env as any);
       expect(delRes.status).toBe(403);
       const delData = await delRes.json();
@@ -977,12 +1049,15 @@ describe("Security and Admin Regression Tests", () => {
       const postRes = await worker.fetch(postReq, env as any);
       expect(postRes.status).toBe(404);
 
-      const delReq = new Request("http://localhost/api/indices/stock?indexId=non-existent-index&ticker=9984", {
-        method: "DELETE",
-        headers: {
-          "x-auth-password": "user1234",
+      const delReq = new Request(
+        "http://localhost/api/indices/stock?indexId=non-existent-index&ticker=9984",
+        {
+          method: "DELETE",
+          headers: {
+            "x-auth-password": "user1234",
+          },
         },
-      });
+      );
       const delRes = await worker.fetch(delReq, env as any);
       expect(delRes.status).toBe(404);
     });

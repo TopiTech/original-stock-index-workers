@@ -32,18 +32,14 @@ interface ConstituentsTableProps {
   stockDetails?: StockDetail[];
   selectedTheme: string | null;
   indexName?: string;
+  /** True only for an authenticated admin or the selected index owner. */
+  canEdit?: boolean;
   onAddStock?: (stock: BasketItem) => Promise<{ ok: boolean; error?: string }>;
   onRemoveStock?: (ticker: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
 type SortField =
-  | "weight"
-  | "ticker"
-  | "name"
-  | "theme"
-  | "currentPrice"
-  | "changePct"
-  | "contributionPt";
+  "weight" | "ticker" | "name" | "theme" | "currentPrice" | "changePct" | "contributionPt";
 type SortOrder = "asc" | "desc";
 
 function getYahooFinanceUrl(ticker: string): string {
@@ -90,30 +86,41 @@ export function ConstituentsTable({
   stockDetails = [],
   selectedTheme,
   indexName = "カスタム指数",
+  canEdit = false,
   onAddStock,
   onRemoveStock,
 }: ConstituentsTableProps) {
   const { session, isAuthenticated, isAdmin, isUser, maxStocks, logout } = useAuth();
+  const editingEnabled = canEdit && isAuthenticated;
   const { success, error: toastError } = useToast();
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<SortField>("weight");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isAddStockModalOpen, setIsAddStockModalOpen] = useState(false);
-  const [pendingDeleteStock, setPendingDeleteStock] = useState<{ ticker: string; name: string } | null>(null);
-  const [confirmDeleteStock, setConfirmDeleteStock] = useState<{ ticker: string; name: string } | null>(null);
+  const [pendingDeleteStock, setPendingDeleteStock] = useState<{
+    ticker: string;
+    name: string;
+  } | null>(null);
+  const [confirmDeleteStock, setConfirmDeleteStock] = useState<{
+    ticker: string;
+    name: string;
+  } | null>(null);
   const [deletingStock, setDeletingStock] = useState(false);
   const [tableError, setTableError] = useState<string | null>(null);
 
-  const isLimitReached = isUser && maxStocks !== null && maxStocks > 0 && basket.length >= maxStocks;
+  const isLimitReached =
+    isUser && maxStocks !== null && maxStocks > 0 && basket.length >= maxStocks;
 
   const handleAddStockClick = () => {
     setPendingDeleteStock(null);
-    if (!isAuthenticated) {
-      setIsAuthModalOpen(true);
-    } else {
-      setIsAddStockModalOpen(true);
+    if (!editingEnabled) {
+      setTableError(
+        "この指数を編集する権限がありません。作成者または管理者として認証してください。",
+      );
+      return;
     }
+    setIsAddStockModalOpen(true);
   };
 
   const executeDeleteStock = async (ticker: string, stockName: string) => {
@@ -144,6 +151,12 @@ export function ConstituentsTable({
   };
 
   const handleDeleteStockClick = async (ticker: string, stockName: string) => {
+    if (!editingEnabled) {
+      setTableError(
+        "この指数を編集する権限がありません。作成者または管理者として認証してください。",
+      );
+      return;
+    }
     if (basket.length <= 1) {
       setTableError("構成銘柄が1件のみのため削除できません。指数には最低1銘柄必要です。");
       return;
@@ -239,7 +252,9 @@ export function ConstituentsTable({
       setSortOrder(sortOrder === "asc" ? "desc" : "asc");
     } else {
       setSortField(field);
-      setSortOrder(field === "weight" || field === "changePct" || field === "contributionPt" ? "desc" : "asc");
+      setSortOrder(
+        field === "weight" || field === "changePct" || field === "contributionPt" ? "desc" : "asc",
+      );
     }
   };
 
@@ -274,20 +289,22 @@ export function ConstituentsTable({
       item.contributionPt.toFixed(2),
     ]);
 
-    const csvContent =
-      "\uFEFF" +
-      [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    const safeFileName = Array.from(indexName, (character) =>
-      character.charCodeAt(0) <= 31 || character.charCodeAt(0) === 127 ? "_" : character,
-    )
-      .join("")
-      .replace(/[/\\?%*:|"<>]/g, "_")
-      .trim() || "custom_index";
-    link.setAttribute("download", `${safeFileName}_constituents_${new Date().toISOString().slice(0, 10)}.csv`);
+    const safeFileName =
+      Array.from(indexName, (character) =>
+        character.charCodeAt(0) <= 31 || character.charCodeAt(0) === 127 ? "_" : character,
+      )
+        .join("")
+        .replace(/[/\\?%*:|"<>]/g, "_")
+        .trim() || "custom_index";
+    link.setAttribute(
+      "download",
+      `${safeFileName}_constituents_${new Date().toISOString().slice(0, 10)}.csv`,
+    );
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -338,18 +355,20 @@ export function ConstituentsTable({
       {hasActiveFilters && (
         <div className="table-filter-bar" role="status" aria-label="適用中のフィルター">
           <span className="muted tiny mono">絞り込み中:</span>
-          {selectedTheme && (
-            <span className="filter-active-chip">
-              テーマ: {selectedTheme}
-            </span>
-          )}
+          {selectedTheme && <span className="filter-active-chip">テーマ: {selectedTheme}</span>}
           {search.trim() && (
             <span className="filter-active-chip">
               検索: &quot;{search.trim()}&quot;
               <button
                 type="button"
                 onClick={() => setSearch("")}
-                style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", padding: 0 }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "inherit",
+                  cursor: "pointer",
+                  padding: 0,
+                }}
                 aria-label="検索キーワードをクリア"
               >
                 ✕
@@ -357,11 +376,7 @@ export function ConstituentsTable({
             </span>
           )}
           {search.trim() && (
-            <button
-              type="button"
-              className="filter-clear-all"
-              onClick={() => setSearch("")}
-            >
+            <button type="button" className="filter-clear-all" onClick={() => setSearch("")}>
               検索を解除
             </button>
           )}
@@ -391,7 +406,9 @@ export function ConstituentsTable({
           type="button"
           className="mobile-sort-dir-btn"
           onClick={() => setSortOrder((o) => (o === "asc" ? "desc" : "asc"))}
-          aria-label={sortOrder === "asc" ? "昇順 (クリックで降順に変更)" : "降順 (クリックで昇順に変更)"}
+          aria-label={
+            sortOrder === "asc" ? "昇順 (クリックで降順に変更)" : "降順 (クリックで昇順に変更)"
+          }
         >
           {sortOrder === "asc" ? (
             <>
@@ -439,7 +456,7 @@ export function ConstituentsTable({
         }}
       >
         <div className="row flex-wrap" style={{ gap: 8, alignItems: "center" }}>
-          {isAuthenticated ? (
+          {editingEnabled ? (
             <div className="row flex-wrap" style={{ gap: 8, alignItems: "center" }}>
               <span
                 className="tag"
@@ -482,19 +499,14 @@ export function ConstituentsTable({
               </button>
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={() => setIsAuthModalOpen(true)}
-              className="btn btn-sm btn-outline"
-              style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11 }}
-            >
-              <Lock size={12} /> 銘柄編集ロック中（クリックしてパスワード認証）
-            </button>
+            <span className="row muted tiny" style={{ gap: 5 }} role="status">
+              <Lock size={12} /> この指数は閲覧専用です（作成者または管理者のみ編集可能）
+            </span>
           )}
         </div>
 
         <div className="row" style={{ gap: 8 }}>
-          {onAddStock && (
+          {onAddStock && editingEnabled && (
             <button
               type="button"
               onClick={handleAddStockClick}
@@ -515,7 +527,13 @@ export function ConstituentsTable({
             <tr>
               <th
                 role="columnheader"
-                aria-sort={sortField === "ticker" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                aria-sort={
+                  sortField === "ticker"
+                    ? sortOrder === "asc"
+                      ? "ascending"
+                      : "descending"
+                    : "none"
+                }
                 tabIndex={0}
                 onClick={() => toggleSort("ticker")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "ticker")}
@@ -527,7 +545,9 @@ export function ConstituentsTable({
               </th>
               <th
                 role="columnheader"
-                aria-sort={sortField === "name" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                aria-sort={
+                  sortField === "name" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"
+                }
                 tabIndex={0}
                 onClick={() => toggleSort("name")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "name")}
@@ -539,7 +559,13 @@ export function ConstituentsTable({
               </th>
               <th
                 role="columnheader"
-                aria-sort={sortField === "theme" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                aria-sort={
+                  sortField === "theme"
+                    ? sortOrder === "asc"
+                      ? "ascending"
+                      : "descending"
+                    : "none"
+                }
                 tabIndex={0}
                 onClick={() => toggleSort("theme")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "theme")}
@@ -551,7 +577,13 @@ export function ConstituentsTable({
               </th>
               <th
                 role="columnheader"
-                aria-sort={sortField === "currentPrice" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                aria-sort={
+                  sortField === "currentPrice"
+                    ? sortOrder === "asc"
+                      ? "ascending"
+                      : "descending"
+                    : "none"
+                }
                 tabIndex={0}
                 onClick={() => toggleSort("currentPrice")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "currentPrice")}
@@ -563,7 +595,13 @@ export function ConstituentsTable({
               </th>
               <th
                 role="columnheader"
-                aria-sort={sortField === "changePct" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                aria-sort={
+                  sortField === "changePct"
+                    ? sortOrder === "asc"
+                      ? "ascending"
+                      : "descending"
+                    : "none"
+                }
                 tabIndex={0}
                 onClick={() => toggleSort("changePct")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "changePct")}
@@ -576,7 +614,13 @@ export function ConstituentsTable({
               <th style={{ minWidth: 80, width: "10%", textAlign: "center" }}>トレンド</th>
               <th
                 role="columnheader"
-                aria-sort={sortField === "contributionPt" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                aria-sort={
+                  sortField === "contributionPt"
+                    ? sortOrder === "asc"
+                      ? "ascending"
+                      : "descending"
+                    : "none"
+                }
                 tabIndex={0}
                 onClick={() => toggleSort("contributionPt")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "contributionPt")}
@@ -588,7 +632,13 @@ export function ConstituentsTable({
               </th>
               <th
                 role="columnheader"
-                aria-sort={sortField === "weight" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                aria-sort={
+                  sortField === "weight"
+                    ? sortOrder === "asc"
+                      ? "ascending"
+                      : "descending"
+                    : "none"
+                }
                 tabIndex={0}
                 onClick={() => toggleSort("weight")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "weight")}
@@ -598,7 +648,7 @@ export function ConstituentsTable({
                   比率 {renderSortIcon("weight")}
                 </span>
               </th>
-              {onRemoveStock && (
+              {onRemoveStock && editingEnabled && (
                 <th style={{ minWidth: 50, width: "4%", textAlign: "center" }}>操作</th>
               )}
             </tr>
@@ -648,7 +698,11 @@ export function ConstituentsTable({
                           style={{
                             justifyContent: "flex-end",
                             gap: 2,
-                            color: isUp ? "var(--neon-green)" : isDown ? "var(--neon-red)" : "inherit",
+                            color: isUp
+                              ? "var(--neon-green)"
+                              : isDown
+                                ? "var(--neon-red)"
+                                : "inherit",
                           }}
                         >
                           {isUp && <TrendingUp size={11} />}
@@ -673,7 +727,10 @@ export function ConstituentsTable({
                           }}
                         >
                           {item.contributionPt >= 0.005 ? "+" : ""}
-                          {Math.abs(item.contributionPt) < 0.005 ? "0.00" : item.contributionPt.toFixed(2)}pt
+                          {Math.abs(item.contributionPt) < 0.005
+                            ? "0.00"
+                            : item.contributionPt.toFixed(2)}
+                          pt
                         </span>
                       </td>
                       <td>
@@ -696,14 +753,22 @@ export function ConstituentsTable({
                           </div>
                         </div>
                       </td>
-                      {onRemoveStock && (
+                      {onRemoveStock && editingEnabled && (
                         <td style={{ textAlign: "center" }}>
                           <button
                             type="button"
                             className="icon-button danger"
                             onClick={() => handleDeleteStockClick(item.ticker, item.name)}
-                            title={isAuthenticated ? `銘柄「${item.name}」を削除` : "削除するにはパスワード認証が必要です"}
-                            aria-label={isAuthenticated ? `銘柄「${item.name}」を削除` : "削除するにはパスワード認証が必要です"}
+                            title={
+                              isAuthenticated
+                                ? `銘柄「${item.name}」を削除`
+                                : "削除するにはパスワード認証が必要です"
+                            }
+                            aria-label={
+                              isAuthenticated
+                                ? `銘柄「${item.name}」を削除`
+                                : "削除するにはパスワード認証が必要です"
+                            }
                           >
                             <Trash2 size={13} />
                           </button>
@@ -714,7 +779,10 @@ export function ConstituentsTable({
                 })
               ) : (
                 <tr>
-                  <td colSpan={onRemoveStock ? 9 : 8} style={{ textAlign: "center", padding: "32px 16px" }}>
+                  <td
+                    colSpan={onRemoveStock && editingEnabled ? 9 : 8}
+                    style={{ textAlign: "center", padding: "32px 16px" }}
+                  >
                     <span className="muted mono tiny">該当する銘柄が見つかりません</span>
                   </td>
                 </tr>
@@ -746,13 +814,21 @@ export function ConstituentsTable({
                     <strong>{item.name}</strong>
                     <Tag variant="theme">{item.theme}</Tag>
                   </div>
-                  {onRemoveStock && (
+                  {onRemoveStock && editingEnabled && (
                     <button
                       type="button"
                       className="icon-button danger"
                       onClick={() => handleDeleteStockClick(item.ticker, item.name)}
-                      title={isAuthenticated ? `銘柄「${item.name}」を削除` : "削除するにはパスワード認証が必要です"}
-                      aria-label={isAuthenticated ? `銘柄「${item.name}」を削除` : "削除するにはパスワード認証が必要です"}
+                      title={
+                        isAuthenticated
+                          ? `銘柄「${item.name}」を削除`
+                          : "削除するにはパスワード認証が必要です"
+                      }
+                      aria-label={
+                        isAuthenticated
+                          ? `銘柄「${item.name}」を削除`
+                          : "削除するにはパスワード認証が必要です"
+                      }
                     >
                       <Trash2 size={15} aria-hidden="true" />
                     </button>
@@ -765,18 +841,33 @@ export function ConstituentsTable({
                     <strong className={isUp ? "positive" : isDown ? "negative" : ""}>
                       {isUp && <TrendingUp size={12} aria-hidden="true" />}
                       {isDown && <TrendingDown size={12} aria-hidden="true" />}
-                      {item.changePct >= 0 ? "+" : ""}{item.changePct.toFixed(2)}%
+                      {item.changePct >= 0 ? "+" : ""}
+                      {item.changePct.toFixed(2)}%
                     </strong>
                   </div>
                   <div>
                     <span>寄与度</span>
-                    <strong className={item.contributionPt >= 0.005 ? "positive" : item.contributionPt <= -0.005 ? "negative" : ""}>
-                      {item.contributionPt >= 0.005 ? "+" : ""}{Math.abs(item.contributionPt) < 0.005 ? "0.00" : item.contributionPt.toFixed(2)}pt
+                    <strong
+                      className={
+                        item.contributionPt >= 0.005
+                          ? "positive"
+                          : item.contributionPt <= -0.005
+                            ? "negative"
+                            : ""
+                      }
+                    >
+                      {item.contributionPt >= 0.005 ? "+" : ""}
+                      {Math.abs(item.contributionPt) < 0.005
+                        ? "0.00"
+                        : item.contributionPt.toFixed(2)}
+                      pt
                     </strong>
                   </div>
                   <div>
                     <span>株価</span>
-                    <strong>{item.currentPrice > 0 ? `¥${item.currentPrice.toLocaleString()}` : "---"}</strong>
+                    <strong>
+                      {item.currentPrice > 0 ? `¥${item.currentPrice.toLocaleString()}` : "---"}
+                    </strong>
                   </div>
                 </div>
 
@@ -798,7 +889,9 @@ export function ConstituentsTable({
             );
           })
         ) : (
-          <div className="constituents-mobile-empty muted mono tiny">該当する銘柄が見つかりません</div>
+          <div className="constituents-mobile-empty muted mono tiny">
+            該当する銘柄が見つかりません
+          </div>
         )}
       </div>
 
@@ -824,7 +917,7 @@ export function ConstituentsTable({
       />
 
       {/* Add Stock Modal */}
-      {onAddStock && (
+      {onAddStock && editingEnabled && (
         <AddStockModal
           isOpen={isAddStockModalOpen}
           onClose={() => setIsAddStockModalOpen(false)}

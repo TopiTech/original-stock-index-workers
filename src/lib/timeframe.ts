@@ -9,7 +9,10 @@ export const TIMEFRAME_LABELS: Record<Timeframe, string> = {
   "1Y": "全期間",
 };
 
-export function filterByTimeframe<T extends { date: string }>(data: T[], timeframe: Timeframe): T[] {
+export function filterByTimeframe<T extends { date: string }>(
+  data: T[],
+  timeframe: Timeframe,
+): T[] {
   if (data.length === 0) return [];
   if (timeframe === "1W") return data.slice(-5);
   if (timeframe === "1M") return data.slice(-22);
@@ -17,8 +20,10 @@ export function filterByTimeframe<T extends { date: string }>(data: T[], timefra
   if (timeframe === "6M") return data.slice(-130);
   if (timeframe === "YTD") {
     const currentYear = new Date().getFullYear().toString();
-    const ytdData = data.filter((point) => point.date.startsWith(currentYear));
-    return ytdData.length >= 2 ? ytdData : data.slice(-22);
+    // Never mix the previous year into a YTD series. Returning a short series
+    // is safer than labeling a cross-year return as year-to-date; callers can
+    // render it as insufficient data when fewer than two points are available.
+    return data.filter((point) => point.date.startsWith(currentYear));
   }
   return data;
 }

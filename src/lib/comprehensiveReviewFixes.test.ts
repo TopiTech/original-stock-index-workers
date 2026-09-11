@@ -24,7 +24,10 @@ beforeEach(() => {
 function createMockDb(handlers: {
   all?: (query: string, params: unknown[]) => Promise<{ results: any[] }> | { results: any[] };
   first?: (query: string, params: unknown[]) => Promise<any> | any;
-  run?: (query: string, params: unknown[]) => Promise<{ meta: { changes: number } }> | { meta: { changes: number } };
+  run?: (
+    query: string,
+    params: unknown[],
+  ) => Promise<{ meta: { changes: number } }> | { meta: { changes: number } };
 }) {
   const prepare = vi.fn().mockImplementation((query: string) => {
     let boundParams: unknown[] = [];
@@ -220,7 +223,10 @@ describe("Comprehensive Review Fixes", () => {
     it("enforces the original creator's stock cap when another user has the owner token", async () => {
       const ownerToken = "shared-owner-token";
       const operatorPassword = "higher-quota-operator";
-      const [ownerHash, operatorHash] = await Promise.all([hashToken(ownerToken), hashToken(operatorPassword)]);
+      const [ownerHash, operatorHash] = await Promise.all([
+        hashToken(ownerToken),
+        hashToken(operatorPassword),
+      ]);
       const db = createMockDb({
         all: (query) => {
           if (query.includes("WHERE id = 'admin-master'")) return { results: [] };
@@ -296,7 +302,10 @@ describe("Comprehensive Review Fixes", () => {
           return { results: [] };
         },
         run: (query) => {
-          if (query.includes("INSERT OR REPLACE INTO basket_items") && query.includes("SELECT ?, ?, ?, ?, ?")) {
+          if (
+            query.includes("INSERT OR REPLACE INTO basket_items") &&
+            query.includes("SELECT ?, ?, ?, ?, ?")
+          ) {
             // D1 reports no change when the conditional INSERT sees that a
             // concurrent request has already filled the final permitted slot.
             return { meta: { changes: 0 } };
@@ -374,7 +383,9 @@ describe("Comprehensive Review Fixes", () => {
 
       expect(res.status).toBe(200);
       const statements = db.batch.mock.calls[0][0] as Array<{ query: string }>;
-      const basketWrites = statements.filter((statement) => statement.query.includes("INSERT OR REPLACE INTO basket_items"));
+      const basketWrites = statements.filter((statement) =>
+        statement.query.includes("INSERT OR REPLACE INTO basket_items"),
+      );
       expect(statements).toHaveLength(29); // upsert + delete + ceil(500 / 19) writes
       expect(basketWrites).toHaveLength(27);
       expect(statements.length).toBeLessThanOrEqual(50);
@@ -388,7 +399,10 @@ describe("Comprehensive Review Fixes", () => {
     it("attaches x-data-stale header and stale: true in JSON payload on stale fallback", async () => {
       const cachedSnapshotData = {
         snapshot: { symbol: "^N225", current: 39000, change: 100, changePct: 0.25 },
-        series: [{ date: "2026-03-01", close: 38900 }, { date: "2026-03-02", close: 39000 }],
+        series: [
+          { date: "2026-03-01", close: 38900 },
+          { date: "2026-03-02", close: 39000 },
+        ],
       };
 
       const db = createMockDb({
@@ -545,7 +559,9 @@ describe("Comprehensive Review Fixes", () => {
       };
 
       const res = await worker.fetch(new Request("http://localhost/api/health"), env as any);
-      expect(res.headers.get("strict-transport-security")).toBe("max-age=31536000; includeSubDomains; preload");
+      expect(res.headers.get("strict-transport-security")).toBe(
+        "max-age=31536000; includeSubDomains; preload",
+      );
     });
   });
 
@@ -633,8 +649,8 @@ describe("Comprehensive Review Fixes", () => {
     });
   });
 
-  describe("[M-6] Timeframe YTD Fallback", () => {
-    it("falls back to 22 points when current year has fewer than 2 points", () => {
+  describe("[M-6] Timeframe YTD boundaries", () => {
+    it("does not mix prior-year points when current year has fewer than 2 points", () => {
       const currentYear = new Date().getFullYear().toString();
       const pastYear = (new Date().getFullYear() - 1).toString();
 
@@ -647,8 +663,7 @@ describe("Comprehensive Review Fixes", () => {
       ];
 
       const result = filterByTimeframe(data, "YTD");
-      // Must not return just 1 point! Falls back to data.slice(-22)
-      expect(result.length).toBe(22);
+      expect(result).toEqual([{ date: `${currentYear}-01-04`, close: 1050 }]);
     });
 
     it("returns YTD data when 2 or more points exist in current year", () => {

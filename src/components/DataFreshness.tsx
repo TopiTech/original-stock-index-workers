@@ -15,6 +15,7 @@ interface DataFreshnessProps {
   calculationUpdatedAt?: number | null;
   loading?: boolean;
   syncing?: boolean;
+  stale?: boolean;
 }
 
 export function DataFreshness({
@@ -22,6 +23,7 @@ export function DataFreshness({
   calculationUpdatedAt,
   loading = false,
   syncing = false,
+  stale = false,
 }: DataFreshnessProps) {
   const timestamps = [benchmarkUpdatedAt, calculationUpdatedAt].filter(
     (timestamp): timestamp is number => typeof timestamp === "number" && Number.isFinite(timestamp),
@@ -39,9 +41,11 @@ export function DataFreshness({
       <span>
         {isUpdating
           ? "データ更新中"
-          : latestUpdatedAt
-            ? `最終更新 ${dateFormatter.format(new Date(latestUpdatedAt))} JST`
-            : "更新情報を取得中"}
+          : stale
+            ? "最新データを取得できず、古いキャッシュを表示中"
+            : latestUpdatedAt
+              ? `最終更新 ${dateFormatter.format(new Date(latestUpdatedAt))} JST`
+              : "更新情報を取得中"}
       </span>
       <span className="data-freshness-type">日足終値</span>
     </div>

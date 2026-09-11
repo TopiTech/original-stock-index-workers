@@ -29,10 +29,21 @@ describe("regression: worker API contract", () => {
 
   it("R3: invalid JSON body returns 400 not 500", () => {
     expect(workerSrc).toContain("parseJsonBody");
-    expect(workerSrc).toContain('Invalid JSON body');
+    expect(workerSrc).toContain("Invalid JSON body");
     // Both POST handlers must use the helper
-    const syncUsesHelper = workerSrc.includes('"/api/sync-prices"') && workerSrc.slice(workerSrc.indexOf('"/api/sync-prices"'), workerSrc.indexOf('"/api/sync-prices"') + 2000).includes("parseJsonBody");
-    const calcUsesHelper = workerSrc.includes('"/api/calculate"') && workerSrc.slice(workerSrc.indexOf('"/api/calculate"'), workerSrc.indexOf('"/api/calculate"') + 2000).includes("parseJsonBody");
+    const syncUsesHelper =
+      workerSrc.includes('"/api/sync-prices"') &&
+      workerSrc
+        .slice(
+          workerSrc.indexOf('"/api/sync-prices"'),
+          workerSrc.indexOf('"/api/sync-prices"') + 2000,
+        )
+        .includes("parseJsonBody");
+    const calcUsesHelper =
+      workerSrc.includes('"/api/calculate"') &&
+      workerSrc
+        .slice(workerSrc.indexOf('"/api/calculate"'), workerSrc.indexOf('"/api/calculate"') + 2000)
+        .includes("parseJsonBody");
     expect(syncUsesHelper).toBe(true);
     expect(calcUsesHelper).toBe(true);
   });
@@ -68,12 +79,12 @@ describe("regression: worker API contract", () => {
   it("R8: wrangler configuration includes single-page-application and run_worker_first config", () => {
     const wranglerSrc = readFileSync(resolve("wrangler.jsonc"), "utf-8");
     expect(wranglerSrc).toContain('"not_found_handling": "single-page-application"');
-    expect(wranglerSrc).toContain('"/api/*"');
+    expect(wranglerSrc).toContain('"run_worker_first": true');
 
     if (existsSync(resolve("wrangler.local.jsonc"))) {
       const wranglerLocalSrc = readFileSync(resolve("wrangler.local.jsonc"), "utf-8");
       expect(wranglerLocalSrc).toContain('"not_found_handling": "single-page-application"');
-      expect(wranglerLocalSrc).toContain('"/api/*"');
+      expect(wranglerLocalSrc).toContain('"run_worker_first": true');
     }
   });
 });
@@ -108,7 +119,7 @@ describe("regression: timingSafeEqual timing-safe behavior", () => {
     //   if (a.length !== b.length) { return false; }
     // which would be a timing leak.
     expect(workerSrc).not.toMatch(
-      /function timingSafeEqual[\s\S]*?a\.length\s*!==\s*b\.length[\s\S]*?return false/
+      /function timingSafeEqual[\s\S]*?a\.length\s*!==\s*b\.length[\s\S]*?return false/,
     );
   });
 });

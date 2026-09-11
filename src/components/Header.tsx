@@ -15,6 +15,7 @@ interface HeaderProps {
   calculationUpdatedAt?: number | null;
   dataLoading?: boolean;
   syncing?: boolean;
+  benchmarkStale?: boolean;
 }
 
 export function Header({
@@ -24,14 +25,16 @@ export function Header({
   calculationUpdatedAt,
   dataLoading = false,
   syncing = false,
+  benchmarkStale = false,
 }: HeaderProps) {
   const { session, isAuthenticated, isAdmin, isUser, maxStocks, maxIndices, logout } = useAuth();
   const { success, info } = useToast();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
-  const limitsText = isUser && (maxStocks || maxIndices)
-    ? `(${[maxStocks ? `${maxStocks}銘柄` : "", maxIndices ? `${maxIndices}指数` : ""].filter(Boolean).join(" / ")}上限)`
-    : "";
+  const limitsText =
+    isUser && (maxStocks || maxIndices)
+      ? `(${[maxStocks ? `${maxStocks}銘柄` : "", maxIndices ? `${maxIndices}指数` : ""].filter(Boolean).join(" / ")}上限)`
+      : "";
 
   const handleLogout = () => {
     logout();
@@ -49,7 +52,11 @@ export function Header({
         <div className="row space-between flex-wrap" style={{ gap: 12, alignItems: "center" }}>
           <div
             className={`header-brand row ${onNavigateToHome ? "clickable" : ""}`}
-            style={{ gap: 10, alignItems: "center", cursor: onNavigateToHome ? "pointer" : "default" }}
+            style={{
+              gap: 10,
+              alignItems: "center",
+              cursor: onNavigateToHome ? "pointer" : "default",
+            }}
             onClick={onNavigateToHome}
             role={onNavigateToHome ? "button" : undefined}
             tabIndex={onNavigateToHome ? 0 : undefined}
@@ -69,7 +76,8 @@ export function Header({
                 width: 30,
                 height: 30,
                 borderRadius: 6,
-                background: "linear-gradient(135deg, var(--accent-subtle) 0%, rgba(139, 92, 246, 0.2) 100%)",
+                background:
+                  "linear-gradient(135deg, var(--accent-subtle) 0%, rgba(139, 92, 246, 0.2) 100%)",
                 border: "1px solid var(--accent-border)",
                 display: "flex",
                 alignItems: "center",
@@ -96,6 +104,7 @@ export function Header({
               calculationUpdatedAt={calculationUpdatedAt}
               loading={dataLoading}
               syncing={syncing}
+              stale={benchmarkStale}
             />
 
             {/* Theme & Accent Controls */}
@@ -128,7 +137,9 @@ export function Header({
               >
                 <LogIn size={12} style={{ color: "var(--accent-text)" }} />
                 <span>ログイン</span>
-                <span className="mono tiny muted" style={{ fontSize: 10 }}>(閲覧中)</span>
+                <span className="mono tiny muted" style={{ fontSize: 10 }}>
+                  (閲覧中)
+                </span>
               </button>
             )}
 

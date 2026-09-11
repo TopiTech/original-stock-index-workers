@@ -2,8 +2,9 @@ import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronRight, Menu, X } from "lucide-react";
 import { useIndices } from "./hooks/useIndices";
-import { useBenchmark } from "./hooks/useBenchmark";
+import { isBenchmarkDataForSymbol, useBenchmark } from "./hooks/useBenchmark";
 import { useCalculation } from "./hooks/useCalculation";
+import { useAuth } from "./hooks/useAuth";
 import { Header } from "./components/Header";
 import { StatsGrid } from "./components/StatsGrid";
 import { BenchmarkSelector } from "./components/BenchmarkSelector";
@@ -46,6 +47,7 @@ export default function App() {
   const sidebarRef = useRef<HTMLElement>(null);
   const sidebarWasOpenRef = useRef(false);
   const [currentView, setCurrentView] = useState<PageView>(getInitialView);
+  const { isAuthenticated, isAdmin } = useAuth();
 
   const navigateTo = useCallback((view: PageView) => {
     setCurrentView(view);
@@ -119,7 +121,7 @@ export default function App() {
       "input:not([disabled])",
       "select:not([disabled])",
       "textarea:not([disabled])",
-      "[tabindex]:not([tabindex=\"-1\"])",
+      '[tabindex]:not([tabindex="-1"])',
     ].join(",");
     const focusable = () =>
       Array.from(drawer.querySelectorAll<HTMLElement>(focusableSelector)).filter(
@@ -140,10 +142,16 @@ export default function App() {
       if (items.length === 0) return;
       const first = items[0];
       const last = items[items.length - 1];
-      if (event.shiftKey && (document.activeElement === first || !drawer.contains(document.activeElement))) {
+      if (
+        event.shiftKey &&
+        (document.activeElement === first || !drawer.contains(document.activeElement))
+      ) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && (document.activeElement === last || !drawer.contains(document.activeElement))) {
+      } else if (
+        !event.shiftKey &&
+        (document.activeElement === last || !drawer.contains(document.activeElement))
+      ) {
         event.preventDefault();
         first.focus();
       }
@@ -193,6 +201,16 @@ export default function App() {
     lastUpdatedAt: calculationUpdatedAt,
   } = useCalculation(selectedIndex, currentView === "dashboard");
 
+  // The benchmark hook clears state during a symbol switch, but also guard at
+  // the render boundary so an unexpected/stale response cannot be relabeled as
+  // the currently selected benchmark.
+  const activeBenchmarkData = isBenchmarkDataForSymbol(benchmarkData, selectedBenchmark)
+    ? benchmarkData
+    : null;
+  const canEditSelectedIndex = Boolean(
+    selectedIndex && isAuthenticated && (isAdmin || isOwner(selectedIndex.id)),
+  );
+
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
 
@@ -225,15 +243,15 @@ export default function App() {
 
   const chartData = useMemo(() => {
     if (
-      !benchmarkData ||
-      benchmarkData.series.length === 0 ||
+      !activeBenchmarkData ||
+      activeBenchmarkData.series.length === 0 ||
       customSeries.length === 0 ||
       !selectedIndex
     ) {
       return [];
     }
-    return buildChartData(benchmarkData.series, customSeries, selectedIndex.baseValue);
-  }, [benchmarkData, customSeries, selectedIndex]);
+    return buildChartData(activeBenchmarkData.series, customSeries, selectedIndex.baseValue);
+  }, [activeBenchmarkData, customSeries, selectedIndex]);
 
   const periodData = useMemo(() => filterByTimeframe(chartData, timeframe), [chartData, timeframe]);
 
@@ -248,8 +266,10 @@ export default function App() {
 
     const first = periodData[0];
     const last = periodData[periodData.length - 1];
-    const customReturnPct = first.value > 0 ? ((last.value - first.value) / first.value) * 100 : undefined;
-    const benchmarkReturnPct = first.nikkei > 0 ? ((last.nikkei - first.nikkei) / first.nikkei) * 100 : undefined;
+    const customReturnPct =
+      first.value > 0 ? ((last.value - first.value) / first.value) * 100 : undefined;
+    const benchmarkReturnPct =
+      first.nikkei > 0 ? ((last.nikkei - first.nikkei) / first.nikkei) * 100 : undefined;
 
     return {
       customReturnPct,
@@ -265,6 +285,48 @@ export default function App() {
     if (chartData.length === 0) return undefined;
     return chartData[chartData.length - 1]?.nikkei;
   }, [chartData]);
+
+  // Static pages do not depend on the index list. Render them even while the
+  // optional dashboard data request is slow or unavailable.
+  if (currentView === "portfolio") {
+    return (
+      <div className="app">
+        <Header
+          onNavigateToHome={() => navigateTo("dashboard")}
+          onNavigateToAdmin={() => navigateTo("admin")}
+          benchmarkUpdatedAt={benchmarkUpdatedAt}
+          calculationUpdatedAt={calculationUpdatedAt}
+          dataLoading={loadingBenchmark || loadingCalc}
+          syncing={syncing}
+          benchmarkStale={false}
+        />
+        <main style={{ minHeight: "calc(100vh - 280px)" }}>
+          <PortfolioPage onNavigate={navigateTo} />
+        </main>
+        <Footer onNavigate={navigateTo} currentView={currentView} />
+      </div>
+    );
+  }
+
+  if (currentView === "disclaimer") {
+    return (
+      <div className="app">
+        <Header
+          onNavigateToHome={() => navigateTo("dashboard")}
+          onNavigateToAdmin={() => navigateTo("admin")}
+          benchmarkUpdatedAt={benchmarkUpdatedAt}
+          calculationUpdatedAt={calculationUpdatedAt}
+          dataLoading={loadingBenchmark || loadingCalc}
+          syncing={syncing}
+          benchmarkStale={false}
+        />
+        <main style={{ minHeight: "calc(100vh - 280px)" }}>
+          <DisclaimerPage onNavigate={navigateTo} />
+        </main>
+        <Footer onNavigate={navigateTo} currentView={currentView} />
+      </div>
+    );
+  }
 
   if (indicesError) {
     return <ErrorFallback error={indicesError} onRetry={() => window.location.reload()} />;
@@ -286,44 +348,6 @@ export default function App() {
     );
   }
 
-  if (currentView === "portfolio") {
-    return (
-      <div className="app">
-        <Header
-          onNavigateToHome={() => navigateTo("dashboard")}
-          onNavigateToAdmin={() => navigateTo("admin")}
-          benchmarkUpdatedAt={benchmarkUpdatedAt}
-          calculationUpdatedAt={calculationUpdatedAt}
-          dataLoading={loadingBenchmark || loadingCalc}
-          syncing={syncing}
-        />
-        <main style={{ minHeight: "calc(100vh - 280px)" }}>
-          <PortfolioPage onNavigate={navigateTo} />
-        </main>
-        <Footer onNavigate={navigateTo} currentView={currentView} />
-      </div>
-    );
-  }
-
-  if (currentView === "disclaimer") {
-    return (
-      <div className="app">
-        <Header
-          onNavigateToHome={() => navigateTo("dashboard")}
-          onNavigateToAdmin={() => navigateTo("admin")}
-          benchmarkUpdatedAt={benchmarkUpdatedAt}
-          calculationUpdatedAt={calculationUpdatedAt}
-          dataLoading={loadingBenchmark || loadingCalc}
-          syncing={syncing}
-        />
-        <main style={{ minHeight: "calc(100vh - 280px)" }}>
-          <DisclaimerPage onNavigate={navigateTo} />
-        </main>
-        <Footer onNavigate={navigateTo} currentView={currentView} />
-      </div>
-    );
-  }
-
   return (
     <div className="app">
       <Header
@@ -333,6 +357,7 @@ export default function App() {
         calculationUpdatedAt={calculationUpdatedAt}
         dataLoading={loadingBenchmark || loadingCalc}
         syncing={syncing}
+        benchmarkStale={activeBenchmarkData?.stale === true}
       />
 
       <div className="mobile-dashboard-toolbar" aria-label="ダッシュボード操作">
@@ -362,7 +387,7 @@ export default function App() {
         transition={{ duration: 0.4, delay: 0.1 }}
       >
         <StatsGrid
-          benchmarkData={benchmarkData}
+          benchmarkData={activeBenchmarkData}
           benchmarkLoading={loadingBenchmark}
           selectedIndex={selectedIndex}
           latestCustomValue={
@@ -378,7 +403,9 @@ export default function App() {
         />
       </motion.div>
 
-      <div className={`layout ${!isMobileLayout && !isDesktopSidebarOpen ? "sidebar-collapsed" : ""}`}>
+      <div
+        className={`layout ${!isMobileLayout && !isDesktopSidebarOpen ? "sidebar-collapsed" : ""}`}
+      >
         <AnimatePresence>
           {isMobileLayout && isSidebarOpen && (
             <motion.button
@@ -481,7 +508,7 @@ export default function App() {
               style={{ gap: 20 }}
             >
               {/* Main Performance Chart */}
-            <PerformanceChart
+              <PerformanceChart
                 data={chartData}
                 loading={loadingCalc || loadingBenchmark}
                 syncing={syncing}
@@ -494,22 +521,26 @@ export default function App() {
                 error={unifiedError}
                 onRetry={handleRetry}
                 emptyTitle={
-                  selectedIndex?.basket.length === 0 ? "構成銘柄がありません" : "表示できるデータがありません"
+                  selectedIndex?.basket.length === 0
+                    ? "構成銘柄がありません"
+                    : "表示できるデータがありません"
                 }
                 emptyDescription={
                   selectedIndex?.basket.length === 0
                     ? "別の指数を選択するか、独自指数を作成して構成銘柄を追加してください。"
                     : "データがまだ取得できていません。再取得すると最新状態を確認できます。"
                 }
-                emptyActionLabel={selectedIndex?.basket.length === 0 ? "独自指数を作成" : "データを再取得"}
+                emptyActionLabel={
+                  selectedIndex?.basket.length === 0 ? "独自指数を作成" : "データを再取得"
+                }
                 onEmptyAction={selectedIndex?.basket.length === 0 ? handleOpenBuilder : handleRetry}
               />
 
               {/* Quantitative Risk Metrics Card */}
-              {benchmarkData && (
+              {activeBenchmarkData && (
                 <RiskMetricsCard
                   customSeries={customSeries}
-                  benchmarkSeries={benchmarkData.series}
+                  benchmarkSeries={activeBenchmarkData.series}
                   benchmarkName={currentBenchmarkOption.shortLabel}
                   loading={loadingCalc || loadingBenchmark}
                 />
@@ -540,6 +571,7 @@ export default function App() {
                   stockDetails={stockDetails}
                   selectedTheme={selectedTheme}
                   indexName={selectedIndex.name}
+                  canEdit={canEditSelectedIndex}
                   onAddStock={async (stock) => {
                     if (!selectedIndex) return { ok: false, error: "指数が選択されていません" };
                     return addStockToIndex(selectedIndex.id, stock);

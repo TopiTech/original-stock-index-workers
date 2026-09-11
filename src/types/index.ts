@@ -60,7 +60,8 @@ export interface RiskMetrics {
   annualVolatility: number;
   sharpeRatio: number;
   maxDrawdown: number;
-  beta: number;
+  /** Null when the benchmark has insufficient/constant data to estimate beta. */
+  beta: number | null;
   winRate: number;
   bestDay: number;
   worstDay: number;
@@ -90,4 +91,3 @@ export interface UserPasswordItem {
 
 export type ThemeMode = "dark" | "light";
 export type AccentColor = "cyan" | "emerald" | "violet" | "amber" | "rose";
-

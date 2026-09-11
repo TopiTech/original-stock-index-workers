@@ -72,7 +72,7 @@ describe("analytics library", () => {
       expect(metrics.annualVolatility).toBe(0);
       expect(metrics.sharpeRatio).toBe(0);
       expect(metrics.maxDrawdown).toBe(0);
-      expect(metrics.beta).toBe(1.0);
+      expect(metrics.beta).toBeNull();
     });
 
     it("handles negative returns and down markets correctly", () => {
@@ -107,7 +107,7 @@ describe("analytics library", () => {
       const metrics = calculateRiskMetrics(customWithZero, bench);
       // MDD should be based on valid positive points (1000 to 950 = 5%), not 100% from 0
       expect(metrics.maxDrawdown).toBe(5);
-      expect(Number.isFinite(metrics.beta)).toBe(true);
+      expect(metrics.beta).toBeNull();
       expect(Number.isFinite(metrics.sharpeRatio)).toBe(true);
     });
 
@@ -127,7 +127,7 @@ describe("analytics library", () => {
       expect(Number.isFinite(metrics.annualVolatility)).toBe(true);
       expect(Number.isFinite(metrics.sharpeRatio)).toBe(true);
       expect(Number.isFinite(metrics.maxDrawdown)).toBe(true);
-      expect(Number.isFinite(metrics.beta)).toBe(true);
+      expect(metrics.beta).toBeNull();
       expect(Number.isFinite(metrics.winRate)).toBe(true);
       expect(Number.isFinite(metrics.bestDay)).toBe(true);
       expect(Number.isFinite(metrics.worstDay)).toBe(true);
@@ -152,7 +152,7 @@ describe("analytics library", () => {
       expect(Number.isFinite(metrics.annualVolatility)).toBe(true);
       expect(Number.isFinite(metrics.sharpeRatio)).toBe(true);
       expect(Number.isFinite(metrics.maxDrawdown)).toBe(true);
-      expect(Number.isFinite(metrics.beta)).toBe(true);
+      expect(metrics.beta).toBeNull();
     });
 
     it("safely handles total wipeout scenarios (totalReturn <= -100%) without NaN", () => {
@@ -187,7 +187,7 @@ describe("analytics library", () => {
 
       expect(metrics.annualReturn).toBeGreaterThan(0);
       expect(Number.isFinite(metrics.annualVolatility)).toBe(true);
-      expect(Number.isFinite(metrics.beta)).toBe(true);
+      expect(metrics.beta).toBeNull();
     });
   });
 
@@ -238,18 +238,20 @@ describe("analytics library", () => {
     it("uses the latest chronological valid stock prices", () => {
       const details = calculateStockDetails(
         [{ ticker: "7203", name: "トヨタ", weight: 100, theme: "自動車" }],
-        [{
-          ticker: "7203",
-          name: "トヨタ",
-          theme: "自動車",
-          sector: "Auto",
-          latestPrice: 0,
-          series: [
-            { date: "2026-01-02", close: 110 },
-            { date: "2026-01-03", close: 0 },
-            { date: "2026-01-01", close: 100 },
-          ],
-        }],
+        [
+          {
+            ticker: "7203",
+            name: "トヨタ",
+            theme: "自動車",
+            sector: "Auto",
+            latestPrice: 0,
+            series: [
+              { date: "2026-01-02", close: 110 },
+              { date: "2026-01-03", close: 0 },
+              { date: "2026-01-01", close: 100 },
+            ],
+          },
+        ],
         1000,
         [
           { date: "2026-01-02", close: 1100, value: 1100 },
@@ -267,17 +269,19 @@ describe("analytics library", () => {
     it("matches stock details case-insensitively for legacy basket tickers", () => {
       const details = calculateStockDetails(
         [{ ticker: "aapl", name: "Apple", weight: 100, theme: "Tech" }],
-        [{
-          ticker: "AAPL",
-          name: "Apple",
-          theme: "Tech",
-          sector: "Technology",
-          latestPrice: 110,
-          series: [
-            { date: "2026-01-01", close: 100 },
-            { date: "2026-01-02", close: 110 },
-          ],
-        }],
+        [
+          {
+            ticker: "AAPL",
+            name: "Apple",
+            theme: "Tech",
+            sector: "Technology",
+            latestPrice: 110,
+            series: [
+              { date: "2026-01-01", close: 100 },
+              { date: "2026-01-02", close: 110 },
+            ],
+          },
+        ],
         1000,
         [
           { date: "2026-01-01", close: 1000, value: 1000 },

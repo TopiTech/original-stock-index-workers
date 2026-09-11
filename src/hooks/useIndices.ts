@@ -13,6 +13,7 @@ import { getAuthHeaders } from "../lib/auth";
 const API_BASE = "/api";
 const INDICES_CACHE_KEY = "osi_indices_cache";
 const INDICES_ETAG_KEY = "osi_indices_etag";
+const INDICES_REQUEST_TIMEOUT_MS = 10_000;
 
 function getLocalIndicesCache(): CustomIndex[] | null {
   try {
@@ -30,7 +31,9 @@ function getLocalIndicesCache(): CustomIndex[] | null {
  * response body. Sending an old ETag after localStorage was cleared makes a
  * valid 304 response leave the UI stuck on the built-in fallback indices.
  */
-export function getIndicesRequestHeaders(cachedIndices: CustomIndex[] | null): Record<string, string> {
+export function getIndicesRequestHeaders(
+  cachedIndices: CustomIndex[] | null,
+): Record<string, string> {
   if (!cachedIndices) return {};
   try {
     const etag = localStorage.getItem(INDICES_ETAG_KEY);
@@ -60,9 +63,17 @@ export function useIndices() {
       }
       setError(null);
 
-      const res = await fetch(`${API_BASE}/indices`, {
-        headers: getIndicesRequestHeaders(cachedIndices),
-      });
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), INDICES_REQUEST_TIMEOUT_MS);
+      let res: Response;
+      try {
+        res = await fetch(`${API_BASE}/indices`, {
+          headers: getIndicesRequestHeaders(cachedIndices),
+          signal: controller.signal,
+        });
+      } finally {
+        window.clearTimeout(timeout);
+      }
 
       if (res.status === 304) {
         // Not Modified: local cached indices are completely up-to-date!
@@ -113,6 +124,13 @@ export function useIndices() {
         });
       }
     } catch (err) {
+      const message =
+        err instanceof DOMException && err.name === "AbortError"
+          ? "指数一覧の取得がタイムアウトしました"
+          : err instanceof Error
+            ? err.message
+            : "指数一覧の取得に失敗しました";
+      setError(message);
       console.warn("API server unavailable, using cached/default indices:", err);
       // Fallback to local cached or built-in default indices so UI renders without failure
       const cached = getLocalIndicesCache();
@@ -163,9 +181,10 @@ export function useIndices() {
           throw new Error(errData.error || "指数の保存に失敗しました");
         }
         const data = await res.json().catch(() => ({}));
-        const responseToken = typeof data.ownerToken === "string" && data.ownerToken.length > 0
-          ? data.ownerToken
-          : null;
+        const responseToken =
+          typeof data.ownerToken === "string" && data.ownerToken.length > 0
+            ? data.ownerToken
+            : null;
         // An administrator editing another user's index is intentionally not
         // given that index's owner token. Do not persist the random request
         // token in that case, or this browser would falsely label the index as
@@ -324,4 +343,3 @@ export function useIndices() {
     isOwner: isIndexOwner,
   };
 }
-

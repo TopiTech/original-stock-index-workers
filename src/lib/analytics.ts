@@ -14,7 +14,7 @@ function normalizeAnalyticsSeries(
     if (!point || typeof point.date !== "string") {
       continue;
     }
-    const value = useValue ? point.value ?? point.close : point.close;
+    const value = useValue ? (point.value ?? point.close) : point.close;
     if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
       continue;
     }
@@ -83,7 +83,7 @@ export function calculateRiskMetrics(
     annualVolatility: 0,
     sharpeRatio: 0,
     maxDrawdown: 0,
-    beta: 1.0,
+    beta: null,
     winRate: 0,
     bestDay: 0,
     worstDay: 0,
@@ -115,9 +115,10 @@ export function calculateRiskMetrics(
 
   // 2. 期間リターンと年率換算リターン
   const startVal = customSeries[0].value ?? customSeries[0].close;
-  const endVal = customSeries[customSeries.length - 1].value ?? customSeries[customSeries.length - 1].close;
+  const endVal =
+    customSeries[customSeries.length - 1].value ?? customSeries[customSeries.length - 1].close;
   const totalReturn = startVal > 0 ? (endVal - startVal) / startVal : 0;
-  
+
   // 年率換算 (CAGR: Compound Annual Growth Rate, 250営業日基準)
   // 短期間（250営業日未満）での幾何平均年率換算は (1+r)^(250/N) で指数爆発を引き起こすため、
   // 250営業日未満の場合は線形年率換算（単利年率）を用いて極端な歪みを防止する。
@@ -127,21 +128,21 @@ export function calculateRiskMetrics(
   if (customReturns.length >= 250) {
     // Guard: Math.pow requires a positive base; a total loss (totalReturn <= -1)
     // would make the base non-positive, so cap at -100%.
-    annualReturn = (1 + totalReturn) > 0
-      ? (Math.pow(1 + totalReturn, annualFactor) - 1) * 100
-      : -100;
+    annualReturn = 1 + totalReturn > 0 ? (Math.pow(1 + totalReturn, annualFactor) - 1) * 100 : -100;
   } else {
     annualReturn = totalReturn * annualFactor * 100;
   }
 
   // 3. 年率ボラティリティ (標準偏差 * sqrt(250))
   const meanReturn = customReturns.reduce((sum, r) => sum + r, 0) / customReturns.length;
-  const variance = customReturns.reduce((sum, r) => sum + Math.pow(r - meanReturn, 2), 0) / (customReturns.length - 1 || 1);
+  const variance =
+    customReturns.reduce((sum, r) => sum + Math.pow(r - meanReturn, 2), 0) /
+    (customReturns.length - 1 || 1);
   const dailyVol = Math.sqrt(variance);
   const annualVolatility = dailyVol * Math.sqrt(250) * 100;
 
   // 4. シャープレシオ
-  const excessReturn = (annualReturn / 100) - riskFreeRate;
+  const excessReturn = annualReturn / 100 - riskFreeRate;
   const volFraction = annualVolatility / 100;
   const sharpeRatio = volFraction > 0 ? Number((excessReturn / volFraction).toFixed(2)) : 0;
 
@@ -165,7 +166,7 @@ export function calculateRiskMetrics(
   }
 
   // 6. ベータ値 (対ベンチマーク)
-  let beta = 1.0;
+  let beta: number | null = null;
   if (benchmarkSeries && benchmarkSeries.length >= 2) {
     const sortedBench = [...benchmarkSeries]
       .filter((p) => typeof p.close === "number" && Number.isFinite(p.close) && p.close > 0)
@@ -225,12 +226,14 @@ export function calculateRiskMetrics(
   // 7. 勝率・ベスト/ワースト日
   const winDays = customReturns.filter((r) => r > 0).length;
   const winRate = Number(((winDays / customReturns.length) * 100).toFixed(1));
-  const bestDay = customReturns.length > 0
-    ? Number((customReturns.reduce((max, r) => (r > max ? r : max), -Infinity) * 100).toFixed(2))
-    : 0;
-  const worstDay = customReturns.length > 0
-    ? Number((customReturns.reduce((min, r) => (r < min ? r : min), Infinity) * 100).toFixed(2))
-    : 0;
+  const bestDay =
+    customReturns.length > 0
+      ? Number((customReturns.reduce((max, r) => (r > max ? r : max), -Infinity) * 100).toFixed(2))
+      : 0;
+  const worstDay =
+    customReturns.length > 0
+      ? Number((customReturns.reduce((min, r) => (r < min ? r : min), Infinity) * 100).toFixed(2))
+      : 0;
 
   const safeNum = (n: number, fallback = 0) => (Number.isFinite(n) ? n : fallback);
 
@@ -239,7 +242,7 @@ export function calculateRiskMetrics(
     annualVolatility: Number(safeNum(annualVolatility).toFixed(2)),
     sharpeRatio: safeNum(sharpeRatio),
     maxDrawdown: Number(safeNum(maxDrawdown).toFixed(2)),
-    beta: safeNum(beta, 1.0),
+    beta: beta === null ? null : safeNum(beta),
     winRate: safeNum(winRate),
     bestDay: safeNum(bestDay),
     worstDay: safeNum(worstDay),
@@ -258,41 +261,56 @@ export function calculateStockDetails(
   const normalized = normalizeWeights(basket);
   const stockMap = new Map(stockUniverse.map((s) => [s.ticker.trim().toUpperCase(), s]));
   const normalizedCustomSeries = normalizeAnalyticsSeries(customSeries, true);
-  const safeBaseValue = typeof baseValue === "number" && Number.isFinite(baseValue) && baseValue > 0 ? baseValue : 1000;
+  const safeBaseValue =
+    typeof baseValue === "number" && Number.isFinite(baseValue) && baseValue > 0 ? baseValue : 1000;
 
   // 直近の前日・当日の指数値
-  const latestIndexVal = normalizedCustomSeries.length > 0
-    ? (normalizedCustomSeries[normalizedCustomSeries.length - 1].value ?? normalizedCustomSeries[normalizedCustomSeries.length - 1].close)
-    : safeBaseValue;
-  const prevIndexVal = normalizedCustomSeries.length > 1
-    ? (normalizedCustomSeries[normalizedCustomSeries.length - 2].value ?? normalizedCustomSeries[normalizedCustomSeries.length - 2].close)
-    : latestIndexVal;
+  const latestIndexVal =
+    normalizedCustomSeries.length > 0
+      ? (normalizedCustomSeries[normalizedCustomSeries.length - 1].value ??
+        normalizedCustomSeries[normalizedCustomSeries.length - 1].close)
+      : safeBaseValue;
+  const prevIndexVal =
+    normalizedCustomSeries.length > 1
+      ? (normalizedCustomSeries[normalizedCustomSeries.length - 2].value ??
+        normalizedCustomSeries[normalizedCustomSeries.length - 2].close)
+      : latestIndexVal;
 
   return normalized.map((item) => {
     const stock = stockMap.get(item.ticker.trim().toUpperCase());
     const series = normalizeAnalyticsSeries(stock?.series, false);
     const len = series.length;
 
-    const fallbackPrice = typeof stock?.latestPrice === "number" && Number.isFinite(stock.latestPrice) && stock.latestPrice > 0
-      ? stock.latestPrice
-      : 0;
+    const fallbackPrice =
+      typeof stock?.latestPrice === "number" &&
+      Number.isFinite(stock.latestPrice) &&
+      stock.latestPrice > 0
+        ? stock.latestPrice
+        : 0;
     const currentPrice = len > 0 ? series[len - 1].close : fallbackPrice;
     const previousPrice = len > 1 ? series[len - 2].close : currentPrice;
-    
+
     const rawChange = currentPrice - previousPrice;
-    const change = Math.abs(rawChange) < 0.005 || Object.is(rawChange, -0) ? 0 : Number(rawChange.toFixed(2));
-    const rawChangePct = previousPrice > 0 ? ((currentPrice - previousPrice) / previousPrice) * 100 : 0;
-    const changePct = Math.abs(rawChangePct) < 0.005 || Object.is(rawChangePct, -0) ? 0 : Number(rawChangePct.toFixed(2));
+    const change =
+      Math.abs(rawChange) < 0.005 || Object.is(rawChange, -0) ? 0 : Number(rawChange.toFixed(2));
+    const rawChangePct =
+      previousPrice > 0 ? ((currentPrice - previousPrice) / previousPrice) * 100 : 0;
+    const changePct =
+      Math.abs(rawChangePct) < 0.005 || Object.is(rawChangePct, -0)
+        ? 0
+        : Number(rawChangePct.toFixed(2));
 
     // 指数への寄与度 (pt): (銘柄の騰落率 / 100) * (ウェイト / 100) * 前日指数値
     const weightFraction = item.weight / 100;
-    const rawContributionPt = ((changePct / 100) * weightFraction) * prevIndexVal;
-    const contributionPt = Math.abs(rawContributionPt) < 0.005 || Object.is(rawContributionPt, -0)
-      ? 0
-      : Number(rawContributionPt.toFixed(2));
-    const contributionPct = prevIndexVal > 0 && Math.abs(contributionPt) >= 0.005
-      ? Number(((contributionPt / prevIndexVal) * 100).toFixed(2))
-      : 0;
+    const rawContributionPt = (changePct / 100) * weightFraction * prevIndexVal;
+    const contributionPt =
+      Math.abs(rawContributionPt) < 0.005 || Object.is(rawContributionPt, -0)
+        ? 0
+        : Number(rawContributionPt.toFixed(2));
+    const contributionPct =
+      prevIndexVal > 0 && Math.abs(contributionPt) >= 0.005
+        ? Number(((contributionPt / prevIndexVal) * 100).toFixed(2))
+        : 0;
 
     // スパークライン（直近10営業日分）
     const sparkline = series.slice(-10).map((p) => p.close);
