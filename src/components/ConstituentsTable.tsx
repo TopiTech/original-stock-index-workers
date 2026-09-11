@@ -115,10 +115,14 @@ export function ConstituentsTable({
 
   const handleAddStockClick = () => {
     setPendingDeleteStock(null);
-    if (!editingEnabled) {
+    if (!canEdit) {
       setTableError(
         "この指数を編集する権限がありません。作成者または管理者として認証してください。",
       );
+      return;
+    }
+    if (!isAuthenticated) {
+      setIsAuthModalOpen(true);
       return;
     }
     setIsAddStockModalOpen(true);
@@ -152,7 +156,7 @@ export function ConstituentsTable({
   };
 
   const handleDeleteStockClick = async (ticker: string, stockName: string) => {
-    if (!editingEnabled) {
+    if (!canEdit) {
       setTableError(
         "この指数を編集する権限がありません。作成者または管理者として認証してください。",
       );
@@ -497,14 +501,29 @@ export function ConstituentsTable({
               </button>
             </div>
           ) : (
-            <span className="row muted tiny" style={{ gap: 5 }} role="status">
-              <Lock size={12} /> この指数は閲覧専用です（作成者または管理者のみ編集可能）
-            </span>
+            <div className="row flex-wrap" style={{ gap: 8, alignItems: "center" }}>
+              <span className="row muted tiny" style={{ gap: 5 }} role="status">
+                <Lock size={12} />{" "}
+                {canEdit
+                  ? "編集するにはパスワード認証が必要です"
+                  : "この指数は閲覧専用です（作成者または管理者のみ編集可能）"}
+              </span>
+              {!isAuthenticated && (
+                <button
+                  type="button"
+                  onClick={() => setIsAuthModalOpen(true)}
+                  className="btn btn-sm btn-outline"
+                  style={{ padding: "2px 8px", fontSize: 11 }}
+                >
+                  <KeyRound size={12} /> {canEdit ? "ログインして編集" : "管理者ログイン"}
+                </button>
+              )}
+            </div>
           )}
         </div>
 
         <div className="row" style={{ gap: 8 }}>
-          {onAddStock && editingEnabled && (
+          {onAddStock && canEdit && (
             <button
               type="button"
               onClick={handleAddStockClick}
@@ -646,7 +665,7 @@ export function ConstituentsTable({
                   比率 {renderSortIcon("weight")}
                 </span>
               </th>
-              {onRemoveStock && editingEnabled && (
+              {onRemoveStock && canEdit && (
                 <th style={{ minWidth: 50, width: "4%", textAlign: "center" }}>操作</th>
               )}
             </tr>
@@ -751,7 +770,7 @@ export function ConstituentsTable({
                           </div>
                         </div>
                       </td>
-                      {onRemoveStock && editingEnabled && (
+                      {onRemoveStock && canEdit && (
                         <td style={{ textAlign: "center" }}>
                           <button
                             type="button"
@@ -778,7 +797,7 @@ export function ConstituentsTable({
               ) : (
                 <tr>
                   <td
-                    colSpan={onRemoveStock && editingEnabled ? 9 : 8}
+                    colSpan={onRemoveStock && canEdit ? 9 : 8}
                     style={{ textAlign: "center", padding: "32px 16px" }}
                   >
                     <span className="muted mono tiny">該当する銘柄が見つかりません</span>
@@ -812,7 +831,7 @@ export function ConstituentsTable({
                     <strong>{item.name}</strong>
                     <Tag variant="theme">{item.theme}</Tag>
                   </div>
-                  {onRemoveStock && editingEnabled && (
+                  {onRemoveStock && canEdit && (
                     <button
                       type="button"
                       className="icon-button danger"
@@ -915,7 +934,7 @@ export function ConstituentsTable({
       />
 
       {/* Add Stock Modal */}
-      {onAddStock && editingEnabled && (
+      {onAddStock && canEdit && (
         <AddStockModal
           isOpen={isAddStockModalOpen}
           onClose={() => setIsAddStockModalOpen(false)}

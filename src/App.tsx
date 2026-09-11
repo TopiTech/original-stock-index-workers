@@ -47,7 +47,7 @@ export default function App() {
   const sidebarRef = useRef<HTMLElement>(null);
   const sidebarWasOpenRef = useRef(false);
   const [currentView, setCurrentView] = useState<PageView>(getInitialView);
-  const { isAuthenticated, isAdmin } = useAuth();
+  const { isAdmin } = useAuth();
 
   const navigateTo = useCallback((view: PageView) => {
     setCurrentView(view);
@@ -208,7 +208,7 @@ export default function App() {
     ? benchmarkData
     : null;
   const canEditSelectedIndex = Boolean(
-    selectedIndex && isAuthenticated && (isAdmin || isOwner(selectedIndex.id)),
+    selectedIndex && (isAdmin || isOwner(selectedIndex.id)),
   );
 
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null);

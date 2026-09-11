@@ -78,13 +78,20 @@ export function EditPasswordModal({
     setLoading(true);
     setError(null);
 
+    const sanitizedMaxStocks = unlimitedStocks
+      ? null
+      : Math.min(500, Math.max(1, Math.floor(Number(maxStocks)) || 1));
+    const sanitizedMaxIndices = unlimitedIndices
+      ? null
+      : Math.min(100, Math.max(1, Math.floor(Number(maxIndices)) || 1));
+
     try {
       const payload: Record<string, unknown> = {
         id: item.id,
         name: name.trim(),
         role,
-        maxStocks: unlimitedStocks ? null : maxStocks,
-        maxIndices: unlimitedIndices ? null : maxIndices,
+        maxStocks: sanitizedMaxStocks,
+        maxIndices: sanitizedMaxIndices,
         isActive,
       };
       if (newPassword.trim()) {
@@ -287,7 +294,7 @@ export function EditPasswordModal({
                 min={1}
                 max={500}
                 value={maxStocks}
-                onChange={(e) => setMaxStocks(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                onChange={(e) => setMaxStocks(Math.min(500, Math.max(1, parseInt(e.target.value, 10) || 1)))}
                 style={{
                   width: "100%",
                   padding: "8px 12px",
@@ -324,7 +331,7 @@ export function EditPasswordModal({
                 min={1}
                 max={100}
                 value={maxIndices}
-                onChange={(e) => setMaxIndices(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                onChange={(e) => setMaxIndices(Math.min(100, Math.max(1, parseInt(e.target.value, 10) || 1)))}
                 style={{
                   width: "100%",
                   padding: "8px 12px",

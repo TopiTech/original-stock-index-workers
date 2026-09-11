@@ -631,6 +631,7 @@ export async function authenticatePassword(
   env: Env,
   explicitPassword?: string | null,
   rateLimitEndpoint = "auth-api",
+  ctx?: ExecutionContext,
 ): Promise<AuthResult> {
   const pwd =
     (explicitPassword && typeof explicitPassword === "string" ? explicitPassword.trim() : null) ||
@@ -676,7 +677,7 @@ export async function authenticatePassword(
   // Keep login verification separate from authenticated API traffic. Otherwise
   // routine administration can exhaust the stricter login-attempt budget.
   const limitMax = rateLimitEndpoint === "auth-login" ? AUTH_RATE_LIMIT_MAX : RATE_LIMIT_MAX;
-  if (!(await checkRateLimit(env, ip, rateLimitEndpoint, limitMax, true))) {
+  if (!(await checkRateLimit(env, ip, rateLimitEndpoint, limitMax, true, ctx))) {
     return {
       authenticated: false,
       error: "認証試行回数が上限に達しました。しばらくしてから再試行してください",
@@ -1078,15 +1079,19 @@ async function checkRateLimit(
   endpoint: string,
   maxRequests = RATE_LIMIT_MAX,
   failClosed = false,
+  ctx?: ExecutionContext,
 ): Promise<boolean> {
   const now = Math.floor(Date.now() / 1000);
   try {
     // Probabilistic cleanup of dead rate_limit rows (approx every 100 requests)
     if (Math.random() < 0.01) {
-      env.DB.prepare("DELETE FROM rate_limits WHERE window_start < ?")
+      const purgePromise = env.DB.prepare("DELETE FROM rate_limits WHERE window_start < ?")
         .bind(now - 3600)
         .run()
         .catch(() => {});
+      if (ctx && typeof ctx.waitUntil === "function") {
+        ctx.waitUntil(purgePromise);
+      }
     }
 
     // Reserve a request slot atomically. The former SELECT-then-UPDATE flow
@@ -1123,7 +1128,7 @@ async function checkRateLimit(
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     try {
       if (request.method === "OPTIONS")
         return json({ ok: true }, 200, request, { "access-control-max-age": "86400" });
@@ -1140,7 +1145,7 @@ export default {
           const parsed = await parseJsonBody(request);
           if (!parsed.ok) return parsed.response;
           const password = typeof parsed.body.password === "string" ? parsed.body.password : "";
-          const auth = await authenticatePassword(request, env, password, "auth-login");
+          const auth = await authenticatePassword(request, env, password, "auth-login", ctx);
           if (!auth.authenticated) {
             return json(
               { ok: false, error: auth.error || "パスワードが正しくありません" },
@@ -1169,7 +1174,7 @@ export default {
       // 管理者向け: ユーザーパスワード一覧取得 (マスター管理者を除外)
       if (url.pathname === "/api/admin/passwords" && request.method === "GET") {
         try {
-          const auth = await authenticatePassword(request, env);
+          const auth = await authenticatePassword(request, env, null, "auth-api", ctx);
           if (!auth.authenticated || auth.role !== "admin") {
             return json({ error: "管理者権限が必要です" }, 403, request);
           }
@@ -1197,7 +1202,7 @@ export default {
       // 管理者向け: ユーザーパスワード新規作成（銘柄数制限設定 & 指数上限設定）
       if (url.pathname === "/api/admin/passwords" && request.method === "POST") {
         try {
-          const auth = await authenticatePassword(request, env);
+          const auth = await authenticatePassword(request, env, null, "auth-api", ctx);
           if (!auth.authenticated || auth.role !== "admin") {
             return json({ error: "管理者権限が必要です" }, 403, request);
           }
@@ -1305,7 +1310,7 @@ export default {
       // 管理者向け: ユーザーパスワード更新
       if (url.pathname === "/api/admin/passwords" && request.method === "PUT") {
         try {
-          const auth = await authenticatePassword(request, env);
+          const auth = await authenticatePassword(request, env, null, "auth-api", ctx);
           if (!auth.authenticated || auth.role !== "admin") {
             return json({ error: "管理者権限が必要です" }, 403, request);
           }
@@ -1429,7 +1434,7 @@ export default {
       // 管理者向け: ユーザーパスワード削除
       if (url.pathname === "/api/admin/passwords" && request.method === "DELETE") {
         try {
-          const auth = await authenticatePassword(request, env);
+          const auth = await authenticatePassword(request, env, null, "auth-api", ctx);
           if (!auth.authenticated || auth.role !== "admin") {
             return json({ error: "管理者権限が必要です" }, 403, request);
           }
@@ -1453,7 +1458,7 @@ export default {
       // 管理者向け: 管理者マスターパスワード変更 (平文保存は行わない)
       if (url.pathname === "/api/admin/admin-password" && request.method === "PUT") {
         try {
-          const auth = await authenticatePassword(request, env);
+          const auth = await authenticatePassword(request, env, null, "auth-api", ctx);
           if (!auth.authenticated || auth.role !== "admin" || auth.id !== "admin-master") {
             return json({ error: "管理者権限が必要です" }, 403, request);
           }
@@ -1485,7 +1490,7 @@ export default {
       if (url.pathname === "/api/indices/stock" && request.method === "POST") {
         try {
           const ip = request.headers.get("cf-connecting-ip") || "unknown";
-          const allowed = await checkRateLimit(env, ip, "indices-stock");
+          const allowed = await checkRateLimit(env, ip, "indices-stock", RATE_LIMIT_MAX, false, ctx);
           if (!allowed) {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
           }
@@ -1513,6 +1518,8 @@ export default {
             request,
             env,
             typeof password === "string" ? password : null,
+            "auth-api",
+            ctx,
           );
           if (!auth.authenticated) {
             return json({ error: "この操作にはパスワード認証が必要です" }, 401, request);
@@ -1809,7 +1816,7 @@ export default {
       if (url.pathname === "/api/indices/stock" && request.method === "DELETE") {
         try {
           const ip = request.headers.get("cf-connecting-ip") || "unknown";
-          const allowed = await checkRateLimit(env, ip, "indices-stock");
+          const allowed = await checkRateLimit(env, ip, "indices-stock", RATE_LIMIT_MAX, false, ctx);
           if (!allowed) {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
           }
@@ -1839,7 +1846,7 @@ export default {
             return json({ error: "作成者トークンは256文字以内で指定してください" }, 400, request);
           }
 
-          const auth = await authenticatePassword(request, env);
+          const auth = await authenticatePassword(request, env, null, "auth-api", ctx);
           if (!auth.authenticated) {
             return json({ error: "この操作にはパスワード認証が必要です" }, 401, request);
           }
@@ -1959,7 +1966,7 @@ export default {
       if (url.pathname === "/api/snapshot" && request.method === "GET") {
         try {
           const ip = request.headers.get("cf-connecting-ip") || "unknown";
-          const allowed = await checkRateLimit(env, ip, "snapshot");
+          const allowed = await checkRateLimit(env, ip, "snapshot", RATE_LIMIT_MAX, false, ctx);
           if (!allowed) {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
           }
@@ -2341,7 +2348,7 @@ export default {
 
           // Password authentication and role check
           const explicitPwd = typeof body.password === "string" ? body.password : null;
-          const auth = await authenticatePassword(request, env, explicitPwd);
+          const auth = await authenticatePassword(request, env, explicitPwd, "auth-api", ctx);
           const isAdmin = auth.authenticated && auth.role === "admin";
 
           if (SYSTEM_INDICES.has(id) && !isAdmin) {
@@ -2898,7 +2905,7 @@ export default {
             return json({ error: "Index not found" }, 404, request);
           }
 
-          const auth = await authenticatePassword(request, env);
+          const auth = await authenticatePassword(request, env, null, "auth-api", ctx);
           const isAdmin = auth.authenticated && auth.role === "admin";
 
           if (!isAdmin) {
@@ -2947,7 +2954,7 @@ export default {
       if (url.pathname === "/api/sync-prices" && request.method === "POST") {
         try {
           const ip = request.headers.get("cf-connecting-ip") || "unknown";
-          const allowed = await checkRateLimit(env, ip, "sync-prices");
+          const allowed = await checkRateLimit(env, ip, "sync-prices", RATE_LIMIT_MAX, false, ctx);
           if (!allowed) {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
           }
@@ -2986,7 +2993,7 @@ export default {
           );
           const force = body.force === true;
           if (force) {
-            const auth = await authenticatePassword(request, env);
+            const auth = await authenticatePassword(request, env, null, "auth-api", ctx);
             if (!auth.authenticated) {
               return json({ error: "強制同期にはパスワード認証が必要です" }, 401, request);
             }
@@ -3232,7 +3239,7 @@ export default {
       if (url.pathname === "/api/calculate" && request.method === "POST") {
         try {
           const ip = request.headers.get("cf-connecting-ip") || "unknown";
-          const allowed = await checkRateLimit(env, ip, "calculate");
+          const allowed = await checkRateLimit(env, ip, "calculate", RATE_LIMIT_MAX, false, ctx);
           if (!allowed) {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
           }
