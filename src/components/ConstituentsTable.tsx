@@ -26,6 +26,7 @@ import { ConfirmModal } from "./ConfirmModal";
 import { useToast } from "./Toast";
 import { toYahooSymbol } from "../lib/yahooSymbol";
 import { escapeCsvCell } from "../lib/csv";
+import { toSafeDownloadFileName } from "../lib/downloadFileName";
 
 interface ConstituentsTableProps {
   basket: BasketItem[];
@@ -279,14 +280,17 @@ export function ConstituentsTable({
       "前日比(%)",
       "指数寄与度(pt)",
     ];
+    // Every cell is passed through escapeCsvCell: numeric columns are safe
+    // today, but routing them through the same helper keeps the CSV export
+    // injection-proof if a column ever becomes user-controlled text.
     const rows = filteredAndSorted.map((item) => [
       escapeCsvCell(item.ticker),
       escapeCsvCell(item.name),
       escapeCsvCell(item.theme),
-      item.weight.toFixed(2),
-      item.currentPrice,
-      item.changePct.toFixed(2),
-      item.contributionPt.toFixed(2),
+      escapeCsvCell(item.weight.toFixed(2)),
+      escapeCsvCell(item.currentPrice),
+      escapeCsvCell(item.changePct.toFixed(2)),
+      escapeCsvCell(item.contributionPt.toFixed(2)),
     ]);
 
     const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
@@ -294,13 +298,7 @@ export function ConstituentsTable({
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    const safeFileName =
-      Array.from(indexName, (character) =>
-        character.charCodeAt(0) <= 31 || character.charCodeAt(0) === 127 ? "_" : character,
-      )
-        .join("")
-        .replace(/[/\\?%*:|"<>]/g, "_")
-        .trim() || "custom_index";
+    const safeFileName = toSafeDownloadFileName(indexName, "custom_index");
     link.setAttribute(
       "download",
       `${safeFileName}_constituents_${new Date().toISOString().slice(0, 10)}.csv`,

@@ -4,6 +4,7 @@ import { Plus, X, AlertCircle, Sparkles } from "lucide-react";
 import type { BasketItem } from "../types";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { searchPopularStocks } from "../data/popularStocks";
+import { toFiniteNumberOr } from "../lib/downloadFileName";
 
 interface AddStockModalProps {
   isOpen: boolean;
@@ -389,7 +390,7 @@ export function AddStockModal({
                     max="100"
                     step="0.5"
                     value={weight}
-                    onChange={(e) => setWeight(Number(e.target.value))}
+                    onChange={(e) => setWeight(toFiniteNumberOr(e.target.value, 10))}
                     disabled={isLimitReached}
                     style={{
                       width: "100%",

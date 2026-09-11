@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { storeAuth, generateSecurePassword } from "../lib/auth";
+import { toFiniteNumberOr } from "../lib/downloadFileName";
 import { SYSTEM_INDICES, type CustomIndex } from "../data/indices";
 import type { BasketItem, UserPasswordItem } from "../types";
 import { Card, Tag, Badge } from "./ui";
@@ -412,6 +413,15 @@ export function AdminDashboard({
     if (editBasket.length === 0) return;
     const eq = Number((100 / editBasket.length).toFixed(2));
     setEditBasket(editBasket.map((b) => ({ ...b, weight: eq })));
+  };
+
+  // Number inputs fire onChange with an empty string while the user is
+  // clearing the field; Number("") is 0 and Number("12.") is NaN. A NaN weight
+  // would poison the saved basket and later index calculations.
+  const handleEditWeightChange = (ticker: string, raw: string) => {
+    const next = toFiniteNumberOr(raw, 0.1);
+    const safeWeight = Math.min(100, Math.max(0.1, next));
+    setEditBasket(editBasket.map((item) => (item.ticker === ticker ? { ...item, weight: safeWeight } : item)));
   };
 
   // Change Master Admin Password
@@ -897,7 +907,11 @@ export function AdminDashboard({
                       min="1"
                       max="500"
                       value={newUserMaxStocks}
-                      onChange={(e) => setNewUserMaxStocks(Math.max(1, Number(e.target.value)))}
+                      onChange={(e) =>
+                        setNewUserMaxStocks(
+                          Math.min(500, Math.max(1, Math.floor(toFiniteNumberOr(e.target.value, 1)))),
+                        )
+                      }
                       style={{
                         width: 80,
                         padding: "6px 8px",
@@ -949,7 +963,11 @@ export function AdminDashboard({
                       min="1"
                       max="100"
                       value={newUserMaxIndices}
-                      onChange={(e) => setNewUserMaxIndices(Math.max(1, Number(e.target.value)))}
+                      onChange={(e) =>
+                        setNewUserMaxIndices(
+                          Math.min(100, Math.max(1, Math.floor(toFiniteNumberOr(e.target.value, 1)))),
+                        )
+                      }
                       style={{
                         width: 80,
                         padding: "6px 8px",
@@ -1273,7 +1291,7 @@ export function AdminDashboard({
                   max="1000000"
                   step="any"
                   value={editBaseValue}
-                  onChange={(e) => setEditBaseValue(Number(e.target.value))}
+                  onChange={(e) => setEditBaseValue(toFiniteNumberOr(e.target.value, 1000))}
                   style={{
                     width: "100%",
                     padding: "8px 10px",
@@ -1353,12 +1371,7 @@ export function AdminDashboard({
                             max="100"
                             step="0.5"
                             value={b.weight}
-                            onChange={(e) => {
-                              const val = Math.max(0.1, Number(e.target.value));
-                              setEditBasket(
-                                editBasket.map((item) => (item.ticker === b.ticker ? { ...item, weight: val } : item))
-                              );
-                            }}
+                            onChange={(e) => handleEditWeightChange(b.ticker, e.target.value)}
                             style={{
                               width: 70,
                               padding: "4px 6px",
@@ -1462,7 +1475,7 @@ export function AdminDashboard({
                   aria-label="比率"
                   placeholder="比率"
                   value={addWeight}
-                  onChange={(e) => setAddWeight(Number(e.target.value))}
+                  onChange={(e) => setAddWeight(toFiniteNumberOr(e.target.value, 10))}
                   style={{
                     width: 70,
                     padding: "6px 8px",

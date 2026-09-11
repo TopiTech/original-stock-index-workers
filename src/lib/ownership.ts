@@ -7,10 +7,31 @@ interface OwnerStore {
 function getStore(): OwnerStore {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
+    if (!raw) return getEmptyStore();
+    // Corrupted or tampered storage ("null", "5", "[]", quoted strings) must
+    // degrade to an empty store instead of throwing on later property access.
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return getEmptyStore();
+    // A null prototype keeps hostile keys such as "__proto__" in storage from
+    // resolving through Object.prototype on later property reads.
+    const store: OwnerStore = Object.create(null);
+    for (const [key, value] of Object.entries(parsed)) {
+      // Skip keys that interact with the object prototype chain when assigned
+      // through a plain object literal; index ids validated elsewhere can
+      // never contain underscores, so no legitimate entry is lost.
+      if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+      if (key.length > 0 && typeof value === "string") {
+        store[key] = value;
+      }
+    }
+    return store;
   } catch {
-    return {};
+    return getEmptyStore();
   }
+}
+
+function getEmptyStore(): OwnerStore {
+  return Object.create(null);
 }
 
 function setStore(store: OwnerStore): void {

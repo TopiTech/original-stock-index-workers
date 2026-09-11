@@ -19,6 +19,7 @@ import { AuthModal } from "./AuthModal";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { useToast } from "./Toast";
 import { searchPopularStocks, type PopularStock } from "../data/popularStocks";
+import { toFiniteNumberOr } from "../lib/downloadFileName";
 
 interface IndexBuilderModalProps {
   isOpen: boolean;
@@ -148,9 +149,10 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
     setBasket(basket.filter((b) => b.ticker !== ticker));
   };
 
-  const handleWeightChange = (ticker: string, weight: number) => {
+  const handleWeightChange = (ticker: string, raw: string) => {
+    const weight = Math.min(100, Math.max(0.1, toFiniteNumberOr(raw, 1)));
     setBasket(
-      basket.map((b) => (b.ticker === ticker ? { ...b, weight: Math.max(0.1, weight) } : b)),
+      basket.map((b) => (b.ticker === ticker ? { ...b, weight } : b)),
     );
   };
 
@@ -444,7 +446,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
                 style={{ paddingLeft: 12 }}
                 placeholder="1000"
                 value={baseValue}
-                onChange={(e) => setBaseValue(Number(e.target.value))}
+                onChange={(e) => setBaseValue(toFiniteNumberOr(e.target.value, 1000))}
               />
             </div>
           </div>
@@ -672,7 +674,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
                       step={1}
                       aria-label={`${item.name} (${item.ticker}) の構成比率`}
                       value={item.weight}
-                      onChange={(e) => handleWeightChange(item.ticker, Number(e.target.value))}
+                      onChange={(e) => handleWeightChange(item.ticker, e.target.value)}
                       style={{ flex: 1, accentColor: "var(--accent-color)" }}
                     />
                     <span
